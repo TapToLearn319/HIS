@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "3133951958",
+    "firebase_url": "https://flic-d579d-default-rtdb.firebaseio.com",
+    "project_id": "flic-d579d",
+    "storage_bucket": "flic-d579d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:3133951958:android:02ae2c5695ab4ebeac5e77",
+        "android_client_info": {
+          "package_name": "com.example.project"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCZu1-k-8CISnZZTUvdrR-l_k1ASDmfqjk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
