@@ -31,7 +31,7 @@ class SlideMenuDrawer extends StatefulWidget {
 
 class SlideMenuDrawerState extends State<SlideMenuDrawer> {
   bool _isOpen = false;
-  final double _defaultOpenedWidth = 250;
+  final double _defaultOpenedWidth = 192;
   final double _defaultClosedWidth = 0;
   final int _defaultAnimationTime = 300;
 
@@ -71,7 +71,7 @@ class SlideMenuDrawerState extends State<SlideMenuDrawer> {
                 right: dRight,
                 top: 0,
                 bottom: 0,
-                width: dWidth,
+                width: opened,
                 child: widget.drawer,
               ),
               AnimatedPositioned(
@@ -114,7 +114,7 @@ class AppScaffold extends StatelessWidget {
     required int selectedIndex,
   }) {
     final isSelected = index == selectedIndex;
-    final highlightColor = const Color(0xFF397751);
+    final highlightColor = const Color.fromARGB(255, 0, 0, 0);
 
     return InkWell(
       onTap: () {
@@ -130,7 +130,11 @@ class AppScaffold extends StatelessWidget {
         Navigator.pushReplacementNamed(context, routeName);
       },
       child: Container(
-        color: isSelected ? highlightColor.withOpacity(0.2) : Colors.transparent,
+        decoration: BoxDecoration(
+        color: isSelected ? Colors.white : Colors.transparent,
+        borderRadius: BorderRadius.circular(12), // ✅ 둥근 모서리
+      ),
+        margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.end,
@@ -142,7 +146,7 @@ class AppScaffold extends StatelessWidget {
                   title,
                   textAlign: TextAlign.right,
                   style: TextStyle(
-                    color: isSelected ? highlightColor : const Color(0xFF828282),
+                    color: isSelected ? highlightColor : const Color.fromARGB(255, 255, 255, 255),
                     fontSize: 16,
                   ),
                 ),
@@ -152,7 +156,7 @@ class AppScaffold extends StatelessWidget {
             Icon(
               icon,
               size: 36,
-              color: isSelected ? highlightColor : const Color(0xFF828282),
+              color: isSelected ? highlightColor : const Color.fromARGB(255, 255, 255, 255),
             ),
           ],
         ),
@@ -163,66 +167,60 @@ class AppScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SlideMenuDrawer(
-      key: _drawerKey,
-      drawerScrollDirection: DrawerScrollDirection.leftToRight,
-      drawerOpenedWidth: 250,
-      drawerClosedWidth: 50,
-      header: header ??
-          AppBar(
-            title: const Text('My Button'),
-            backgroundColor: const Color(0xFF397751),
-            leading: IconButton(
-              icon: const Icon(Icons.menu),
-              onPressed: () => _drawerKey.currentState?.toggleDrawer(),
-            ),
-          ),
-      drawer: Material(
+  key: _drawerKey,
+  drawerScrollDirection: DrawerScrollDirection.leftToRight,
+  drawerOpenedWidth: 192, // ✅ 열렸을 때 너비
+  drawerClosedWidth: 60,  // ✅ 닫혔을 때 너비
+  header: null,
+  drawer: Material(
+  color: const Color.fromARGB(255, 189, 189, 189),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      // ✅ Drawer 상단 메뉴 아이콘
+      Container(
+  width: double.infinity,
+  color: Colors.grey[400], // 상단 배경 강조
+  padding: const EdgeInsets.only(right: 8.0, top: 16.0, bottom: 8.0),
+  child: Align(
+    alignment: Alignment.centerRight, // ✅ 오른쪽 정렬
+    child: IconButton(
+      icon: const Icon(Icons.menu, size: 30, color: Colors.black),
+      onPressed: () => _drawerKey.currentState?.toggleDrawer(),
+    ),
+  ),
+),
+      const SizedBox(height: 16),
+      // 🔹 기존 메뉴들
+      Expanded(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.end,
           children: [
-            _buildDrawerItem(
-              context,
-              index: 0,
-              icon: Icons.home,
-              title: 'Home',
-              routeName: '/home',
-              selectedIndex: selectedIndex,
-            ),
-            _buildDrawerItem(
-              context,
-              index: 1,
-              icon: Icons.quiz,
-              title: 'Quiz',
-              routeName: '/quiz',
-              selectedIndex: selectedIndex,
-            ),
-            _buildDrawerItem(
-              context,
-              index: 2,
-              icon: Icons.sports_esports,
-              title: 'Class Contents',
-              routeName: '/game',
-              selectedIndex: selectedIndex,
-            ),
-            _buildDrawerItem(
-              context,
-              index: 3,
-              icon: Icons.timer,
-              title: 'Class Tools',
-              routeName: '/tools',
-              selectedIndex: selectedIndex,
-            ),
-            _buildDrawerItem(
-              context,
-              index: 4,
-              icon: Icons.settings,
-              title: 'Setting',
-              routeName: '/setting',
-              selectedIndex: selectedIndex,
-            ),
+            _buildDrawerItem(context,
+              index: 0, icon: Icons.home, title: 'Home',
+              routeName: '/home', selectedIndex: selectedIndex),
+            _buildDrawerItem(context,
+              index: 1, icon: Icons.quiz, title: 'Quiz',
+              routeName: '/quiz', selectedIndex: selectedIndex),
+            _buildDrawerItem(context,
+              index: 2, icon: Icons.sports_esports, title: 'Class Contents',
+              routeName: '/game', selectedIndex: selectedIndex),
+            _buildDrawerItem(context,
+              index: 3, icon: Icons.timer, title: 'Class Tools',
+              routeName: '/tools', selectedIndex: selectedIndex),
+            _buildDrawerItem(context,
+              index: 4, icon: Icons.settings, title: 'Setting',
+              routeName: '/setting', selectedIndex: selectedIndex),
+            _buildDrawerItem(context,
+              index: 5, icon: Icons.extension, title: 'Example',
+              routeName: '/example', selectedIndex: selectedIndex),
           ],
         ),
       ),
-      body: body,
-    );
+    ],
+  ),
+),
+  body: body,
+);
   }
 }

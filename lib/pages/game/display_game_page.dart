@@ -11,7 +11,7 @@ class DisplayGamePage extends StatelessWidget {
       backgroundColor: Colors.black,
       body: Center(
         child: Text(
-          '🔹 Display game Selection',
+          'Display game Selection',
           style: TextStyle(
             fontSize: 48,
             color: Colors.white,

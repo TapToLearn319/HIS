@@ -11,7 +11,7 @@ class DisplayQuizPage extends StatelessWidget {
       backgroundColor: Colors.black,
       body: Center(
         child: Text(
-          '🔹 Display Quiz Selection',
+          'Display Quiz Selection',
           style: TextStyle(
             fontSize: 48,
             color: Colors.white,

@@ -11,7 +11,7 @@ class DisplayToolsPage extends StatelessWidget {
       backgroundColor: Color.fromARGB(255, 224, 41, 148),
       body: Center(
         child: Text(
-          '🔹 Display tools Selection',
+          'Display tools Selection',
           style: TextStyle(
             fontSize: 48,
             color: Colors.white,

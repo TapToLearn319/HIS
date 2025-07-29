@@ -1,38 +1,46 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
+  <style>
+    
+  </style>
+  <!-- (1) Flutter Base HREF: 개발 중이라면 "/"로, 실제 호스팅 경로가 다르면 그 경로로 변경 -->
+  <base href="/" />
 
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
-  <base href="$FLUTTER_BASE_HREF">
-
-  <meta charset="UTF-8">
-  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
-  <meta name="description" content="A new Flutter project.">
-
-  <!-- iOS meta tags & icons -->
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="project">
-  <link rel="apple-touch-icon" href="icons/Icon-192.png">
-
-  <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
-
+  <meta charset="UTF-8" />
+  <meta name="description" content="A new Flutter project with Firebase" />
+  <link rel="manifest" href="manifest.json" />
   <title>project</title>
-  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" href="favicon.png" />
+
+  <!-- (2) Firebase 모듈형 SDK 초기화: 반드시 Flutter 스크립트보다 먼저 로드 -->
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js';
+    import { getAuth }        from 'https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js';
+    // └ 필요하다면 getFirestore 등 다른 서비스도 import
+
+    const firebaseConfig = {
+      apiKey: 'AIzaSyCKdxKCXc0A7VUSCQb5uRz9dZ1xobfPwaY',
+    appId: '1:3133951958:web:e370622bd349541cac5e77',
+    messagingSenderId: '3133951958',
+    projectId: 'flic-d579d',
+    authDomain: 'flic-d579d.firebaseapp.com',
+    databaseURL: 'https://flic-d579d-default-rtdb.firebaseio.com',
+    storageBucket: 'flic-d579d.firebasestorage.app',
+    };
+    initializeApp(firebaseConfig);
+  </script>
 </head>
 <body>
-  <script src="flutter_bootstrap.js" async></script>
+  <!-- (3) Flutter 부트스트랩: async → defer 로 바꿔 순서 보장 -->
+  <script src="flutter_bootstrap.js" defer></script>
+  <script>
+  window.addEventListener('load', function (ev) {
+    _flutter.loader.load({
+      entrypointUrl: "main.dart.js"
+    });
+  });
+</script>
+
 </body>
 </html>

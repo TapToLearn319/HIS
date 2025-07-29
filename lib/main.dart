@@ -1,33 +1,34 @@
-// lib/main.dart
 import 'dart:convert';
 import 'dart:html' as html;
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:project/pages/game/presenter_game_page.dart';
+import 'package:project/provider/all_logs_provider.dart';
+import 'package:provider/provider.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:project/firebase_options.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'login.dart';
 import 'pages/home/presenter_home_page.dart';
 import 'pages/home/display_home_page.dart';
 import 'pages/quiz/presenter_quiz_page.dart';
 import 'pages/quiz/display_quiz_page.dart';
-import 'pages/game/display_game_page.dart';
 import 'pages/game/presenter_game_page.dart';
+import 'pages/game/display_game_page.dart';
 import 'pages/tools/presenter_tools_page.dart';
 import 'pages/tools/display_tools_page.dart';
-import 'pages/setting/display_setting_page.dart';
 import 'pages/setting/presenter_setting_page.dart';
-// … (other imports: class, choice, ox, timer, setting)
+import 'pages/setting/display_setting_page.dart';
+import 'pages/example/buttons_logs_example_page.dart';
 
-/// ─── 전역 설정 ────────────────────────────────────────
-final bool isDisplay =
-    Uri.base.queryParameters['view'] == 'display';
-final String initialRoute =
-    Uri.base.queryParameters['route'] ?? '/login';
-final html.BroadcastChannel channel =
-    html.BroadcastChannel('presentation');
+import 'provider/button_provider.dart';    // ← buttons_provider.dart 로
+import 'provider/logs_provider.dart';
+import 'provider/seat_provider.dart';
+
+final bool isDisplay = Uri.base.queryParameters['view'] == 'display';
+final String initialRoute = Uri.base.queryParameters['route'] ?? '/login';
+final html.BroadcastChannel channel = html.BroadcastChannel('presentation');
 final ValueNotifier<int> slideIndex = ValueNotifier<int>(0);
 
-/// ─── Presenter 전용 RouteObserver ────────────────────
 class PresenterRouteObserver extends RouteObserver<ModalRoute<void>> {
   void _broadcast(String? route) {
     channel.postMessage(jsonEncode({
@@ -36,13 +37,11 @@ class PresenterRouteObserver extends RouteObserver<ModalRoute<void>> {
       'slide': slideIndex.value,
     }));
   }
-
   @override
   void didPush(Route route, Route? previous) {
     super.didPush(route, previous);
     _broadcast(route.settings.name);
   }
-
   @override
   void didPop(Route route, Route? previous) {
     super.didPop(route, previous);
@@ -50,12 +49,31 @@ class PresenterRouteObserver extends RouteObserver<ModalRoute<void>> {
   }
 }
 
-void main() {
+Future<void> main() async {
+  print('🛠️ main() 시작'); 
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(isDisplay ? DisplayApp() : PresenterApp());
+  final app = await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  print('🔥 Firebase projectId: ${app.options.projectId}');
+  print('🔥 firestore.settings: ${FirebaseFirestore.instance.settings}');
+  final snap = await FirebaseFirestore.instance.collection('buttons').get();
+  print('🔥 [GET] buttons docs.length = ${snap.docs.length}');
+  for (var doc in snap.docs) {
+    print('   • ${doc.id} → ${doc.data()}');
+  }
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => AllLogsProvider()),
+         ChangeNotifierProvider(create: (_) => SeatProvider()),
+      ],
+      child: isDisplay ? DisplayApp() : PresenterApp(),
+    ),
+  );
+  print('🛠️ runApp 호출 완료');
 }
 
-/// ─── PresenterApp ────────────────────────────────────
 class PresenterApp extends StatelessWidget {
   final _observer = PresenterRouteObserver();
 
@@ -65,21 +83,20 @@ class PresenterApp extends StatelessWidget {
       title: 'Presenter',
       debugShowCheckedModeBanner: false,
       initialRoute: initialRoute,
-      navigatorObservers: [ _observer ],
+      navigatorObservers: [_observer],
       routes: {
         '/login': (_) => LoginPage(),
-        '/home' : (_) => PresenterHomePage(),
-        '/quiz' : (_) => PresenterQuizPage(),
-        '/game' : (_) => PresenterGamePage(),
-        '/tools' : (_) => PresenterToolsPage(),
-        '/setting': (_) =>  PresenterSettingPage(),
-        // … other presenter routes …
+        '/home': (_) => PresenterHomePage(),
+        '/quiz': (_) => PresenterQuizPage(),
+        '/game': (_) => PresenterGamePage(),
+        '/tools': (_) => PresenterToolsPage(),
+        '/setting': (_) => PresenterSettingPage(),
+        '/example': (_) => GroupedByStudentPage(),
       },
     );
   }
 }
 
-/// ─── DisplayApp ──────────────────────────────────────
 class DisplayApp extends StatefulWidget {
   @override
   _DisplayAppState createState() => _DisplayAppState();
@@ -96,8 +113,7 @@ class _DisplayAppState extends State<DisplayApp> {
       if (data['type'] == 'route') {
         final route = data['route'] as String?;
         if (route != null) {
-          navigatorKey.currentState
-              ?.pushReplacementNamed(route);
+          navigatorKey.currentState?.pushReplacementNamed(route);
         }
         slideIndex.value = data['slide'] as int;
       } else if (data['type'] == 'slide') {
@@ -114,13 +130,13 @@ class _DisplayAppState extends State<DisplayApp> {
       navigatorKey: navigatorKey,
       initialRoute: initialRoute,
       routes: {
-        '/login': (_) =>  DisplayHomePage(),
-        '/home' : (_) =>  DisplayHomePage(),
-        '/quiz' : (_) =>  DisplayQuizPage(),
-        '/game' : (_) =>  DisplayGamePage(),
-        '/tools': (_) =>  DisplayToolsPage(),
-        '/setting': (_) =>  DisplaySettingPage(),
-        // … other display routes …
+        '/login': (_) => DisplayHomePage(),
+        '/home':  (_) => DisplayHomePage(),
+        '/quiz':  (_) => DisplayQuizPage(),
+        '/game':  (_) => DisplayGamePage(),
+        '/tools': (_) => DisplayToolsPage(),
+        '/setting':(_) => DisplaySettingPage(),
+        '/example':(_) => LoginPage(),
       },
     );
   }
