@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../l10n/app_localizations.dart';
 import '../../sidebar_menu.dart';
 import '../../models/log_entry.dart';
 import '../../provider/all_logs_provider.dart';
@@ -50,13 +51,13 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                         ),
                         Row(
                           children: [
-                            OutlinedButton(
-                              onPressed: () {
-                                _showSeatConfigDialog(context);
-                              },
-                              child: Text("좌석 설정"),
-                            ),
-                            SizedBox(width: 8),
+                            // OutlinedButton(
+                            //   onPressed: () {
+                            //     _showSeatConfigDialog(context);
+                            //   },
+                            //   child: Text("좌석 설정"),
+                            // ),
+                            // SizedBox(width: 8),
                             OutlinedButton(
                               onPressed: () async {
                                 await allLogsProvider.clearLogs();
@@ -64,14 +65,14 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                                   SnackBar(content: Text("로그가 초기화되었습니다.")),
                                 );
                               },
-                              child: Text("로그 초기화"),
+                              child: Text(AppLocalizations.of(context)!.resetLogs),
                             ),
                             SizedBox(width: 8),
                             OutlinedButton(
                               onPressed: () {
                                 Navigator.pop(context);
                               },
-                              child: Text("Log Out"),
+                              child: Text(AppLocalizations.of(context)!.logout),
                               style: OutlinedButton.styleFrom(
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(20),
@@ -149,7 +150,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                           });
                         },
                         icon: Icon(_showLogs ? Icons.expand_more : Icons.expand_less),
-                        label: Text(_showLogs ? "Hide logs" : "Show logs"),
+                        label: Text(_showLogs ? AppLocalizations.of(context)!.hideLogs : AppLocalizations.of(context)!.showLogs),
                       ),
                     ),
 
@@ -164,7 +165,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: logs.isEmpty
-                              ? Center(child: Text("로그가 없습니다"))
+                              ? Center(child: Text(AppLocalizations.of(context)!.noLog))
                               : ListView.builder(
                                   itemCount: logs.length,
                                   itemBuilder: (context, index) {
@@ -223,18 +224,18 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text(seatIndex != null ? "좌석 ${seatIndex + 1} 설정" : "좌석 설정"),
+          title: Text(seatIndex != null ? "${AppLocalizations.of(context)!.seat} ${seatIndex + 1} ${AppLocalizations.of(context)!.setting}" : "좌석 설정"),
           content: TextField(
             controller: nameController,
             decoration: InputDecoration(
-              labelText: "학생 이름 입력",
+              labelText: AppLocalizations.of(context)!.enterName,
               border: OutlineInputBorder(),
             ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: Text("취소"),
+              child: Text(AppLocalizations.of(context)!.cancel),
             ),
             ElevatedButton(
               onPressed: () async {
@@ -245,7 +246,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                 }
                 Navigator.pop(context);
               },
-              child: Text("저장"),
+              child: Text(AppLocalizations.of(context)!.save),
             ),
           ],
         );

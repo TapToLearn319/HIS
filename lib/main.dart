@@ -7,7 +7,10 @@ import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:project/firebase_options.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
+
+import 'l10n/app_localizations.dart';
 import 'login.dart';
 import 'pages/home/presenter_home_page.dart';
 import 'pages/home/display_home_page.dart';
@@ -21,7 +24,7 @@ import 'pages/setting/presenter_setting_page.dart';
 import 'pages/setting/display_setting_page.dart';
 import 'pages/ai_chat/display_ai_chat.dart';
 
-import 'provider/button_provider.dart';    // ← buttons_provider.dart 로
+import 'provider/button_provider.dart';
 import 'provider/logs_provider.dart';
 import 'provider/seat_provider.dart';
 
@@ -29,6 +32,12 @@ final bool isDisplay = Uri.base.queryParameters['view'] == 'display';
 final String initialRoute = Uri.base.queryParameters['route'] ?? '/login';
 final html.BroadcastChannel channel = html.BroadcastChannel('presentation');
 final ValueNotifier<int> slideIndex = ValueNotifier<int>(0);
+
+final ValueNotifier<Locale?> _localeNotifier = ValueNotifier(const Locale('en'));
+
+void setLocale(Locale locale) {
+  _localeNotifier.value = locale;
+}
 
 class PresenterRouteObserver extends RouteObserver<ModalRoute<void>> {
   void _broadcast(String? route) {
@@ -38,11 +47,13 @@ class PresenterRouteObserver extends RouteObserver<ModalRoute<void>> {
       'slide': slideIndex.value,
     }));
   }
+
   @override
   void didPush(Route route, Route? previous) {
     super.didPush(route, previous);
     _broadcast(route.settings.name);
   }
+
   @override
   void didPop(Route route, Route? previous) {
     super.didPop(route, previous);
@@ -51,7 +62,7 @@ class PresenterRouteObserver extends RouteObserver<ModalRoute<void>> {
 }
 
 Future<void> main() async {
-  print('🛠️ main() 시작'); 
+  print('🛠️ main() 시작');
   WidgetsFlutterBinding.ensureInitialized();
   final app = await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
@@ -67,7 +78,7 @@ Future<void> main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AllLogsProvider()),
-         ChangeNotifierProvider(create: (_) => SeatProvider()),
+        ChangeNotifierProvider(create: (_) => SeatProvider()),
       ],
       child: isDisplay ? DisplayApp() : PresenterApp(),
     ),
@@ -80,20 +91,35 @@ class PresenterApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Presenter',
-      debugShowCheckedModeBanner: false,
-      initialRoute: initialRoute,
-      navigatorObservers: [_observer],
-      routes: {
-        '/login': (_) => LoginPage(),
-        '/home': (_) => PresenterHomePage(),
-        '/quiz': (_) => PresenterQuizPage(),
-        '/game': (_) => PresenterGamePage(),
-        '/tools': (_) => PresenterToolsPage(),
-        '/AI': (_) => PresenterAIChatPage(),
-        '/setting': (_) => PresenterSettingPage(),
-        
+    return ValueListenableBuilder<Locale?>(
+      valueListenable: _localeNotifier,
+      builder: (context, locale, _) {
+        return MaterialApp(
+          title: 'Presenter',
+          debugShowCheckedModeBanner: false,
+          locale: locale,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [
+            Locale('en'),
+            Locale('ko'),
+          ],
+          initialRoute: initialRoute,
+          navigatorObservers: [_observer],
+          routes: {
+            '/login': (_) => LoginPage(),
+            '/home': (_) => PresenterHomePage(),
+            '/quiz': (_) => PresenterQuizPage(),
+            '/game': (_) => PresenterGamePage(),
+            '/tools': (_) => PresenterToolsPage(),
+            '/AI': (_) => PresenterAIChatPage(),
+            '/setting': (_) => PresenterSettingPage(),
+          },
+        );
       },
     );
   }
@@ -126,20 +152,35 @@ class _DisplayAppState extends State<DisplayApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Display',
-      debugShowCheckedModeBanner: false,
-      navigatorKey: navigatorKey,
-      initialRoute: initialRoute,
-      routes: {
-        '/login': (_) => DisplayHomePage(),
-        '/home':  (_) => DisplayHomePage(),
-        '/quiz':  (_) => DisplayQuizPage(),
-        '/game':  (_) => DisplayGamePage(),
-        '/tools': (_) => DisplayToolsPage(),
-        '/AI':(_) => AIPage(),
-        '/setting':(_) => DisplaySettingPage(),
-        
+    return ValueListenableBuilder<Locale?>(
+      valueListenable: _localeNotifier,
+      builder: (context, locale, _) {
+        return MaterialApp(
+          title: 'Display',
+          debugShowCheckedModeBanner: false,
+          navigatorKey: navigatorKey,
+          locale: locale,
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [
+            Locale('en'),
+            Locale('ko'),
+          ],
+          initialRoute: initialRoute,
+          routes: {
+            '/login': (_) => DisplayHomePage(),
+            '/home': (_) => DisplayHomePage(),
+            '/quiz': (_) => DisplayQuizPage(),
+            '/game': (_) => DisplayGamePage(),
+            '/tools': (_) => DisplayToolsPage(),
+            '/AI': (_) => AIPage(),
+            '/setting': (_) => DisplaySettingPage(),
+          },
+        );
       },
     );
   }

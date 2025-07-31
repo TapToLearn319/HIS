@@ -1,0 +1,20 @@
+{ 
+  "noLog" : "로그가 없습니다",
+  "classTools" : "수업 도구",
+  "classContents" : "수업 컨텐츠",
+  "quiz" : "퀴즈",
+  "aiChat" : "AI 채팅",
+  "home" : "메인화면",
+  "hideLogs" : "로그 닫기",
+  "showLogs" : "로그 열기", 
+  "setting" : "설정",
+  "seat": "좌석",
+  "enterName" : "학생 이름 입력",
+  "save" : "저장",
+  "cancel" : "취소",
+  "logout" : "로그아웃",
+  "resetLogs" : "로그 초기화",
+  "noName" : "이름 없음",
+  "setting": "설정",
+  "toggleLanguage": "영어로 전환"
+}

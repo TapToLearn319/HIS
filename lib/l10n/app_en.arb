@@ -1,0 +1,20 @@
+{ 
+  "noLog" : "There is no log",
+  "classTools" : "Class Tools",
+  "classContents" : "Class Contents",
+  "quiz" : "Quiz",
+  "aiChat" : "AI Chat",
+  "home" : "Home",
+  "hideLogs" : "Hide Logs",
+  "showLogs" : "Show Logs", 
+  "setting" : "setting",
+  "seat": "Seat",
+  "enterName" : "Enter a student name",
+  "save" : "save",
+  "cancel" : "cancel",
+  "logout" : "logout",
+  "resetLogs" : "Reset Logs",
+  "noName" : "No name",
+  "setting": "Setting",
+  "toggleLanguage": "Switch to Korean"
+}

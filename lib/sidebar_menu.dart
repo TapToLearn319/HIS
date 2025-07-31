@@ -1,7 +1,8 @@
 // lib/sidebar_menu.dart
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import '../main.dart'; // channel, slideIndex 전역 참조
+import '../main.dart';
+import 'l10n/app_localizations.dart'; // channel, slideIndex 전역 참조
 
 enum DrawerScrollDirection { leftToRight, rightToLeft }
 
@@ -197,22 +198,22 @@ class AppScaffold extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             _buildDrawerItem(context,
-              index: 0, icon: Icons.home, title: 'Home',
+              index: 0, icon: Icons.home, title: AppLocalizations.of(context)!.home,
               routeName: '/home', selectedIndex: selectedIndex),
             _buildDrawerItem(context,
-              index: 1, icon: Icons.quiz, title: 'Quiz',
+              index: 1, icon: Icons.quiz, title: AppLocalizations.of(context)!.quiz,
               routeName: '/quiz', selectedIndex: selectedIndex),
             _buildDrawerItem(context,
-              index: 2, icon: Icons.sports_esports, title: 'Class Contents',
+              index: 2, icon: Icons.sports_esports, title: AppLocalizations.of(context)!.classContents,
               routeName: '/game', selectedIndex: selectedIndex),
             _buildDrawerItem(context,
-              index: 3, icon: Icons.timer, title: 'Class Tools',
+              index: 3, icon: Icons.timer, title: AppLocalizations.of(context)!.classTools,
               routeName: '/tools', selectedIndex: selectedIndex),
             _buildDrawerItem(context,
-              index: 4, icon: Icons.voice_chat, title: 'AI Chat',
+              index: 4, icon: Icons.voice_chat, title: AppLocalizations.of(context)!.aiChat,
               routeName: '/AI', selectedIndex: selectedIndex),
             _buildDrawerItem(context,
-              index: 5, icon: Icons.settings, title: 'Setting',
+              index: 5, icon: Icons.settings, title: AppLocalizations.of(context)!.setting,
               routeName: '/setting', selectedIndex: selectedIndex),
             
           ],
