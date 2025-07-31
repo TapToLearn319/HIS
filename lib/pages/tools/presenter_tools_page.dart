@@ -15,7 +15,7 @@ class PresenterToolsPage extends StatelessWidget {
   final List<Map<String, dynamic>> tools = [
     {'icon': Icons.timer, 'label': 'Timer', 'page': TimerPage()},
     {'icon': Icons.brush, 'label': 'Board', 'page': BoardPage()},
-    {'icon': Icons.music_note,'label': 'Music','page': MusicPlatformSelectPage(),},
+    {'icon': Icons.music_note,'label': 'Music','page': null,},
     {'icon': Icons.campaign, 'label': 'Agenda', 'page': AgendaPage(),},
     {'icon': Icons.smart_toy, 'label': 'AI', 'page': AIPage(),},
     {'icon': Icons.chat_rounded, 'label': 'Debate', 'page': null},
