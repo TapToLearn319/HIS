@@ -65,7 +65,7 @@ class _DisplayHomePageState extends State<DisplayHomePage> {
                   Color seatColor = const Color(0xFF6063C6);
                   if (clickType == 'click') {
                     seatColor = Colors.lightGreenAccent;
-                  } else if (clickType == 'double') {
+                  } else if (clickType == 'double_click') {
                     seatColor = Colors.redAccent;
                   } else if (clickType == 'hold') {
                     seatColor = Colors.orangeAccent;

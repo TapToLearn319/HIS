@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
+import 'package:project/pages/ai_chat/presenter_ai_char.dart';
 import 'package:project/provider/all_logs_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -18,7 +19,7 @@ import 'pages/tools/presenter_tools_page.dart';
 import 'pages/tools/display_tools_page.dart';
 import 'pages/setting/presenter_setting_page.dart';
 import 'pages/setting/display_setting_page.dart';
-import 'pages/example/buttons_logs_example_page.dart';
+import 'pages/ai_chat/display_ai_chat.dart';
 
 import 'provider/button_provider.dart';    // ← buttons_provider.dart 로
 import 'provider/logs_provider.dart';
@@ -90,8 +91,9 @@ class PresenterApp extends StatelessWidget {
         '/quiz': (_) => PresenterQuizPage(),
         '/game': (_) => PresenterGamePage(),
         '/tools': (_) => PresenterToolsPage(),
+        '/AI': (_) => PresenterAIChatPage(),
         '/setting': (_) => PresenterSettingPage(),
-        '/example': (_) => GroupedByStudentPage(),
+        
       },
     );
   }
@@ -135,8 +137,9 @@ class _DisplayAppState extends State<DisplayApp> {
         '/quiz':  (_) => DisplayQuizPage(),
         '/game':  (_) => DisplayGamePage(),
         '/tools': (_) => DisplayToolsPage(),
+        '/AI':(_) => AIPage(),
         '/setting':(_) => DisplaySettingPage(),
-        '/example':(_) => LoginPage(),
+        
       },
     );
   }
