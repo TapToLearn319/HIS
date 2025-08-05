@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:wave_progress_indicator/wave_progress_indicator.dart';
 import '../../../main.dart';
 
 class DrawnLine {
@@ -29,6 +30,8 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
   bool isRunning = false;
   int totalSeconds = 0;
   bool timeUp = false;
+  int agreeCount = 0;
+  int disagreeCount = 0;
 
   List<DrawnLine> boardLines = [];
 
@@ -118,6 +121,11 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
         });
       } else if (data['type'] == 'ai') {
         toolMode = 'ai';
+      } else if (data['type'] == 'debate_vote') {
+        setState(() {
+          agreeCount = data['agreeCount'] ?? 0;
+          disagreeCount = data['disagreeCount'] ?? 0;
+        });
       }
     });
   }
@@ -149,7 +157,110 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
               ? buildMusicUI()
               : toolMode == 'agenda'
               ? buildAgendaUI()
+              : toolMode == 'debate'
+              ? buildDebateUI()
               : buildTimerUI(),
+    );
+  }
+
+  Widget buildDebateUI() {
+    int total = agreeCount + disagreeCount;
+    double agreeRatio = total == 0 ? 0 : agreeCount / total;
+    double disagreeRatio = total == 0 ? 0 : disagreeCount / total;
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              '찬성',
+              style: TextStyle(color: Colors.white, fontSize: 24),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              width: 200,
+              height: 200,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(60),
+              ),
+              child: WaveProgressIndicator(
+                value: agreeRatio,
+                gradientColors: [
+                  Colors.lightBlue,
+                  Colors.blue,
+                  Colors.blueAccent,
+                ],
+                waveHeight: 12,
+                speed: 1.2,
+                borderRadius: BorderRadius.circular(60),
+                child: Center(
+                  child: Text(
+                    '${(agreeRatio * 100).round()}%',
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '$agreeCount명',
+              style: const TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+          ],
+        ),
+        const SizedBox(width: 60),
+        Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              '반대',
+              style: TextStyle(color: Colors.white, fontSize: 24),
+            ),
+            const SizedBox(height: 10),
+            Container(
+              width: 200,
+              height: 200,
+              decoration: BoxDecoration(
+                color: Colors.white, // 배경색
+                borderRadius: BorderRadius.circular(60),
+              ),
+              child: WaveProgressIndicator(
+                value: disagreeRatio,
+                gradientColors: [
+                  Colors.redAccent,
+                  Colors.red,
+                  Colors.deepOrange,
+                ],
+                waveHeight: 12,
+                speed: 1.2,
+                borderRadius: BorderRadius.circular(60),
+                child: Center(
+                  child: Text(
+                    '${(disagreeRatio * 100).round()}%',
+                    style: const TextStyle(
+                      color: Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '$disagreeCount명',
+              style: const TextStyle(color: Colors.white70, fontSize: 16),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
