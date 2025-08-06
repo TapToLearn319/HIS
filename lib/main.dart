@@ -118,6 +118,7 @@ class PresenterApp extends StatelessWidget {
             '/tools': (_) => PresenterToolsPage(),
             '/AI': (_) => PresenterAIChatPage(),
             '/setting': (_) => PresenterSettingPage(),
+            '/presenter_main': (_) => PresenterMainPage(),
           },
         );
       },
@@ -179,6 +180,7 @@ class _DisplayAppState extends State<DisplayApp> {
             '/tools': (_) => DisplayToolsPage(),
             '/AI': (_) => AIPage(),
             '/setting': (_) => DisplaySettingPage(),
+            '/presenter_main': (_) => PresenterMainPage(),
           },
         );
       },
