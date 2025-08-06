@@ -16,5 +16,6 @@
   "resetLogs" : "Reset Logs",
   "noName" : "No name",
   "setting": "Setting",
-  "toggleLanguage": "Switch to Korean"
+  "toggleLanguage": "Switch to Korean",
+  "presenterMain": "Dashboard"
 }
