@@ -16,5 +16,6 @@
   "resetLogs" : "로그 초기화",
   "noName" : "이름 없음",
   "setting": "설정",
-  "toggleLanguage": "영어로 전환"
+  "toggleLanguage": "영어로 전환",
+  "presenterMain": "대시보드"
 }
