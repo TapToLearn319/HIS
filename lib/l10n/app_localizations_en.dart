@@ -58,4 +58,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get toggleLanguage => 'Switch to Korean';
+
+  @override
+  String get presenterMain => 'Dashboard';
 }
