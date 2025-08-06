@@ -12,6 +12,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'l10n/app_localizations.dart';
 import 'login.dart';
+import 'pages/presenter_main.dart';
 import 'pages/home/presenter_home_page.dart';
 import 'pages/home/display_home_page.dart';
 import 'pages/quiz/presenter_quiz_page.dart';
