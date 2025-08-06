@@ -196,6 +196,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Switch to Korean'**
   String get toggleLanguage;
+
+  /// No description provided for @presenterMain.
+  ///
+  /// In en, this message translates to:
+  /// **'Dashboard'**
+  String get presenterMain;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

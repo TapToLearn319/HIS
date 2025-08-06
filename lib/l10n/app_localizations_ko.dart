@@ -58,4 +58,7 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get toggleLanguage => '영어로 전환';
+
+  @override
+  String get presenterMain => '대시보드';
 }
