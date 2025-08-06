@@ -16,9 +16,9 @@ class PresenterToolsPage extends StatelessWidget {
     {'icon': Icons.timer, 'label': 'Timer', 'page': TimerPage()},
     {'icon': Icons.brush, 'label': 'Board', 'page': BoardPage()},
     {'icon': Icons.music_note,'label': 'Music','page': null,},
-    {'icon': Icons.campaign, 'label': 'Agenda', 'page': AgendaPage(),},
-    {'icon': Icons.smart_toy, 'label': 'AI', 'page': AIPage(),},
-    {'icon': Icons.chat_rounded, 'label': 'Debate', 'page': null},
+    {'icon': Icons.campaign, 'label': 'Agenda', 'page': AgendaPage()},
+    {'icon': Icons.smart_toy, 'label': 'AI', 'page': AIPage()},
+    {'icon': Icons.chat_rounded, 'label': 'Debate', 'page': DebatePage()},
     {'icon': Icons.water_drop, 'label': 'Reward', 'page': null},
     {'icon': Icons.feedback, 'label': 'Feedback', 'page': null},
   ];
@@ -47,6 +47,11 @@ class PresenterToolsPage extends StatelessWidget {
               final tool = tools[index];
               return GestureDetector(
                 onTap: () {
+                  channel.postMessage(jsonEncode({
+                    'type': 'tool_mode',
+                    'mode': tool['mode'],
+                  }));
+                  
                   if (tool['page'] != null) {
                     Navigator.push(
                       context,
