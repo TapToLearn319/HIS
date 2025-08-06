@@ -21,6 +21,7 @@ dependencies:
   intl: ^0.20.2
   flutter_gen: ^5.11.0
   webview_flutter: ^4.13.0
+  wave_progress_indicator: ^0.0.1
 
 dev_dependencies:
   flutter_test:

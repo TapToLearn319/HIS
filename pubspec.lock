@@ -674,6 +674,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.1.2"
+  wave_progress_indicator:
+    dependency: "direct main"
+    description:
+      name: wave_progress_indicator
+      sha256: "401911b0995eae0e99f1ab784665a5ad84192e9da0a31ba570889b40696ae9a4"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.0.1"
   web:
     dependency: transitive
     description:
