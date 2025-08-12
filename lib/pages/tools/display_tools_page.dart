@@ -1,3 +1,4 @@
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -42,6 +43,12 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
 
   String toolMode = 'none';
   String agendaText = '';
+
+  String? voteId;
+  String voteTitle = '';
+  String voteType = '';
+  List<String> voteOptions = [];
+  Map<String, int> voteResults = {};
 
   late AnimationController _controller;
   late Animation<double> _opacityAnimation;
@@ -126,6 +133,31 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
           agreeCount = data['agreeCount'] ?? 0;
           disagreeCount = data['disagreeCount'] ?? 0;
         });
+      } else if (data['type'] == 'vote_start') {
+        setState(() {
+          toolMode = 'vote';
+          voteId = data['voteId'] as String?;
+          voteTitle = data['title'] as String? ?? '';
+          voteType = data['voteType'] as String? ?? 'binary';
+          voteOptions = (data['options'] as List).cast<String>();
+          voteResults = {for (final o in voteOptions) o: 0};
+        });
+      } else if (data['type'] == 'vote_update') {
+        if (data['voteId'] == voteId) {
+          final m = (data['results'] as Map).map(
+            (k, v) => MapEntry(k.toString(), (v as num).toInt()),
+          );
+          setState(() {
+            toolMode = 'vote';
+            voteResults = m;
+          });
+        }
+      } else if (data['type'] == 'vote_close') {
+        if (data['voteId'] == voteId) {
+          setState(() {
+            toolMode = 'none';
+          });
+        }
       }
     });
   }
@@ -157,12 +189,77 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
               ? buildMusicUI()
               : toolMode == 'agenda'
               ? buildAgendaUI()
-              : toolMode == 'debate'
-              ? buildDebateUI()
+              : toolMode == 'vote'
+              ? buildVoteUI()
               : buildTimerUI(),
     );
   }
 
+  Widget buildVoteUI() {
+    int total = agreeCount + disagreeCount;
+    double agreeRatio = total == 0 ? 0 : agreeCount / total;
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Text(
+          "투표에 참여하세요",
+          style: TextStyle(color: Colors.white, fontSize: 28),
+        ),
+        const SizedBox(height: 20),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.lightBlue,
+              ),
+              onPressed: () {
+                channel.postMessage(
+                  jsonEncode({'type': 'vote_cast', 'agree': true}),
+                );
+              },
+              child: const Text("찬성", style: TextStyle(fontSize: 24)),
+            ),
+            const SizedBox(width: 40),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+              ),
+              onPressed: () {
+                channel.postMessage(
+                  jsonEncode({'type': 'vote_cast', 'agree': false}),
+                );
+              },
+              child: const Text("반대", style: TextStyle(fontSize: 24)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 40),
+        Text(
+          "진행 상황",
+          style: const TextStyle(color: Colors.white70, fontSize: 20),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(
+          width: 300,
+          child: LinearProgressIndicator(
+            value: agreeRatio,
+            color: Colors.lightBlue,
+            backgroundColor: Colors.redAccent,
+            minHeight: 12,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          "찬성: $agreeCount명 / 반대: $disagreeCount명",
+          style: const TextStyle(color: Colors.white, fontSize: 16),
+        ),
+      ],
+    );
+  }
+
+  /// 기존 debate UI
   Widget buildDebateUI() {
     int total = agreeCount + disagreeCount;
     double agreeRatio = total == 0 ? 0 : agreeCount / total;
@@ -228,7 +325,7 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
               width: 200,
               height: 200,
               decoration: BoxDecoration(
-                color: Colors.white, // 배경색
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(60),
               ),
               child: WaveProgressIndicator(

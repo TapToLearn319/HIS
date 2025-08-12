@@ -33,7 +33,7 @@ class PresenterSettingPage extends StatelessWidget {
           ],
         ),
       ),),
-      selectedIndex: 5, // 사이드바에서 퀴즈 선택 메뉴 인덱스
+      selectedIndex: 2, // 사이드바에서 퀴즈 선택 메뉴 인덱스
       
     );
   }

@@ -16,14 +16,14 @@ class _LoginPageState extends State<LoginPage> {
       final origin = html.window.location.origin;
       final path   = html.window.location.pathname;
       final displayUrl =
-          '$origin$path?view=display&route=/home';
+          '$origin$path?view=display&route=/tools';
       html.window.open(
         displayUrl,
         'displayWindow',
         'width=1024,height=768',
       );
     }
-    Navigator.pushReplacementNamed(context, '/home');
+    Navigator.pushReplacementNamed(context, '/tools');
   }
 
   @override

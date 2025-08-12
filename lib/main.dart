@@ -12,7 +12,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'l10n/app_localizations.dart';
 import 'login.dart';
-import 'pages/presenter_main.dart';
+import 'pages/profile/presenter_profile.dart';
 import 'pages/home/presenter_home_page.dart';
 import 'pages/home/display_home_page.dart';
 import 'pages/quiz/presenter_quiz_page.dart';
@@ -24,6 +24,10 @@ import 'pages/tools/display_tools_page.dart';
 import 'pages/setting/presenter_setting_page.dart';
 import 'pages/setting/display_setting_page.dart';
 import 'pages/ai_chat/display_ai_chat.dart';
+import 'pages/tools/timer.dart';
+import 'pages/tools/random_grouping.dart';
+import 'pages/tools/debate.dart';
+import 'pages/tools/vote/vote_manager.dart';
 
 import 'provider/button_provider.dart';
 import 'provider/logs_provider.dart';
@@ -119,7 +123,11 @@ class PresenterApp extends StatelessWidget {
             '/tools': (_) => PresenterToolsPage(),
             '/AI': (_) => PresenterAIChatPage(),
             '/setting': (_) => PresenterSettingPage(),
-            '/presenter_main': (_) => PresenterMainPage(),
+            '/profile': (_) => PresenterMainPage(),
+            '/tools/timer': (_) =>  TimerPage(),
+            '/tools/grouping': (_) =>  RandomGroupingPage(),
+            '/tools/voting': (_) =>  VoteManagerPage(),
+            '/tools/attendance': (_) =>  PresenterHomePage(),
           },
         );
       },
@@ -181,7 +189,7 @@ class _DisplayAppState extends State<DisplayApp> {
             '/tools': (_) => DisplayToolsPage(),
             '/AI': (_) => AIPage(),
             '/setting': (_) => DisplaySettingPage(),
-            '/presenter_main': (_) => PresenterMainPage(),
+            '/profile': (_) => PresenterMainPage(),
           },
         );
       },
