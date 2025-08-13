@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -7,6 +6,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 // import 'package:wave_progress_indicator/wave_progress_indicator.dart';    // 찬반형 UI
 import 'package:flutter_polls/flutter_polls.dart'; // 문항형 UI
 import '../../../main.dart';
+
+import 'groupMaking/display_group_page.dart';
+//import 'vote/display_vote_page.dart';
 
 class DrawnLine {
   final List<Offset> points;
@@ -45,9 +47,8 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
   String toolMode = 'none';
   String agendaText = '';
 
-  // 랜덤 그룹
-  List<List<String>> groups = [];
-  String groupingTitle = 'Find your Team !';
+  bool _didRouteToGroupDisplay = false;
+  bool _didRouteToVoteDisplay = false;
 
   // 투표 상태
   String? voteId;
@@ -87,6 +88,7 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
         switch (data['type']) {
           case 'tool_mode':
             setState(() => toolMode = (data['mode'] as String?) ?? 'none');
+            if (toolMode == 'grouping') _goToGroupingDisplay();
             break;
 
           case 'timer':
@@ -151,19 +153,8 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
 
           // 랜덤 그룹
           case 'grouping_result':
-            setState(() {
-              toolMode = 'grouping';
-              groupingTitle = (data['title'] as String?) ?? 'Find your Team !';
-              final raw = data['groups'];
-              groups = [];
-              if (raw is List) {
-                for (final g in raw) {
-                  if (g is List) {
-                    groups.add(g.map((e) => e.toString()).toList());
-                  }
-                }
-              }
-            });
+            toolMode = 'grouping';
+            _goToGroupingDisplay();
             break;
 
           // 투표 제어
@@ -305,7 +296,7 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
             case 'agenda':
               return buildAgendaUI();
             case 'grouping':
-              return buildGroupingUI();
+              return const SizedBox.shrink();
             case 'vote':
               return buildVoteUI();
             default:
@@ -316,82 +307,92 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
     );
   }
 
-  // 랜덤 그룹
-  Widget buildGroupingUI() {
-  return Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Icon(Icons.groups, color: Colors.white, size: 32),
-            const SizedBox(width: 10),
-            Text(
-              groupingTitle,
-              style: const TextStyle(
-                fontSize: 42,
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 24),
-        Expanded(
-          child: LayoutBuilder(builder: (_, c) {
-            final cross = c.maxWidth > 1300 ? 5 : (c.maxWidth > 1000 ? 4 : (c.maxWidth > 700 ? 3 : 2));
-            return GridView.builder(
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: cross,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                childAspectRatio: 0.9,
-              ),
-              itemCount: groups.length,
-              itemBuilder: (_, i) => _groupCard(i + 1, groups[i]),
-            );
-          }),
-        ),
-      ],
-    ),
-  );
-}
+  void _goToGroupingDisplay() {
+    if (!mounted || _didRouteToGroupDisplay) return;
+    _didRouteToGroupDisplay = true;
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const GroupDisplayPage()))
+        .then((_) {
+          if (mounted) _didRouteToGroupDisplay = false;
+        });
+  }
 
-Widget _groupCard(int idx, List<String> members) {
-  return Container(
-    decoration: BoxDecoration(
-      color: Colors.white.withValues(alpha: 0.95),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    padding: const EdgeInsets.all(16),
-    child: Column(
-      children: [
-        Text('Team $idx',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF0F172A),
-            )),
-        const SizedBox(height: 8),
-        const Divider(height: 1),
-        const SizedBox(height: 8),
-        Expanded(
-          child: ListView.separated(
-            itemCount: members.length,
-            itemBuilder: (_, i) => Center(
-              child: Text(
-                members[i],
-                style: const TextStyle(fontSize: 16, color: Color(0xFF111827)),
-              ),
-            ),
-            separatorBuilder: (_, __) => const SizedBox(height: 6),
-          ),
-        ),
-      ],
-    ),
-  );
-}
+//   // 랜덤 그룹
+//   Widget buildGroupingUI() {
+//   return Padding(
+//     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+//     child: Column(
+//       crossAxisAlignment: CrossAxisAlignment.start,
+//       children: [
+//         Row(
+//           children: [
+//             const Icon(Icons.groups, color: Colors.white, size: 32),
+//             const SizedBox(width: 10),
+//             Text(
+//               groupingTitle,
+//               style: const TextStyle(
+//                 fontSize: 42,
+//                 color: Colors.white,
+//                 fontWeight: FontWeight.bold,
+//               ),
+//             ),
+//           ],
+//         ),
+//         const SizedBox(height: 24),
+//         Expanded(
+//           child: LayoutBuilder(builder: (_, c) {
+//             final cross = c.maxWidth > 1300 ? 5 : (c.maxWidth > 1000 ? 4 : (c.maxWidth > 700 ? 3 : 2));
+//             return GridView.builder(
+//               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+//                 crossAxisCount: cross,
+//                 crossAxisSpacing: 16,
+//                 mainAxisSpacing: 16,
+//                 childAspectRatio: 0.9,
+//               ),
+//               itemCount: groups.length,
+//               itemBuilder: (_, i) => _groupCard(i + 1, groups[i]),
+//             );
+//           }),
+//         ),
+//       ],
+//     ),
+//   );
+// }
+
+// Widget _groupCard(int idx, List<String> members) {
+//   return Container(
+//     decoration: BoxDecoration(
+//       color: Colors.white.withValues(alpha: 0.95),
+//       borderRadius: BorderRadius.circular(12),
+//     ),
+//     padding: const EdgeInsets.all(16),
+//     child: Column(
+//       children: [
+//         Text('Team $idx',
+//             style: const TextStyle(
+//               fontSize: 18,
+//               fontWeight: FontWeight.w800,
+//               color: Color(0xFF0F172A),
+//             )),
+//         const SizedBox(height: 8),
+//         const Divider(height: 1),
+//         const SizedBox(height: 8),
+//         Expanded(
+//           child: ListView.separated(
+//             itemCount: members.length,
+//             itemBuilder: (_, i) => Center(
+//               child: Text(
+//                 members[i],
+//                 style: const TextStyle(fontSize: 16, color: Color(0xFF111827)),
+//               ),
+//             ),
+//             separatorBuilder: (_, __) => const SizedBox(height: 6),
+//           ),
+//         ),
+//       ],
+//     ),
+//   );
+// }
 
   // ========= 투표 UI =========
   Widget buildVoteUI() {

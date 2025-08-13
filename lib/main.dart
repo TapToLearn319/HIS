@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:project/pages/ai_chat/presenter_ai_char.dart';
+import 'package:project/pages/tools/groupMaking/display_group_page.dart';
+import 'package:project/pages/tools/groupMaking/presenter_group_page.dart';
+import 'package:project/pages/tools/timer/display_timer.dart';
 import 'package:project/provider/all_logs_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -24,8 +27,8 @@ import 'pages/tools/display_tools_page.dart';
 import 'pages/setting/presenter_setting_page.dart';
 import 'pages/setting/display_setting_page.dart';
 import 'pages/ai_chat/display_ai_chat.dart';
-import 'pages/tools/timer.dart';
-import 'pages/tools/random_grouping.dart';
+import 'pages/tools/timer/presenter_timer.dart';
+
 import 'pages/tools/debate.dart';
 import 'pages/tools/vote/vote_manager.dart';
 
@@ -150,7 +153,7 @@ class PresenterApp extends StatelessWidget {
             '/setting': (_) => PresenterSettingPage(),
             '/profile': (_) => PresenterMainPage(),
             '/tools/timer': (_) =>  TimerPage(),
-            '/tools/grouping': (_) =>  RandomGroupingPage(),
+            '/tools/grouping': (_) =>  PresenterGroupPage(),
             '/tools/voting': (_) =>  VoteManagerPage(),
             '/tools/attendance': (_) =>  PresenterHomePage(),
           },
@@ -215,6 +218,8 @@ class _DisplayAppState extends State<DisplayApp> {
             '/AI': (_) => AIPage(),
             '/setting': (_) => DisplaySettingPage(),
             '/profile': (_) => DisplayQuizPage(),
+            '/tools/timer': (_) =>  DisplayTimerPage(),
+            '/tools/grouping': (_) =>  GroupDisplayPage(),
           },
         );
       },

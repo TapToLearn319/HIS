@@ -24,6 +24,17 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
   bool _showLogs = false;
   bool _popping = false;
 
+  // Busy overlay
+  bool _busy = false;
+  String? _busyMsg;
+  void _setBusy(bool v, [String? msg]) {
+    if (!mounted) return;
+    setState(() {
+      _busy = v;
+      _busyMsg = v ? (msg ?? 'Loading...') : null;
+    });
+  }
+
   // ====== logger helpers ======
   String _ts() => DateTime.now().toIso8601String();
   void _log(String msg) => debugPrint('[HOME ${_ts()}] $msg');
@@ -62,7 +73,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
   @override
   void initState() {
     super.initState();
-    // 첫 진입 시 세션 자동 확보
+    // 첫 진입 시 세션 자동 확보 + 해당 세션 이벤트 초기화
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _ensureSessionOnStart();
@@ -73,12 +84,15 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
   Future<void> _ensureSessionOnStart() async {
     _log('ensureSessionOnStart: begin');
     final session = context.read<SessionProvider>();
-    if (session.sessionId != null) {
-      _log('ensureSessionOnStart: already bound to ${session.sessionId}');
-      return;
-    }
+    final currentSid = session.sessionId;
 
     try {
+      if (currentSid != null) {
+        _log('ensureSessionOnStart: already bound to $currentSid -> clear events');
+        await _clearEventsForSession(currentSid);
+        return;
+      }
+
       final ids = await _listRecentSessionIds(limit: 50);
       _log('ensureSessionOnStart: found ${ids.length} sessions');
       if (ids.isEmpty) {
@@ -98,6 +112,9 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
         SetOptions(merge: true),
       );
 
+      // ▶ 진입 시 기존 로그 비우기 (오버레이)
+      await _clearEventsForSession(sid);
+
       _log('ensureSessionOnStart: done');
     } catch (e, st) {
       _log('ensureSessionOnStart ERROR: $e\n$st');
@@ -107,6 +124,28 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
       );
       // 세션 선택 시트로 폴백
       await _openSessionMenu(context);
+    }
+  }
+
+  // 현재 세션 events 전체 삭제(진입/세션전환 시)
+  Future<void> _clearEventsForSession(String sid) async {
+    _log('clearEventsForSession: start for $sid');
+    _setBusy(true, 'Clearing session logs…');
+    try {
+      await _deleteCollection(FirebaseFirestore.instance, 'sessions/$sid/events', 300);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Session logs cleared.')),
+      );
+      _log('clearEventsForSession: done');
+    } catch (e, st) {
+      _log('clearEventsForSession ERROR: $e\n$st');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to clear logs: $e')),
+      );
+    } finally {
+      _setBusy(false);
     }
   }
 
@@ -141,12 +180,12 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     }
 
     Color _colorFor(String? slot) {
-      if (slot == '2') return Colors.lightGreenAccent; // 요구: slot2=초록
-      if (slot == '1') return Colors.redAccent;        // 요구: slot1=빨강
+      if (slot == '2') return Colors.lightGreenAccent; // slot2=초록
+      if (slot == '1') return Colors.redAccent;        // slot1=빨강
       return const Color(0xFF6063C6);                  // 기본
     }
 
-    // 프레임마다 핵심 상태 로그(너무 시끄러우면 주석)
+    // 프레임마다 핵심 상태 로그
     _log('build: sid=$sessionId, seats=${seatMapProvider.seatMap.length}, '
          'students=${studentsProvider.students.length}, events=${debugProvider.events.length}');
 
@@ -294,7 +333,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                                   final timeStr =
                                       ev.ts?.toDate().toLocal().toString() ?? '-';
                                   final slot = ev.slotIndex ?? '-';
-                                  // deviceId 끝 5자리(요구사항)
+                                  // deviceId 끝 5자리
                                   final tail5 = ev.deviceId.length > 5
                                       ? ev.deviceId.substring(ev.deviceId.length - 5)
                                       : ev.deviceId;
@@ -315,7 +354,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
             ),
           ),
 
-          // Loading overlay (if you want to expose debugProvider.isLoading)
+          // Provider pagination overlay (기존)
           if (debugProvider.isLoading)
             Positioned.fill(
               child: Container(
@@ -330,6 +369,31 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                     Text(
                       'Loading...',
                       style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // 우리 측 busy overlay (로그 초기화 등)
+          if (_busy)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withOpacity(0.5),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _busyMsg ?? 'Working…',
+                      style: const TextStyle(
                         color: Colors.white,
                         fontSize: 18,
                         fontWeight: FontWeight.w500,
@@ -481,6 +545,9 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
         SetOptions(merge: true),
       );
 
+      // 새 세션이어도 초기화 UX 일관성 유지 (no-op이어도 호출)
+      await _clearEventsForSession(sid);
+
       if (!mounted) return;
       _log('createEmptySession: snackbar');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -519,6 +586,9 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
         SetOptions(merge: true),
       );
 
+      // 새 세션 초기화 (대개 no-op)
+      await _clearEventsForSession(target);
+
       if (!mounted) return;
       _log('createFromPrevious: snackbar');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -543,6 +613,9 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
         {'updatedAt': FieldValue.serverTimestamp()},
         SetOptions(merge: true),
       );
+
+      // ▶ 다른 세션 로드 시에도 초기화
+      await _clearEventsForSession(sid);
 
       if (!mounted) return;
       _log('loadExisting: snackbar');
@@ -580,7 +653,6 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
       }
     }
 
-    // bind each provider (they may be null in some routes)
     await _bindSafe('seatMap', () => seatMap?.bindSession(sid));
     await _bindSafe('debug', () => debug?.bindSession(sid));
     await _bindSafe('total', () => total?.bindSession(sid));
@@ -725,7 +797,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
         '${now.minute.toString().padLeft(2, '0')}';
   }
 
-  // 좌석 피커
+  // 좌석 피커 (이름 중복 배정 방지 포함)
   Future<void> _openSeatPicker({required int seatIndex}) async {
     final seatMapProvider = context.read<SeatMapProvider>();
     final studentsProvider = context.read<StudentsProvider>();
@@ -735,10 +807,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     final items = <DropdownMenuItem<String?>>[
       const DropdownMenuItem<String?>(value: null, child: Text('— Empty —')),
       ...studentsProvider.students.entries.map(
-        (e) => DropdownMenuItem<String?>(
-          value: e.key,
-          child: Text((e.value['name'] as String?) ?? e.key),
-        ),
+        (e) => DropdownMenuItem<String?>(value: e.key, child: Text((e.value['name'] as String?) ?? e.key)),
       ),
     ];
 
@@ -776,14 +845,31 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
 
     if (ok == true) {
       try {
-        await seatMapProvider.assignSeat(seatNo, selected);
-        final sel = selected;
-        final name = sel == null ? 'Empty' : studentsProvider.displayName(sel);
+        final newStudentId = selected;
+
+        // 1) 동일 학생이 다른 좌석에 배정돼 있으면 그 좌석을 Empty로
+        if (newStudentId != null) {
+          String? otherSeatKey;
+          seatMapProvider.seatMap.forEach((k, v) {
+            if (k != seatNo && v == newStudentId) {
+              otherSeatKey = k;
+            }
+          });
+          if (otherSeatKey != null) {
+            _log('assignSeat: "$newStudentId" already at seat=$otherSeatKey -> set Empty first');
+            await seatMapProvider.assignSeat(otherSeatKey!, null);
+          }
+        }
+
+        // 2) 현재 좌석에 최종 지정
+        await seatMapProvider.assignSeat(seatNo, newStudentId);
+
+        final name = newStudentId == null ? 'Empty' : studentsProvider.displayName(newStudentId);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Seat $seatNo → $name')),
         );
-        _log('assignSeat OK: seat=$seatNo student=$sel');
+        _log('assignSeat OK: seat=$seatNo student=$newStudentId');
       } catch (e, st) {
         _log('assignSeat ERROR: $e\n$st');
         if (!mounted) return;
@@ -823,7 +909,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     _log('purge: confirm result=$ok');
     if (ok != true) return;
 
-    _log('purge: show overlay');
+    _log('purge: show overlay(dialog)');
     showDialog(
       barrierDismissible: false,
       context: context,

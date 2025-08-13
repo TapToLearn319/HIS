@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -25,8 +26,17 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     {'name': 'MCQ', 'desc': 'Multiple-choice quiz'},
   ];
 
-  // 최근 성공한 링크 표시용 (studentId-slotIndex)
-  String? _flashKey;
+  // ---- Capture(대기 등록) 상태 ----
+  bool _isCapturing = false;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _captureSub;
+  Timer? _captureTimer;
+
+  @override
+  void dispose() {
+    _captureSub?.cancel();
+    _captureTimer?.cancel();
+    super.dispose();
+  }
 
   // ─────────── UI helpers ───────────
 
@@ -61,7 +71,7 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     final c = TextEditingController(text: initial ?? '');
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: Text(title),
         content: TextField(
           controller: c,
@@ -72,8 +82,14 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('OK')),
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx, rootNavigator: true).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogCtx, rootNavigator: true).pop(true),
+            child: const Text('OK'),
+          ),
         ],
       ),
     );
@@ -113,16 +129,15 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     const bad = ['/', '#', '?', '[', ']'];
     if (bad.any(id.contains)) return null;
     return id;
-
   }
 
   String _last5DigitsFromSerial(String? id) {
-  if (id == null || id.isEmpty) return '';
-  final digitsOnly = id.replaceAll(RegExp(r'\D'), ''); // 숫자만 남기기
-  if (digitsOnly.isEmpty) return '';
-  final start = digitsOnly.length > 5 ? digitsOnly.length - 5 : 0;
-  return digitsOnly.substring(start); // 마지막 5자리
-}
+    if (id == null || id.isEmpty) return '';
+    final digitsOnly = id.replaceAll(RegExp(r'\D'), '');
+    if (digitsOnly.isEmpty) return '';
+    final start = digitsOnly.length > 5 ? digitsOnly.length - 5 : 0;
+    return digitsOnly.substring(start);
+  }
 
   Future<void> _writeDeviceMapping({
     required FirebaseFirestore fs,
@@ -136,7 +151,7 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
       'slotIndex': slotIndex,
       'updatedAt': FieldValue.serverTimestamp(),
     };
-    await ref.set(payload);
+    await ref.set(payload, SetOptions(merge: true));
   }
 
   // ─────────── Students actions ───────────
@@ -200,12 +215,18 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
   Future<void> _deleteStudent({required String studentId, required String name}) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: const Text('Delete student'),
         content: Text('Delete "$name"? This cannot be undone.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx, rootNavigator: true).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogCtx, rootNavigator: true).pop(true),
+            child: const Text('Delete'),
+          ),
         ],
       ),
     );
@@ -223,102 +244,165 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     }
   }
 
-  Future<void> registerDeviceForStudent({
-  required String deviceId,   // 최근 로그에서 잡아온 시리얼
-  required String studentId,  // students/{autoId}의 문서 ID
-  required String slotIndex,  // "1" 또는 "2"
-}) async {
-  final fs = FirebaseFirestore.instance;
-  await fs.doc('devices/$deviceId').set(
-    {
-      'studentId': studentId,
-      'slotIndex': slotIndex,
-      'updatedAt': FieldValue.serverTimestamp(),
-    },
-    SetOptions(merge: true),
-  );
-}
+  // ─────────── Capture(대기) 로직: 다음 들어오는 이벤트로 등록 ───────────
 
-  // ─────────── Auto-link last pressed button ───────────
-
-  Future<void> _assignLastPressedButtonToSlot({
+  Future<void> _captureButtonForSlot({
     required String studentId,
-    required String slotIndex, // "1" or "2"
+    required String slotIndex, // "1" | "2"
+    Duration timeout = const Duration(seconds: 25),
   }) async {
+    if (_isCapturing) {
+      _safeSnack('Already waiting for a button…');
+      return;
+    }
+
     final fs = FirebaseFirestore.instance;
 
-    try {
-      final hub = await fs.collection('hubs').doc(kHubId).get();
-      final sid = hub.data()?['currentSessionId'] as String?;
-      if (sid == null || sid.isEmpty) {
-        _safeSnack('No active session on this hub.');
-        return;
-      }
+    // 1) 세션 확인
+    final hub = await fs.collection('hubs').doc(kHubId).get();
+    final sid = hub.data()?['currentSessionId'] as String?;
+    if (sid == null || sid.isEmpty) {
+      _safeSnack('No active session on this hub.');
+      return;
+    }
 
-      final q = await fs
-          .collection('sessions')
-          .doc(sid)
-          .collection('events')
+    // 2) 기준 시각 및 초기 top 이벤트 ID 확보
+    final startMs = DateTime.now().millisecondsSinceEpoch;
+    String? initialTopId;
+    try {
+      final init = await fs
+          .collection('sessions/$sid/events')
           .orderBy('ts', descending: true)
           .limit(1)
           .get();
-
-      if (q.docs.isEmpty) {
-        _safeSnack('No recent button event found.');
-        return;
+      if (init.docs.isNotEmpty) {
+        initialTopId = init.docs.first.id;
       }
+    } catch (_) {
+      // ignore
+    }
 
-      final data = q.docs.first.data();
-      final deviceId = _sanitizeDeviceId(data['deviceId'] as String?);
-      if (deviceId == null) {
-        _safeSnack('Invalid deviceId in latest event.');
-        return;
-      }
+    // 3) 대기 다이얼로그 띄우기 (취소 가능)
+    _isCapturing = true;
 
-      await _writeDeviceMapping(
-        fs: fs,
-        deviceId: deviceId,
-        studentId: studentId,
-        slotIndex: slotIndex,
-      );
+    final dialogFut = showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          title: Text('Waiting for button… (slot $slotIndex)'),
+          content: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(height: 6),
+              CircularProgressIndicator(),
+              SizedBox(height: 12),
+              Text('Press any student’s Flic now.'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx, rootNavigator: true).pop(false),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
 
-      // ✅ UI 하이라이트(초록 체크) 1.2초
-      setState(() => _flashKey = '$studentId-$slotIndex');
-      Future.delayed(const Duration(milliseconds: 1200), () {
-        if (mounted && _flashKey == '$studentId-$slotIndex') {
-          setState(() => _flashKey = null);
+    bool handled = false;
+
+    // 4) 스냅샷 구독 시작: 가장 최신 한 개 문서(top 1)가 바뀌면 신규 이벤트로 간주
+    _captureSub = fs
+        .collection('sessions/$sid/events')
+        .orderBy('ts', descending: true)
+        .limit(1)
+        .snapshots()
+        .listen((snap) async {
+      if (handled || !_isCapturing) return;
+      if (snap.docs.isEmpty) return;
+
+      final doc = snap.docs.first;
+      // 초기 top 이벤트와 같으면 skip
+      if (initialTopId != null && doc.id == initialTopId) return;
+
+      final data = doc.data();
+      final ts = data['ts'] as Timestamp?;
+      final hubTs = (data['hubTs'] as num?)?.toInt();
+      final devId = _sanitizeDeviceId(data['deviceId'] as String?);
+
+      // ts/hubTs 기준 시각 이후인지 체크 (느슨한 2초 버퍼)
+      final afterStart = () {
+        final thr = startMs - 2000;
+        if (ts != null && ts.millisecondsSinceEpoch >= thr) return true;
+        if (hubTs != null && hubTs >= thr) return true;
+        return false;
+      }();
+
+      if (!afterStart || devId == null) return;
+
+      handled = true;
+
+      try {
+        await _writeDeviceMapping(
+          fs: fs,
+          deviceId: devId,
+          studentId: studentId,
+          slotIndex: slotIndex,
+        );
+
+        _safeSnack('Linked $devId (slot $slotIndex)');
+        if (mounted) {
+          Navigator.of(context, rootNavigator: true).pop(true); // 다이얼로그 닫기(성공)
         }
-      });
+      } catch (e, st) {
+        debugPrint('Capture link write error: $e\n$st');
+        _safeSnack('Link failed.');
+        if (mounted) {
+          Navigator.of(context, rootNavigator: true).pop(false);
+        }
+      }
+    });
 
-      _safeSnack('Linked $deviceId (slot $slotIndex)');
-    } on FirebaseException catch (e) {
-      debugPrint('Firestore set error(devices): code=${e.code}, message=${e.message}');
-      _safeSnack('Write failed: ${e.code}');
-    } catch (e, st) {
-      debugPrint('Generic set error(devices): $e\n$st');
-      _safeSnack('Write failed (client).');
+    // 5) 타임아웃 설정
+    _captureTimer = Timer(timeout, () {
+      if (!_isCapturing || handled) return;
+      _safeSnack('Timed out. No button press.');
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop(false);
+      }
+    });
+
+    // 6) 다이얼로그 종료 이후 정리
+    final bool completed = (await dialogFut) == true;
+    _captureSub?.cancel();
+    _captureTimer?.cancel();
+    _isCapturing = false;
+
+    if (!completed) {
+      // 취소/타임아웃이면 아무것도 안 함
+      return;
     }
   }
 
   // ─────────── Slot chip ───────────
 
   Widget _slotChip(String slotIndex, String? deviceId) {
-  final has = deviceId != null && deviceId.isNotEmpty;
-  final last5 = _last5DigitsFromSerial(deviceId);
-  final labelText = (has && last5.isNotEmpty) ? last5 : 'Not set';
+    final has = deviceId != null && deviceId.isNotEmpty;
+    final last5 = _last5DigitsFromSerial(deviceId);
+    final labelText = (has && last5.isNotEmpty) ? last5 : 'Not set';
 
-  return Chip(
-    avatar: CircleAvatar(
-      radius: 10,
-      child: Text(slotIndex, style: const TextStyle(fontSize: 12)),
-    ),
-    label: Text(labelText, style: const TextStyle(fontFamily: 'monospace')),
-    backgroundColor: (has && last5.isNotEmpty) ? Colors.green.shade50 : Colors.grey.shade200,
-    side: BorderSide(color: (has && last5.isNotEmpty) ? Colors.green : Colors.grey.shade400),
-    visualDensity: VisualDensity.compact,
-  );
-}
-
+    return Chip(
+      avatar: CircleAvatar(
+        radius: 10,
+        child: Text(slotIndex, style: const TextStyle(fontSize: 12)),
+      ),
+      label: Text(labelText, style: const TextStyle(fontFamily: 'monospace')),
+      backgroundColor: (has && last5.isNotEmpty) ? Colors.green.shade50 : Colors.grey.shade200,
+      side: BorderSide(color: (has && last5.isNotEmpty) ? Colors.green : Colors.grey.shade400),
+      visualDensity: VisualDensity.compact,
+    );
+  }
 
   // ─────────── Build ───────────
 
@@ -334,7 +418,7 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
 
     return AppScaffold(
       selectedIndex: 1,
-      body: Scaffold( // ✅ 로컬 Scaffold 추가: SnackBar 안정화
+      body: Scaffold( // 로컬 Scaffold: SnackBar 안정화
         body: SafeArea(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -473,8 +557,6 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
                           final studentId = e.key;
                           final name = (e.value['name'] as String?) ?? '(no name)';
                           final color = getCategoryColor('student');
-                          final fk1 = '$studentId-1';
-                          final fk2 = '$studentId-2';
 
                           return Card(
                             shape: RoundedRectangleBorder(
@@ -493,7 +575,7 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
                                     onPressed: () {
                                       showModalBottomSheet(
                                         context: context,
-                                        builder: (_) => SafeArea(
+                                        builder: (sheetCtx) => SafeArea(
                                           child: Column(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
@@ -501,7 +583,7 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
                                                 leading: const Icon(Icons.edit),
                                                 title: const Text('Edit name'),
                                                 onTap: () async {
-                                                  Navigator.pop(context);
+                                                  Navigator.pop(sheetCtx);
                                                   await _editStudentName(
                                                     studentId: studentId,
                                                     currentName: name,
@@ -512,7 +594,7 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
                                                 leading: const Icon(Icons.delete, color: Colors.red),
                                                 title: const Text('Delete student'),
                                                 onTap: () async {
-                                                  Navigator.pop(context);
+                                                  Navigator.pop(sheetCtx);
                                                   await _deleteStudent(
                                                     studentId: studentId,
                                                     name: name,
@@ -579,58 +661,34 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
                                         },
                                       ),
 
-                                      // Action buttons (auto-link last pressed)
-                                      Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                        children: [
-                                          TextButton.icon(
-                                            onPressed: () => _assignLastPressedButtonToSlot(
-                                              studentId: studentId,
-                                              slotIndex: '1',
+                                      // Action buttons (capture next press) — 오버플로우 방지: Wrap + compact style
+                                      Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                                        child: Wrap(
+                                          alignment: WrapAlignment.center,
+                                          spacing: 8,
+                                          runSpacing: 6,
+                                          children: [
+                                            _linkButton(
+                                              label: 'Add 1',
+                                              onTap: () => _captureButtonForSlot(
+                                                studentId: studentId,
+                                                slotIndex: '1',
+                                              ),
                                             ),
-                                            icon: const Icon(Icons.link),
-                                            label: const Text('Button 1'),
-                                          ),
-                                          TextButton.icon(
-                                            onPressed: () => _assignLastPressedButtonToSlot(
-                                              studentId: studentId,
-                                              slotIndex: '2',
+                                            _linkButton(
+                                              label: 'Add 2',
+                                              onTap: () => _captureButtonForSlot(
+                                                studentId: studentId,
+                                                slotIndex: '2',
+                                              ),
                                             ),
-                                            icon: const Icon(Icons.link),
-                                            label: const Text('Button 2'),
-                                          ),
-                                        ],
+                                          ],
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
-
-                                // ✅ 링크 성공 오버레이 (초록 체크) — 1.2초 표시
-                                if (_flashKey == fk1 || _flashKey == fk2)
-                                  Positioned.fill(
-                                    child: IgnorePointer(
-                                      child: AnimatedOpacity(
-                                        opacity: 1.0,
-                                        duration: const Duration(milliseconds: 150),
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            color: Colors.green.withOpacity(0.12),
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                          child: const Center(
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(Icons.check_circle, color: Colors.green, size: 24),
-                                                SizedBox(width: 8),
-                                                Text('Linked!', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
                               ],
                             ),
                           );
@@ -709,6 +767,20 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // 컴팩트 링크 버튼
+  Widget _linkButton({required String label, required VoidCallback onTap}) {
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: const Icon(Icons.link, size: 16),
+      label: Text(label),
+      style: OutlinedButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        minimumSize: const Size(0, 36), // 폭 제약 완화
       ),
     );
   }

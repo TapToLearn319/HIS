@@ -1,8 +1,8 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
 import '../../sidebar_menu.dart';
-import 'timer.dart';
-import 'random_grouping.dart'; // AppScaffold 경로에 맞게 수정
+import 'timer/presenter_timer.dart';
+//import 'random_grouping.dart'; // AppScaffold 경로에 맞게 수정
 import 'vote/vote_manager.dart';
 
 
