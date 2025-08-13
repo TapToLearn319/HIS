@@ -1,4 +1,5 @@
 
+
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
@@ -12,6 +13,10 @@ class Vote {
   final String id;
   final String title;
   final VoteType type;
+
+  /// 편집/초안 단계에서는 문자열 리스트,
+  /// 진행 중에는 Firestore 문서가 options:[{id,title,votes}] 구조가 되므로
+  /// 여기서는 **항상 제목만** 뽑아 보관합니다.
   final List<String> options;
   final VoteStatus status;
 
@@ -43,6 +48,7 @@ class Vote {
     return {
       'title': title,
       'type': _voteTypeToString(type),
+      // 초안/편집 단계에서는 문자열 리스트로 저장
       'options': options,
       'status': _voteStatusToString(status),
       'updatedAt': FieldValue.serverTimestamp(),
@@ -51,15 +57,28 @@ class Vote {
 
   static Vote fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final d = doc.data() ?? const {};
+
+    // options는 두 형태를 지원:
+    // 1) ['A', 'B', ...]
+    // 2) [{'id':'opt_0','title':'A','votes':0}, ...]
+    final rawOptions = (d['options'] as List?) ?? const [];
+    final parsedTitles = <String>[];
+    for (final item in rawOptions) {
+      if (item is String) {
+        if (item.trim().isNotEmpty) parsedTitles.add(item.trim());
+      } else if (item is Map) {
+        final t = (item['title'] ?? '').toString().trim();
+        if (t.isNotEmpty) parsedTitles.add(t);
+      } else {
+        // 기타 타입은 무시
+      }
+    }
+
     return Vote(
       id: doc.id,
       title: (d['title'] == null) ? '' : d['title'].toString(),
       type: _voteTypeFromString(d['type']?.toString()),
-      options:
-          ((d['options'] as List?) ?? const [])
-              .map((e) => e?.toString() ?? '')
-              .where((s) => s.isNotEmpty)
-              .toList(),
+      options: parsedTitles,
       status: _voteStatusFromString(d['status']?.toString()),
     );
   }
@@ -73,7 +92,9 @@ class VoteStore extends ChangeNotifier {
   List<Vote> get items => List.unmodifiable(_items);
 
   VoteStore() {
-    _sub = _col.snapshots().listen((snap) {
+    _sub = _col.orderBy('createdAt', descending: true).snapshots().listen((
+      snap,
+    ) {
       _items
         ..clear()
         ..addAll(snap.docs.map(Vote.fromDoc));
@@ -86,18 +107,24 @@ class VoteStore extends ChangeNotifier {
     required VoteType type,
     required List<String> options,
   }) async {
+    final normalizedOptions =
+        (type == VoteType.binary)
+            ? const ['찬성', '반대']
+            : options
+                .map((e) => e.toString())
+                .where((s) => s.trim().isNotEmpty)
+                .toList();
+
     final data =
         Vote(
             id: '_new',
             title: title,
             type: type,
-            options:
-                type == VoteType.binary
-                    ? const ['찬성', '반대']
-                    : options.map((e) => e.toString()).toList(),
+            options: normalizedOptions,
             status: VoteStatus.draft,
           ).toMap()
           ..putIfAbsent('createdAt', () => FieldValue.serverTimestamp());
+
     await _col.add(data);
   }
 

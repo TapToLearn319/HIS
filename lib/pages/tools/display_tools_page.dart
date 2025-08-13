@@ -1,8 +1,11 @@
 
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:wave_progress_indicator/wave_progress_indicator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+// import 'package:wave_progress_indicator/wave_progress_indicator.dart';    // 찬반형 UI
+import 'package:flutter_polls/flutter_polls.dart'; // 문항형 UI
 import '../../../main.dart';
 
 class DrawnLine {
@@ -31,8 +34,6 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
   bool isRunning = false;
   int totalSeconds = 0;
   bool timeUp = false;
-  int agreeCount = 0;
-  int disagreeCount = 0;
 
   List<DrawnLine> boardLines = [];
 
@@ -44,15 +45,22 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
   String toolMode = 'none';
   String agendaText = '';
 
+  // 랜덤 그룹
+  List<List<String>> groups = [];
+  String groupingTitle = 'Find your Team !';
+
+  // 투표 상태
   String? voteId;
   String voteTitle = '';
-  String voteType = '';
-  List<String> voteOptions = [];
-  Map<String, int> voteResults = {};
+  String voteType = 'binary'; // 'binary', 'multiple'
+  bool voteActive = false;
+  List<Map<String, dynamic>> voteOptions = [];
 
   late AnimationController _controller;
   late Animation<double> _opacityAnimation;
   late Animation<double> _scaleAnimation;
+
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _voteSub;
 
   @override
   void initState() {
@@ -71,95 +79,200 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
     _scaleAnimation = Tween<double>(begin: 0.8, end: 1.2).animate(_controller);
 
     channel.onMessage.listen((msg) {
-      final data = jsonDecode(msg.data as String);
+      try {
+        final raw = msg.data;
+        final data =
+            (raw is String) ? jsonDecode(raw) : raw as Map<String, dynamic>;
 
-      if (data['type'] == 'tool_mode') {
-        setState(() {
-          toolMode = data['mode'];
-        });
-      } else if (data['type'] == 'timer') {
-        setState(() {
-          toolMode = 'timer';
-          minutes = data['minutes'];
-          seconds = data['seconds'];
-          isRunning = data['isRunning'];
-          totalSeconds = data['totalSeconds'] ?? totalSeconds;
-          timeUp = (minutes == 0 && seconds == 0 && !isRunning);
-          if (timeUp) {
-            _controller.repeat(reverse: true);
-          } else {
-            _controller.stop();
-          }
-        });
-      } else if (data['type'] == 'board') {
-        setState(() {
-          toolMode = 'board';
-          boardLines =
-              (data['lines'] as List).map((line) {
-                final points =
-                    (line['points'] as List)
-                        .map(
-                          (p) => Offset(
-                            (p['dx'] as num).toDouble(),
-                            (p['dy'] as num).toDouble(),
-                          ),
-                        )
-                        .toList();
-                final color = Color(line['color']);
-                final strokeWidth = (line['strokeWidth'] as num).toDouble();
-                return DrawnLine(
-                  points: points,
-                  color: color,
-                  strokeWidth: strokeWidth,
-                );
-              }).toList();
-        });
-      } else if (data['type'] == 'agenda') {
-        setState(() {
-          agendaText = data['text'];
-        });
-      } else if (data['type'] == 'music') {
-        setState(() {
-          toolMode = 'music';
-          musicPlatform = data['platform'];
-          musicTrack = data['track'];
-          musicTitle = data['title'] ?? 'Unknown Title';
-          musicStatus = data['status'];
-        });
-      } else if (data['type'] == 'ai') {
-        toolMode = 'ai';
-      } else if (data['type'] == 'debate_vote') {
-        setState(() {
-          agreeCount = data['agreeCount'] ?? 0;
-          disagreeCount = data['disagreeCount'] ?? 0;
-        });
-      } else if (data['type'] == 'vote_start') {
-        setState(() {
-          toolMode = 'vote';
-          voteId = data['voteId'] as String?;
-          voteTitle = data['title'] as String? ?? '';
-          voteType = data['voteType'] as String? ?? 'binary';
-          voteOptions = (data['options'] as List).cast<String>();
-          voteResults = {for (final o in voteOptions) o: 0};
-        });
-      } else if (data['type'] == 'vote_update') {
-        if (data['voteId'] == voteId) {
-          final m = (data['results'] as Map).map(
-            (k, v) => MapEntry(k.toString(), (v as num).toInt()),
-          );
-          setState(() {
-            toolMode = 'vote';
-            voteResults = m;
-          });
+        switch (data['type']) {
+          case 'tool_mode':
+            setState(() => toolMode = (data['mode'] as String?) ?? 'none');
+            break;
+
+          case 'timer':
+            setState(() {
+              toolMode = 'timer';
+              minutes = (data['minutes'] as num).toInt();
+              seconds = (data['seconds'] as num).toInt();
+              isRunning = (data['isRunning'] as bool?) ?? false;
+              totalSeconds =
+                  (data['totalSeconds'] as num?)?.toInt() ?? totalSeconds;
+              timeUp = (minutes == 0 && seconds == 0 && !isRunning);
+              if (timeUp) {
+                _controller.repeat(reverse: true);
+              } else {
+                _controller.stop();
+              }
+            });
+            break;
+
+          case 'board':
+            setState(() {
+              toolMode = 'board';
+              final linesRaw = (data['lines'] as List?) ?? const [];
+              boardLines =
+                  linesRaw.map((line) {
+                    final pointsRaw = (line['points'] as List?) ?? const [];
+                    final points =
+                        pointsRaw.map((p) {
+                          final dx = (p['dx'] as num?)?.toDouble() ?? 0.0;
+                          final dy = (p['dy'] as num?)?.toDouble() ?? 0.0;
+                          return Offset(dx, dy);
+                        }).toList();
+                    final color = Color((line['color'] as int?) ?? 0xFF000000);
+                    final strokeWidth =
+                        (line['strokeWidth'] as num?)?.toDouble() ?? 4.0;
+                    return DrawnLine(
+                      points: points,
+                      color: color,
+                      strokeWidth: strokeWidth,
+                    );
+                  }).toList();
+            });
+            break;
+
+          case 'agenda':
+            setState(() => agendaText = (data['text'] as String?) ?? '');
+            break;
+
+          case 'music':
+            setState(() {
+              toolMode = 'music';
+              musicPlatform = (data['platform'] as String?) ?? '';
+              musicTrack = data['track'] as String?;
+              musicTitle = (data['title'] as String?) ?? 'Unknown Title';
+              musicStatus = (data['status'] as String?) ?? 'stopped';
+            });
+            break;
+
+          case 'ai':
+            setState(() => toolMode = 'ai');
+            break;
+
+          // 랜덤 그룹
+          case 'grouping_result':
+            setState(() {
+              toolMode = 'grouping';
+              groupingTitle = (data['title'] as String?) ?? 'Find your Team !';
+              final raw = data['groups'];
+              groups = [];
+              if (raw is List) {
+                for (final g in raw) {
+                  if (g is List) {
+                    groups.add(g.map((e) => e.toString()).toList());
+                  }
+                }
+              }
+            });
+            break;
+
+          // 투표 제어
+          case 'vote_start':
+            _attachVoteStream(
+              id: data['voteId'] as String,
+              title: (data['title'] as String?) ?? '',
+              type: (data['voteType'] as String?) ?? 'binary',
+            );
+            break;
+
+          case 'vote_close':
+            if (voteId == data['voteId']) {
+              setState(() => voteActive = false);
+            }
+            break;
+
+          case 'vote_delete':
+            if (voteId == data['voteId']) {
+              _detachVoteStream();
+              setState(() {
+                voteId = null;
+                voteTitle = '';
+                voteOptions = [];
+                voteActive = false;
+                toolMode = 'none';
+              });
+            }
+            break;
         }
-      } else if (data['type'] == 'vote_close') {
-        if (data['voteId'] == voteId) {
-          setState(() {
-            toolMode = 'none';
-          });
-        }
+      } catch (e) {
+        debugPrint('DisplayToolsPage onMessage error: $e');
       }
     });
+  }
+
+  void _attachVoteStream({
+    required String id,
+    required String title,
+    required String type,
+  }) {
+    _detachVoteStream();
+
+    setState(() {
+      voteId = id;
+      voteTitle = title;
+      voteType = type;
+      toolMode = 'vote';
+      voteActive = true;
+      voteOptions = [];
+    });
+
+    _voteSub = FirebaseFirestore.instance
+        .collection('votes')
+        .doc(id)
+        .snapshots()
+        .listen(
+          (snap) {
+            if (!snap.exists) return;
+
+            final data = snap.data()!;
+            // 안전 파싱
+            final rawTitle = data['title'];
+            final rawType = data['type'];
+            final rawActive = data['active'];
+            final rawOptions = data['options'];
+
+            final safeTitle = rawTitle is String ? rawTitle : voteTitle;
+            final safeType =
+                (rawType is String &&
+                        (rawType == 'binary' || rawType == 'multiple'))
+                    ? rawType
+                    : voteType;
+            final safeActive = rawActive is bool ? rawActive : voteActive;
+
+            final List<Map<String, dynamic>> safeOptions = [];
+            if (rawOptions is List) {
+              for (final item in rawOptions) {
+                if (item is Map) {
+                  final id = item['id'];
+                  final tt = item['title'];
+                  final vv = item['votes'];
+                  safeOptions.add({
+                    'id': id is String ? id : (tt?.toString() ?? ''),
+                    'title': tt is String ? tt : (id?.toString() ?? ''),
+                    'votes': vv is num ? vv.toInt() : 0,
+                  });
+                } else if (item is String) {
+                  safeOptions.add({'id': item, 'title': item, 'votes': 0});
+                }
+              }
+            }
+
+            setState(() {
+              voteTitle = safeTitle;
+              voteType = safeType;
+              voteActive = safeActive;
+              voteOptions = safeOptions;
+            });
+          },
+          onError: (e) {
+            debugPrint('vote stream error: $e');
+          },
+        );
+  }
+
+  void _detachVoteStream() {
+    _voteSub?.cancel();
+    _voteSub = null;
   }
 
   double get progress {
@@ -172,195 +285,313 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: toolMode == 'board' ? Colors.white : Colors.black,
-      body:
-          toolMode == 'none'
-              ? const Center(
+      body: Builder(
+        builder: (_) {
+          switch (toolMode) {
+            case 'none':
+              return const Center(
                 child: Text(
                   '도구를 선택하세요',
                   style: TextStyle(color: Colors.white, fontSize: 28),
                 ),
-              )
-              : toolMode == 'board'
-              ? CustomPaint(
+              );
+            case 'board':
+              return CustomPaint(
                 painter: BoardPainter(boardLines),
                 size: Size.infinite,
-              )
-              : toolMode == 'music'
-              ? buildMusicUI()
-              : toolMode == 'agenda'
-              ? buildAgendaUI()
-              : toolMode == 'vote'
-              ? buildVoteUI()
-              : buildTimerUI(),
+              );
+            case 'music':
+              return buildMusicUI();
+            case 'agenda':
+              return buildAgendaUI();
+            case 'grouping':
+              return buildGroupingUI();
+            case 'vote':
+              return buildVoteUI();
+            default:
+              return buildTimerUI();
+          }
+        },
+      ),
     );
   }
 
-  Widget buildVoteUI() {
-    int total = agreeCount + disagreeCount;
-    double agreeRatio = total == 0 ? 0 : agreeCount / total;
-
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
+  // 랜덤 그룹
+  Widget buildGroupingUI() {
+  return Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          "투표에 참여하세요",
-          style: TextStyle(color: Colors.white, fontSize: 28),
-        ),
-        const SizedBox(height: 20),
         Row(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.lightBlue,
+            const Icon(Icons.groups, color: Colors.white, size: 32),
+            const SizedBox(width: 10),
+            Text(
+              groupingTitle,
+              style: const TextStyle(
+                fontSize: 42,
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
               ),
-              onPressed: () {
-                channel.postMessage(
-                  jsonEncode({'type': 'vote_cast', 'agree': true}),
-                );
-              },
-              child: const Text("찬성", style: TextStyle(fontSize: 24)),
-            ),
-            const SizedBox(width: 40),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
-              ),
-              onPressed: () {
-                channel.postMessage(
-                  jsonEncode({'type': 'vote_cast', 'agree': false}),
-                );
-              },
-              child: const Text("반대", style: TextStyle(fontSize: 24)),
             ),
           ],
         ),
-        const SizedBox(height: 40),
-        Text(
-          "진행 상황",
-          style: const TextStyle(color: Colors.white70, fontSize: 20),
+        const SizedBox(height: 24),
+        Expanded(
+          child: LayoutBuilder(builder: (_, c) {
+            final cross = c.maxWidth > 1300 ? 5 : (c.maxWidth > 1000 ? 4 : (c.maxWidth > 700 ? 3 : 2));
+            return GridView.builder(
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: cross,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                childAspectRatio: 0.9,
+              ),
+              itemCount: groups.length,
+              itemBuilder: (_, i) => _groupCard(i + 1, groups[i]),
+            );
+          }),
         ),
-        const SizedBox(height: 10),
-        SizedBox(
-          width: 300,
-          child: LinearProgressIndicator(
-            value: agreeRatio,
-            color: Colors.lightBlue,
-            backgroundColor: Colors.redAccent,
-            minHeight: 12,
+      ],
+    ),
+  );
+}
+
+Widget _groupCard(int idx, List<String> members) {
+  return Container(
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: 0.95),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    padding: const EdgeInsets.all(16),
+    child: Column(
+      children: [
+        Text('Team $idx',
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0F172A),
+            )),
+        const SizedBox(height: 8),
+        const Divider(height: 1),
+        const SizedBox(height: 8),
+        Expanded(
+          child: ListView.separated(
+            itemCount: members.length,
+            itemBuilder: (_, i) => Center(
+              child: Text(
+                members[i],
+                style: const TextStyle(fontSize: 16, color: Color(0xFF111827)),
+              ),
+            ),
+            separatorBuilder: (_, __) => const SizedBox(height: 6),
           ),
         ),
-        const SizedBox(height: 8),
-        Text(
-          "찬성: $agreeCount명 / 반대: $disagreeCount명",
-          style: const TextStyle(color: Colors.white, fontSize: 16),
+      ],
+    ),
+  );
+}
+
+  // ========= 투표 UI =========
+  Widget buildVoteUI() {
+    if (voteId == null) {
+      return const Center(
+        child: Text(
+          '진행 중인 투표가 없습니다',
+          style: TextStyle(color: Colors.white, fontSize: 24),
         ),
+      );
+    }
+
+    final content =
+        (voteType == 'multiple') ? _buildMultiplePolls() : _buildBinaryWaves();
+
+    return Stack(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(
+                voteTitle.isEmpty ? '투표' : voteTitle,
+                style: const TextStyle(
+                  fontSize: 42,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 24),
+              Expanded(child: Center(child: content)),
+            ],
+          ),
+        ),
+
+        // 종료 오버레이
+        if (!voteActive)
+          Container(
+            color: Colors.black.withValues(alpha: 0.55),
+            alignment: Alignment.center,
+            child: const Text(
+              '투표 종료',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 56,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
       ],
     );
   }
 
-  /// 기존 debate UI
-  Widget buildDebateUI() {
-    int total = agreeCount + disagreeCount;
-    double agreeRatio = total == 0 ? 0 : agreeCount / total;
-    double disagreeRatio = total == 0 ? 0 : disagreeCount / total;
+  Widget _buildMultiplePolls() {
+    if (voteOptions.length < 2) {
+      return const SizedBox(
+        width: 420,
+        child: Center(
+          child: Text(
+            '옵션을 불러오는 중...',
+            style: TextStyle(color: Colors.white70, fontSize: 18),
+          ),
+        ),
+      );
+    }
+
+    final options =
+        voteOptions
+            .map(
+              (o) => PollOption(
+                id: (o['id'] as String?) ?? '',
+                title: Text(
+                  (o['title'] as String?) ?? '',
+                  style: const TextStyle(fontSize: 20, color: Colors.white),
+                ),
+                votes: (o['votes'] as int?) ?? 0,
+              ),
+            )
+            .toList();
+
+    return IgnorePointer(
+      ignoring: true,
+      child: FlutterPolls(
+        pollId: voteId!,
+        hasVoted: false,
+        userVotedOptionId: null,
+        pollEnded: !voteActive,
+        votedAnimationDuration: 300,
+        onVoted: (option, total) async => true,
+        pollTitle: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            voteTitle,
+            style: const TextStyle(fontSize: 22, color: Colors.white70),
+          ),
+        ),
+        pollOptions: options,
+        votesText: 'Votes',
+        votesTextStyle: const TextStyle(color: Colors.white54),
+        votedPercentageTextStyle: const TextStyle(
+          fontSize: 18,
+          color: Colors.white,
+          fontWeight: FontWeight.bold,
+        ),
+        votedBackgroundColor: Colors.white.withValues(alpha: 0.10),
+        voteInProgressColor: Colors.white.withValues(alpha: 0.12),
+        votedProgressColor: Colors.lightBlueAccent.withValues(alpha: 0.45),
+        pollOptionsBorderRadius: BorderRadius.circular(14),
+        pollOptionsHeight: 56,
+        heightBetweenTitleAndOptions: 16,
+        heightBetweenOptions: 12,
+      ),
+    );
+  }
+
+  Widget _buildBinaryWaves() {
+    int agree = 0;
+    int disagree = 0;
+    for (final o in voteOptions) {
+      final t = ((o['title'] as String?) ?? '').trim();
+      final v = (o['votes'] as int?) ?? 0;
+      if (t == '찬성') agree = v;
+      if (t == '반대') disagree = v;
+    }
+
+    final total = (agree + disagree);
+    final agreeRatio = total == 0 ? 0.0 : agree / total;
+    final disagreeRatio = total == 0 ? 0.0 : disagree / total;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              '찬성',
-              style: TextStyle(color: Colors.white, fontSize: 24),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              width: 200,
-              height: 200,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(60),
-              ),
-              child: WaveProgressIndicator(
-                value: agreeRatio,
-                gradientColors: [
-                  Colors.lightBlue,
-                  Colors.blue,
-                  Colors.blueAccent,
-                ],
-                waveHeight: 12,
-                speed: 1.2,
-                borderRadius: BorderRadius.circular(60),
-                child: Center(
-                  child: Text(
-                    '${(agreeRatio * 100).round()}%',
-                    style: const TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              '$agreeCount명',
-              style: const TextStyle(color: Colors.white70, fontSize: 16),
-            ),
-          ],
+        _waveCircle(
+          label: '찬성',
+          ratio: agreeRatio,
+          count: agree,
+          color: Colors.lightBlue,
         ),
         const SizedBox(width: 60),
-        Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              '반대',
-              style: TextStyle(color: Colors.white, fontSize: 24),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              width: 200,
-              height: 200,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(60),
-              ),
-              child: WaveProgressIndicator(
-                value: disagreeRatio,
-                gradientColors: [
-                  Colors.redAccent,
-                  Colors.red,
-                  Colors.deepOrange,
-                ],
-                waveHeight: 12,
-                speed: 1.2,
-                borderRadius: BorderRadius.circular(60),
-                child: Center(
-                  child: Text(
-                    '${(disagreeRatio * 100).round()}%',
-                    style: const TextStyle(
-                      color: Colors.black,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 16,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              '$disagreeCount명',
-              style: const TextStyle(color: Colors.white70, fontSize: 16),
-            ),
-          ],
+        _waveCircle(
+          label: '반대',
+          ratio: disagreeRatio,
+          count: disagree,
+          color: Colors.redAccent,
         ),
       ],
     );
   }
 
+  Widget _waveCircle({
+    required String label,
+    required double ratio,
+    required int count,
+    required Color color,
+  }) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white, fontSize: 24)),
+        const SizedBox(height: 10),
+        Container(
+          width: 200,
+          height: 200,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(60),
+          ),
+          child: _SimpleWave(
+            value: ratio,
+            gradientColors: [color.withValues(alpha: 0.8), color, color],
+            child: Center(
+              child: Text(
+                '${(ratio * 100).round()}%',
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Text(
+          '$count명',
+          style: const TextStyle(color: Colors.white70, fontSize: 16),
+        ),
+      ],
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _detachVoteStream();
+    super.dispose();
+  }
+
+  // ===== 기타 기존 UI들 =====
   Widget buildAgendaUI() {
     final formattedDate = DateFormat('M월 d일').format(DateTime.now());
 
@@ -414,57 +645,17 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
         children: [
           const Icon(Icons.music_note, size: 60, color: Colors.pinkAccent),
           const SizedBox(height: 20),
-
-          // ✅ 썸네일 + 플랫폼 로고
           if (thumbnailUrl != null)
-            Stack(
-              alignment: Alignment.topLeft,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.network(
-                    thumbnailUrl,
-                    width: 320,
-                    height: 180,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                if (musicPlatform.toLowerCase() == 'youtube')
-                  Positioned(
-                    top: 10,
-                    left: 10,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.8),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            Icons.play_circle_fill,
-                            color: Colors.redAccent,
-                            size: 24,
-                          ),
-                          const SizedBox(width: 4),
-                          const Text(
-                            'YouTube',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.black87,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-              ],
+            ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Image.network(
+                thumbnailUrl,
+                width: 320,
+                height: 180,
+                fit: BoxFit.cover,
+              ),
             ),
-
           const SizedBox(height: 16),
-
-          // ✅ 영상 제목
           Text(
             musicTitle ?? 'No title available',
             textAlign: TextAlign.center,
@@ -474,10 +665,7 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
               fontWeight: FontWeight.bold,
             ),
           ),
-
           const SizedBox(height: 12),
-
-          // ✅ 재생 상태
           Text(
             'Status: $musicStatus',
             style: const TextStyle(fontSize: 18, color: Colors.white70),
@@ -539,7 +727,7 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
               opacity: _opacityAnimation,
               child: Container(
                 alignment: Alignment.center,
-                color: Colors.black.withOpacity(0.7),
+                color: Colors.black.withValues(alpha: 0.7),
                 child: const Text(
                   'TIME\'S UP!',
                   style: TextStyle(
@@ -555,17 +743,10 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
       ],
     );
   }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
 }
 
 class BoardPainter extends CustomPainter {
   final List<DrawnLine> lines;
-
   BoardPainter(this.lines);
 
   @override
@@ -584,4 +765,52 @@ class BoardPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(BoardPainter oldDelegate) => true;
+}
+
+class _SimpleWave extends StatelessWidget {
+  final double value;
+  final List<Color> gradientColors;
+  final Widget? child;
+
+  const _SimpleWave({
+    Key? key,
+    required this.value,
+    required this.gradientColors,
+    this.child,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    final v = value.clamp(0.0, 1.0);
+    return LayoutBuilder(
+      builder: (context, c) {
+        final h = c.maxHeight;
+        final fillH = h * v;
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(60),
+          child: Stack(
+            children: [
+              Positioned.fill(child: Container(color: Colors.white)),
+              Positioned(
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: fillH,
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: gradientColors,
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                    ),
+                  ),
+                ),
+              ),
+              if (child != null) Positioned.fill(child: child!),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }

@@ -29,9 +29,16 @@ import 'pages/tools/random_grouping.dart';
 import 'pages/tools/debate.dart';
 import 'pages/tools/vote/vote_manager.dart';
 
-import 'provider/button_provider.dart';
-import 'provider/logs_provider.dart';
-import 'provider/seat_provider.dart';
+// import 'provider/button_provider.dart';
+// import 'provider/logs_provider.dart';
+// import 'provider/seat_provider.dart';
+import 'provider/session_provider.dart';
+import 'provider/student_stats_provider.dart';
+import 'provider/students_provider.dart';
+import 'provider/total_stats_provider.dart';
+import 'provider/seat_map_provider.dart';
+import 'provider/debug_events_provider.dart';
+import 'provider/device_overrides.provider.dart';
 
 final bool isDisplay = Uri.base.queryParameters['view'] == 'display';
 final String initialRoute = Uri.base.queryParameters['route'] ?? '/login';
@@ -82,8 +89,26 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => AllLogsProvider()),
-        ChangeNotifierProvider(create: (_) => SeatProvider()),
+        ChangeNotifierProvider(create: (_) => SessionProvider()),
+        ChangeNotifierProvider(
+        create: (_) => StudentStatsProvider(FirebaseFirestore.instance),
+      ),
+      ChangeNotifierProvider(
+        create: (_) => TotalStatsProvider(FirebaseFirestore.instance),
+      ),
+      ChangeNotifierProvider(
+        create: (_) => SeatMapProvider(FirebaseFirestore.instance),
+      ),
+      ChangeNotifierProvider(
+        create: (_) => DeviceOverridesProvider(FirebaseFirestore.instance),
+      ),
+      ChangeNotifierProvider(
+        create: (_) => DebugEventsProvider(FirebaseFirestore.instance),
+      ),
+      ChangeNotifierProvider(
+        create: (_) =>
+            StudentsProvider(FirebaseFirestore.instance)..listenAll(),
+      ),
       ],
       child: isDisplay ? DisplayApp() : PresenterApp(),
     ),
@@ -189,7 +214,7 @@ class _DisplayAppState extends State<DisplayApp> {
             '/tools': (_) => DisplayToolsPage(),
             '/AI': (_) => AIPage(),
             '/setting': (_) => DisplaySettingPage(),
-            '/profile': (_) => PresenterMainPage(),
+            '/profile': (_) => DisplayQuizPage(),
           },
         );
       },

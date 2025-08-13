@@ -22,6 +22,7 @@ dependencies:
   flutter_gen: ^5.11.0
   webview_flutter: ^4.13.0
   wave_progress_indicator: ^0.0.1
+  flutter_polls: ^0.1.6
 
 dev_dependencies:
   flutter_test:
@@ -33,3 +34,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/flicbutton.png
+    - assets/logo_bird.png
