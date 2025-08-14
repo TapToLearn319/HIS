@@ -5,6 +5,8 @@ import 'package:project/pages/ai_chat/presenter_ai_char.dart';
 import 'package:project/pages/tools/groupMaking/display_group_page.dart';
 import 'package:project/pages/tools/groupMaking/presenter_group_page.dart';
 import 'package:project/pages/tools/timer/display_timer.dart';
+import 'package:project/pages/tools/vote/display_vote.dart';
+import 'package:project/pages/tools/vote/presenter_vote.dart';
 import 'package:project/provider/all_logs_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -28,6 +30,7 @@ import 'pages/setting/presenter_setting_page.dart';
 import 'pages/setting/display_setting_page.dart';
 import 'pages/ai_chat/display_ai_chat.dart';
 import 'pages/tools/timer/presenter_timer.dart';
+import 'pages/display_standby.dart';
 
 import 'pages/tools/debate.dart';
 import 'pages/tools/vote/vote_manager.dart';
@@ -154,7 +157,7 @@ class PresenterApp extends StatelessWidget {
             '/profile': (_) => PresenterMainPage(),
             '/tools/timer': (_) =>  TimerPage(),
             '/tools/grouping': (_) =>  PresenterGroupPage(),
-            '/tools/voting': (_) =>  VoteManagerPage(),
+            '/tools/voting': (_) =>  PresenterVotePage(),
             '/tools/attendance': (_) =>  PresenterHomePage(),
           },
         );
@@ -214,11 +217,12 @@ class _DisplayAppState extends State<DisplayApp> {
             '/home': (_) => DisplayHomePage(),
             '/quiz': (_) => DisplayQuizPage(),
             '/game': (_) => DisplayGamePage(),
-            '/tools': (_) => DisplayToolsPage(),
+            '/tools': (_) => DisplayStandByPage(),
             '/AI': (_) => AIPage(),
-            '/setting': (_) => DisplaySettingPage(),
-            '/profile': (_) => DisplayQuizPage(),
+            '/setting': (_) => DisplayStandByPage(),
+            '/profile': (_) => DisplayStandByPage(),
             '/tools/timer': (_) =>  DisplayTimerPage(),
+            '/tools/voting': (_) =>  DisplayVotePage(),
             '/tools/grouping': (_) =>  GroupDisplayPage(),
           },
         );

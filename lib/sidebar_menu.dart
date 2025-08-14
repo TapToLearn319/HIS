@@ -174,14 +174,14 @@ class AppScaffold extends StatelessWidget {
   drawerClosedWidth: 60,  // ✅ 닫혔을 때 너비
   header: null,
   drawer: Material(
-  color: const Color.fromARGB(255, 189, 189, 189),
+  color: const Color.fromARGB(255, 206, 230, 255),
   child: Column(
     crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
+    children: [                  
       // ✅ Drawer 상단 메뉴 아이콘
       Container(
   width: double.infinity,
-  color: Colors.grey[400], // 상단 배경 강조
+  color: Color.fromARGB(255, 206, 230, 255), // 상단 배경 강조
   padding: const EdgeInsets.only(right: 8.0, top: 16.0, bottom: 8.0),
   child: Align(
     alignment: Alignment.centerRight, // ✅ 오른쪽 정렬

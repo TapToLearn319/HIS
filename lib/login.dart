@@ -29,7 +29,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Color.fromARGB(255, 246, 250, 255),
       body: LayoutBuilder(
         builder: (context, constraints) {
           double screenWidth = constraints.maxWidth;

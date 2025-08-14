@@ -228,19 +228,19 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                             },
                             child: const Text('Session'),
                           ),
-                          const SizedBox(width: 8),
-                          OutlinedButton(
-                            onPressed: () {
-                              _log('Logout pressed -> pop route');
-                              Navigator.pop(context);
-                            },
-                            style: OutlinedButton.styleFrom(
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                            ),
-                            child: const Text('Logout'),
-                          ),
+                          // const SizedBox(width: 8),
+                          // OutlinedButton(
+                          //   onPressed: () {
+                          //     _log('Logout pressed -> pop route');
+                          //     Navigator.pop(context);
+                          //   },
+                          //   style: OutlinedButton.styleFrom(
+                          //     shape: RoundedRectangleBorder(
+                          //       borderRadius: BorderRadius.circular(20),
+                          //     ),
+                          //   ),
+                          //   child: const Text('Logout'),
+                          // ),
                         ],
                       ),
                     ],

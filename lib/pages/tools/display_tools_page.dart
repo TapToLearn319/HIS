@@ -275,7 +275,7 @@ class _DisplayToolsPageState extends State<DisplayToolsPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: toolMode == 'board' ? Colors.white : Colors.black,
+      backgroundColor: toolMode == 'board' ? Color.fromARGB(255,246 , 250, 255) : Colors.black,
       body: Builder(
         builder: (_) {
           switch (toolMode) {

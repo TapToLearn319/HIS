@@ -440,12 +440,12 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
                     ),
                     Row(
                       children: [
-                        OutlinedButton.icon(
-                          onPressed: _sanityWrite,
-                          icon: const Icon(Icons.health_and_safety),
-                          label: const Text('Test write'),
-                        ),
-                        const SizedBox(width: 8),
+                        // OutlinedButton.icon(
+                        //   onPressed: _sanityWrite,
+                        //   icon: const Icon(Icons.health_and_safety),
+                        //   label: const Text('Test write'),
+                        // ),
+                        // const SizedBox(width: 8),
                         if (selectedCategory == 'student')
                           OutlinedButton.icon(
                             onPressed: _addStudent,
@@ -453,30 +453,30 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
                             label: const Text('Add student'),
                           ),
                         const SizedBox(width: 8),
-                        OutlinedButton(
-                          onPressed: () {
-                            Navigator.pushReplacement(
-                              context,
-                              MaterialPageRoute(builder: (_) => const LoginPage()),
-                            );
-                          },
-                          style: OutlinedButton.styleFrom(
-                            side: const BorderSide(color: Colors.black),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(32),
-                            ),
-                          ),
-                          child: const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                            child: Text(
-                              'Logout',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black,
-                              ),
-                            ),
-                          ),
-                        ),
+                        // OutlinedButton(
+                        //   onPressed: () {
+                        //     Navigator.pushReplacement(
+                        //       context,
+                        //       MaterialPageRoute(builder: (_) => const LoginPage()),
+                        //     );
+                        //   },
+                        //   style: OutlinedButton.styleFrom(
+                        //     side: const BorderSide(color: Colors.black),
+                        //     shape: RoundedRectangleBorder(
+                        //       borderRadius: BorderRadius.circular(32),
+                        //     ),
+                        //   ),
+                        //   child: const Padding(
+                        //     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        //     child: Text(
+                        //       'Logout',
+                        //       style: TextStyle(
+                        //         fontWeight: FontWeight.bold,
+                        //         color: Colors.black,
+                        //       ),
+                        //     ),
+                        //   ),
+                        // ),
                       ],
                     ),
                   ],

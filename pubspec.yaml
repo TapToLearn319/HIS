@@ -35,3 +35,6 @@ flutter:
   assets:
     - assets/flicbutton.png
     - assets/logo_bird.png
+    - assets/logo_bird_start.png
+    - assets/logo_bird_stop.png
+    - assets/logo_bird_standby.png

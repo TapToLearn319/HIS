@@ -126,6 +126,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     return AppScaffold(
       selectedIndex: 0,
       body: Scaffold(
+        backgroundColor: const Color.fromARGB(255, 246, 250, 255),
         body: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
           child: Column(
@@ -387,7 +388,7 @@ class ToolCard extends StatelessWidget {
                     icon: const Icon(Icons.arrow_forward, size: 16, color: Color(0xFF374151)),
                     label: const Text('Open', style: TextStyle(color: Color(0xFF374151))),
                     style: TextButton.styleFrom(
-                      backgroundColor: const Color(0xFFF9FAFB),
+                      backgroundColor: const Color.fromARGB(255, 246, 250, 255),
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     ),
                   )
@@ -401,46 +402,4 @@ class ToolCard extends StatelessWidget {
   }
 }
 
-/* ---------------------- Placeholder Pages --------------------- */
-// 실제 페이지가 있다면 아래 위젯들을 import해서 교체하세요.
 
-// class TimerPage extends StatelessWidget {
-//   const TimerPage({super.key});
-//   @override
-//   Widget build(BuildContext context) => _blank('Timer');
-// }
-
-// class RandomGroupingPage extends StatelessWidget {
-//   const RandomGroupingPage({super.key});
-//   @override
-//   Widget build(BuildContext context) => _blank('Random Grouping');
-// }
-
-// class VotingPage extends StatelessWidget {
-//   const VotingPage({super.key});
-//   @override
-//   Widget build(BuildContext context) => _blank('Voting');
-// }
-
-// class QuizPage extends StatelessWidget {
-//   const QuizPage({super.key});
-//   @override
-//   Widget build(BuildContext context) => _blank('Quiz');
-// }
-
-// class AttendancePage extends StatelessWidget {
-//   const AttendancePage({super.key});
-//   @override
-//   Widget build(BuildContext context) => _blank('Attendance');
-// }
-
-// class SeatingPage extends StatelessWidget {
-//   const SeatingPage({super.key});
-//   @override
-//   Widget build(BuildContext context) => _blank('Seating Chart');
-// }
-
-// Widget _blank(String title) => Scaffold(
-//       appBar: AppBar(title: Text(title)),
-//       body: Center(child: Text('$title Page', style: const TextStyle(fontSize: 18))),
-//     );
