@@ -125,13 +125,13 @@ class _LoginPageState extends State<LoginPage> {
                         offset: const Offset(0, -20),
                         child: ArcText(
                           radius: 65,
-                          text: "i Button",
+                          text: "My Button",
                           textStyle: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 40,
                             color: Color.fromARGB(255, 53, 64, 112),
                           ),
-                          startAngle: -2.1 / 2,
+                          startAngle: -2.8 / 2,
                         ),
                       ),
                     ],

@@ -15,7 +15,7 @@ class _DisplayTimerPageState extends State<DisplayTimerPage> {
   static const double _cardWidth   = 680;
   static const double _birdSize    = 200;
   static const double _birdRight   = -60;
-  static const double _birdBottom  = -60;
+  static const double _birdBottom  = -50;
 
   static const double _iconLeftInset = 36;
   static const double _iconBoxSize   = 124;

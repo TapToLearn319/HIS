@@ -14,7 +14,7 @@ class _TimerPageState extends State<TimerPage> {
   static const double _cardWidth   = 680;   // 카드 폭
   static const double _birdSize    = 200;   // 새 크기
   static const double _birdRight   = -60;
-  static const double _birdBottom  = -60;
+  static const double _birdBottom  = -50;
 
   // 아이콘/간격/숫자 이동량
   static const double _iconLeftInset = 36;

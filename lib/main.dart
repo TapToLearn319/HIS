@@ -149,7 +149,7 @@ class PresenterApp extends StatelessWidget {
           routes: {
             '/login': (_) => LoginPage(),
             '/home': (_) => PresenterHomePage(),
-            '/quiz': (_) => PresenterQuizPage(),
+            '/tools/quiz': (_) => PresenterQuizPage(),
             '/game': (_) => PresenterGamePage(),
             '/tools': (_) => PresenterToolsPage(),
             '/AI': (_) => PresenterAIChatPage(),
@@ -215,7 +215,7 @@ class _DisplayAppState extends State<DisplayApp> {
           routes: {
             '/login': (_) => DisplayHomePage(),
             '/home': (_) => DisplayHomePage(),
-            '/quiz': (_) => DisplayQuizPage(),
+            '/tools/quiz': (_) => DisplayQuizPage(),
             '/game': (_) => DisplayGamePage(),
             '/tools': (_) => DisplayStandByPage(),
             '/AI': (_) => AIPage(),
