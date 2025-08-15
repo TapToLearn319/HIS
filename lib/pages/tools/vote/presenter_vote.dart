@@ -1,509 +1,738 @@
-// lib/pages/vote/presenter_vote_page.dart
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
 import '../../../provider/session_provider.dart';
+import '../../../main.dart';
 
 class PresenterVotePage extends StatefulWidget {
-  const PresenterVotePage({super.key});
+  const PresenterVotePage({super.key, this.voteId});
+  final String? voteId;
 
   @override
   State<PresenterVotePage> createState() => _PresenterVotePageState();
 }
 
 class _PresenterVotePageState extends State<PresenterVotePage> {
-  bool _busy = false;
-  String? _busyMsg;
+  final _formKey = GlobalKey<FormState>();
 
-  void _setBusy(bool v, [String? msg]) {
-    if (!mounted) return;
-    setState(() {
-      _busy = v;
-      _busyMsg = v ? (msg ?? 'Working...') : null;
+  final _titleCtrl = TextEditingController();
+
+  final List<TextEditingController> _optionCtrls = [];
+  final List<_Binding> _bindings = [];
+
+  static const int _maxOptions = 4;
+
+  // Poll Settings
+  String _show = 'realtime'; // 'realtime' | 'after'
+  bool _anonymous = true;
+  bool _multi = true;
+
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    for (final t in const ['Great', "Its too difficult"]) {
+      _optionCtrls.add(TextEditingController(text: t));
+      _bindings.add(const _Binding(button: 1, gesture: 'hold'));
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final sid = context.read<SessionProvider>().sessionId;
+      if (sid != null && widget.voteId != null) {
+        _load(sid, widget.voteId!);
+      }
     });
   }
 
-  void _snack(String msg) {
-    final m = ScaffoldMessenger.maybeOf(context);
-    if (m == null) {
-      debugPrint('[VOTE] $msg');
-      return;
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    for (final c in _optionCtrls) {
+      c.dispose();
     }
-    m.hideCurrentSnackBar();
-    m.showSnackBar(SnackBar(content: Text(msg)));
+    super.dispose();
   }
 
-  Future<void> _createQuestionDialog(String sid) async {
-    final c = TextEditingController();
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Create a question'),
-        content: TextField(
-          controller: c,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Question',
-            border: OutlineInputBorder(),
-            hintText: '예: 이번 과제 제출 마감 연장에 찬성하나요?',
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Create')),
-        ],
-      ),
-    );
-    if (ok == true) {
-      final q = c.text.trim();
-      if (q.isEmpty) return;
-      final fs = FirebaseFirestore.instance;
-      await fs.collection('sessions/$sid/votes').add({
-        'question': q,
-        'status': 'draft', // draft → active → stopped
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-      _snack('Question created.');
+  Future<void> _load(String sid, String id) async {
+    setState(() => _loading = true);
+    final doc =
+        await FirebaseFirestore.instance.doc('sessions/$sid/votes/$id').get();
+    final d = doc.data();
+    if (d != null) {
+      _titleCtrl.text = (d['title'] ?? '').toString();
+
+      final raw = (d['options'] as List?) ?? const [];
+      _optionCtrls.clear();
+      _bindings.clear();
+      for (var i = 0; i < raw.length && i < _maxOptions; i++) {
+        final it = raw[i];
+        String title = 'Option ${i + 1}';
+        int btn = 1;
+        String ges = 'hold';
+        if (it is Map) {
+          title = (it['title'] ?? title).toString();
+          final b = (it['binding'] as Map?) ?? {};
+          btn = (b['button'] is num) ? (b['button'] as num).toInt() : 1;
+          ges = (b['gesture'] ?? 'hold').toString();
+        } else if (it is String) {
+          title = it;
+        }
+        _optionCtrls.add(TextEditingController(text: title));
+        _bindings.add(_Binding(button: btn, gesture: ges));
+      }
+      while (_optionCtrls.length < 2) {
+        _optionCtrls.add(TextEditingController());
+        _bindings.add(const _Binding(button: 1, gesture: 'hold'));
+      }
+
+      // 설정
+      final s = (d['settings'] as Map?) ?? {};
+      _show = (s['show'] ?? _show).toString();
+      _anonymous = (s['anonymous'] == true);
+      _multi = (s['multi'] == true);
     }
-  }
-
-  /// Stop all ACTIVE votes in this session.
-  Future<void> _stopAllActive(String sid) async {
-    final fs = FirebaseFirestore.instance;
-    final running = await fs
-        .collection('sessions/$sid/votes')
-        .where('status', isEqualTo: 'active')
-        .get();
-    if (running.docs.isEmpty) return;
-
-    final now = FieldValue.serverTimestamp();
-    final batch = fs.batch();
-    for (final d in running.docs) {
-      batch.set(
-        d.reference,
-        {
-          'status': 'stopped',
-          'endedAt': now,
-        },
-        SetOptions(merge: true),
-      );
-    }
-    await batch.commit();
-  }
-
-  Future<void> _startVote(String sid, String voteId) async {
-    _setBusy(true, 'Starting vote…');
-    try {
-      await _stopAllActive(sid);
-      await FirebaseFirestore.instance.doc('sessions/$sid/votes/$voteId').set(
-        {
-          'status': 'active', // ✅ 통일
-          'startedAt': FieldValue.serverTimestamp(),
-          'endedAt': null,
-          'finalYes': FieldValue.delete(),
-          'finalNo': FieldValue.delete(),
-        },
-        SetOptions(merge: true),
-      );
-      _snack('Vote started.');
-    } finally {
-      _setBusy(false);
-    }
-  }
-
-  /// Compute final counts from events (between [startedAt, endedAt]) and save.
-  Future<void> _stopVoteAndFinalize({
-    required String sid,
-    required String voteId,
-    required Timestamp startedAt,
-  }) async {
-    _setBusy(true, 'Stopping & finalizing…');
-    try {
-      final fs = FirebaseFirestore.instance;
-
-      // ts >= startedAt 만 서버 필터, 종료 순간은 로컬에서 포함
-      final q = await fs
-          .collection('sessions/$sid/events')
-          .where('ts', isGreaterThanOrEqualTo: startedAt)
-          .orderBy('ts', descending: false)
-          .get();
-
-      final endedAtTS = Timestamp.now();
-      final res = _tallyFromEvents(q.docs, startedAt: startedAt, endedAt: endedAtTS);
-
-      await fs.doc('sessions/$sid/votes/$voteId').set(
-        {
-          'status': 'stopped',
-          'endedAt': FieldValue.serverTimestamp(),
-          'finalYes': res.yes,
-          'finalNo': res.no,
-        },
-        SetOptions(merge: true),
-      );
-      _snack('Vote stopped.');
-    } catch (e) {
-      _snack('Stop failed: $e');
-      rethrow;
-    } finally {
-      _setBusy(false);
-    }
+    setState(() => _loading = false);
   }
 
   @override
   Widget build(BuildContext context) {
     final sid = context.watch<SessionProvider>().sessionId;
+
     return Scaffold(
+      backgroundColor: const Color(0xFFF6FAFF),
       appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0.5,
         leading: IconButton(
           tooltip: 'Back',
           icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.maybePop(context),
         ),
-        title: const Text('Vote (Presenter)'),
-        actions: [
-          if (sid != null)
-            IconButton(
-              tooltip: 'Create question',
-              icon: const Icon(Icons.add_circle_outline),
-              onPressed: () => _createQuestionDialog(sid),
-            ),
-        ],
+        title: const Text('Vote'),
       ),
       body: Stack(
         children: [
-          if (sid == null)
-            const Center(child: Text('No session. Please set a session first.'))
+          if (_loading)
+            const Center(child: CircularProgressIndicator())
           else
-            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('sessions/$sid/votes')
-                  .orderBy('createdAt', descending: true)
-                  .snapshots(),
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (!snap.hasData || snap.data!.docs.isEmpty) {
-                  return const Center(child: Text('No questions. Tap + to add.'));
-                }
-                final votes = snap.data!.docs.map((d) => _VoteDoc.from(d)).toList();
-                return ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemBuilder: (_, i) => _voteCard(sid, votes[i]),
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemCount: votes.length,
-                );
-              },
+            Form(
+              key: _formKey,
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 140),
+                children: [
+                  _sectionTitle('Poll Question'),
+                  const SizedBox(height: 8),
+
+                  Align(
+                    alignment: Alignment.center,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints.tightFor(
+                        width: 948,
+                        height: 65,
+                      ),
+                      child: TextFormField(
+                        controller: _titleCtrl,
+                        decoration: InputDecoration(
+                          hintText: 'Did you understand today’s lesson?',
+                          hintStyle: const TextStyle(
+                            color: Color(0xFF001A36),
+                            fontFamily: 'FONTSPRING DEMO - Lufga Medium',
+                            fontSize: 24,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 0,
+                          ),
+                          filled: true,
+                          fillColor: Colors.white,
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFD2D2D2),
+                              width: 1,
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFD2D2D2),
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                        style: const TextStyle(
+                          color: Color(0xFF001A36),
+                          fontFamily: 'FONTSPRING DEMO - Lufga Medium',
+                          fontSize: 24,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        validator:
+                            (v) =>
+                                (v ?? '').trim().isEmpty
+                                    ? 'Enter the Question.'
+                                    : null,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+
+                  Center(
+                    child: Container(
+                      width: 948,
+                      alignment: Alignment.centerLeft,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text(
+                            'Poll Options',
+                            style: TextStyle(
+                              color: Color(0xFF001A36),
+                              fontSize: 24,
+                              fontWeight: FontWeight.w500,
+                              fontFamily: 'Lufga',
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            '*Up to 4',
+                            style: TextStyle(
+                              color: Color(0xFF001A36),
+                              fontSize: 15,
+                              fontWeight: FontWeight.w400,
+                              fontFamily: 'Pretendard',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  _optionsCard(),
+
+                  const SizedBox(height: 18),
+                  _sectionTitle('Poll Settings'),
+                  const SizedBox(height: 8),
+                  _settingsCard(),
+                ],
+              ),
             ),
 
-          if (_busy)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black.withOpacity(0.45),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const CircularProgressIndicator(),
-                    const SizedBox(height: 14),
-                    Text(
-                      _busyMsg ?? 'Working…',
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: SafeArea(
+              top: false,
+              child: SizedBox(
+                width: 160,
+                height: 160,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: _startVote,
+                    child: Padding(
+                      padding: const EdgeInsets.all(10.0),
+                      child: Image.asset(
+                        'assets/logo_bird_start.png',
+                        fit: BoxFit.contain,
+                      ),
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _voteCard(String sid, _VoteDoc v) {
-    final statusColor = v.status == 'active'
-        ? Colors.green
-        : (v.status == 'stopped' ? Colors.grey : Colors.orange);
-
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // 제목 + 상태칩 + 삭제
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    v.question,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: statusColor),
-                  ),
-                  child: Text(
-                    v.status.toUpperCase(),
-                    style: TextStyle(fontSize: 12, color: statusColor, fontWeight: FontWeight.w700),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                IconButton(
-                  tooltip: 'Delete',
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () async {
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (_) => AlertDialog(
-                        title: const Text('Delete question'),
-                        content: const Text('정말 삭제할까요?'),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
-                        ],
-                      ),
-                    );
-                    if (ok == true) {
-                      await FirebaseFirestore.instance.doc('sessions/$sid/votes/${v.id}').delete();
-                      _snack('Deleted.');
-                    }
-                  },
-                ),
+  // Poll Options 카드
+  Widget _optionsCard() {
+    return Align(
+      alignment: Alignment.center,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints.tightFor(
+          width: 948,
+        ), // Poll Settings와 맞춤
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: const Color(0xFFD2D2D2)),
+          ),
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            children: [
+              for (var i = 0; i < _optionCtrls.length; i++) ...[
+                _optionRow(i),
+                const SizedBox(height: 10),
               ],
-            ),
-            const SizedBox(height: 8),
-
-            // 집계부 (상태별)
-            if (v.status == 'draft')
-              const Text('Start를 누르면 집계를 시작합니다.', style: TextStyle(color: Colors.grey))
-            else
-              _TallyLive(
-                sid: sid,
-                startedAt: v.startedAt,
-                endedAt: v.endedAt,
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  onPressed:
+                      (_optionCtrls.length >= _maxOptions)
+                          ? null
+                          : () {
+                            setState(() {
+                              _optionCtrls.add(TextEditingController());
+                              _bindings.add(
+                                const _Binding(button: 1, gesture: 'hold'),
+                              );
+                            });
+                          },
+                  icon: const Icon(Icons.add),
+                  label: const Text('문항 추가'),
+                ),
               ),
-
-            const SizedBox(height: 8),
-
-            // 액션 버튼
-            Row(
-              children: [
-                if (v.status != 'active')
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Start'),
-                    onPressed: () => _startVote(sid, v.id),
-                  ),
-                if (v.status == 'active')
-                  ElevatedButton.icon(
-                    icon: const Icon(Icons.stop),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                    label: const Text('Stop'),
-                    onPressed: () {
-                      if (v.startedAt == null) {
-                        _snack('startedAt가 없습니다.');
-                        return;
-                      }
-                      _stopVoteAndFinalize(
-                        sid: sid,
-                        voteId: v.id,
-                        startedAt: v.startedAt!,
-                      );
-                    },
-                  ),
-                const Spacer(),
-                if (v.status == 'stopped' && v.finalYes != null && v.finalNo != null)
-                  Text('Final: 찬성 ${v.finalYes} • 반대 ${v.finalNo}',
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
-}
 
-/// 투표 실시간/최종 집계 위젯.
-/// - 진행중: startedAt 이후 이벤트 스트림을 실시간으로 읽어 학생별 마지막 slotIndex(1/2)를 반영.
-/// - 종료됨: startedAt~endedAt 사이만 로컬 필터링하여 동일 로직.
-class _TallyLive extends StatelessWidget {
-  const _TallyLive({
-    required this.sid,
-    required this.startedAt,
-    required this.endedAt,
-  });
+  Widget _optionRow(int i) {
+    final ctrl = _optionCtrls[i];
+    final bind = _bindings[i];
 
-  final String sid;
-  final Timestamp? startedAt;
-  final Timestamp? endedAt;
-
-  @override
-  Widget build(BuildContext context) {
-    if (startedAt == null) {
-      return const SizedBox.shrink();
-    }
-
-    final fs = FirebaseFirestore.instance;
-
-    // 쿼리: ts >= startedAt 만 서버 필터, 종료 시각은 로컬에서 필터(인덱스 회피)
-    final stream = fs
-        .collection('sessions/$sid/events')
-        .where('ts', isGreaterThanOrEqualTo: startedAt)
-        .orderBy('ts', descending: false)
-        .snapshots();
-
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: stream,
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8.0),
-            child: LinearProgressIndicator(minHeight: 2),
-          );
-        }
-        if (!snap.hasData) {
-          return const Text('집계 데이터를 불러오는 중…');
-        }
-
-        final docs = snap.data!.docs;
-        final res = _tallyFromEvents(
-          docs,
-          startedAt: startedAt!,
-          endedAt: endedAt, // null이면 진행 중
-        );
-
-        final total = (res.yes + res.no);
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _tallyRow('찬성 (slot 1)', res.yes, total, color: Colors.green),
-            const SizedBox(height: 4),
-            _tallyRow('반대 (slot 2)', res.no, total, color: Colors.red),
-          ],
-        );
-      },
-    );
-  }
-
-  Widget _tallyRow(String label, int value, int total, {required Color color}) {
-    final ratio = total == 0 ? 0.0 : (value / total);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Text('$label  •  $value', style: const TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 4),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: LinearProgressIndicator(
-            value: ratio.clamp(0.0, 1.0),
-            minHeight: 10,
-            color: color,
-            backgroundColor: color.withOpacity(0.15),
+        // 입력창: 높이 60, pill 라운드, 내부 오른쪽에 매핑 텍스트
+        Expanded(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints.tightFor(height: 60),
+            child: TextFormField(
+              controller: ctrl,
+              decoration: InputDecoration(
+                hintText: 'Option',
+                // 내부 여백
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: 0,
+                ),
+                // 배경
+                filled: true,
+                fillColor: Colors.white,
+                // 테두리
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(32.5),
+                  borderSide: const BorderSide(
+                    color: Color(0xFFD2D2D2),
+                    width: 1,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(32.5),
+                  borderSide: const BorderSide(
+                    color: Color(0xFFD2D2D2),
+                    width: 1,
+                  ),
+                ),
+
+                // ▶ 오른쪽 안쪽 매핑 표시 (예: "1 - hold")
+                suffixIcon: Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      '${bind.button} - ${bind.gesture}',
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        color: Color(0xFF8D8D8D),
+                        fontSize: 21,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                  ),
+                ),
+                // suffix 영역이 너무 좁아 잘리는 것 방지
+                suffixIconConstraints: const BoxConstraints(
+                  minWidth: 100,
+                  maxWidth: 140,
+                ),
+              ),
+              validator: (v) => (v ?? '').trim().isEmpty ? '문항을 입력하세요.' : null,
+            ),
+          ),
+        ),
+
+        const SizedBox(width: 8),
+
+        // … 메뉴 (매핑 변경/삭제)
+        PopupMenuButton<int>(
+          tooltip: 'More',
+          itemBuilder:
+              (_) => const [
+                PopupMenuItem(
+                  enabled: false,
+                  child: Text(
+                    '— Button mapping —',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                PopupMenuDivider(),
+                PopupMenuItem(value: 1, child: Text('1 - single')),
+                PopupMenuItem(value: 2, child: Text('1 - hold')),
+                PopupMenuItem(value: 3, child: Text('2 - single')),
+                PopupMenuItem(value: 4, child: Text('2 - hold')),
+                PopupMenuDivider(),
+                PopupMenuItem(value: 9, child: Text('문항 삭제')),
+              ],
+          onSelected: (v) {
+            if (i < 0 || i >= _optionCtrls.length || i >= _bindings.length)
+              return;
+
+            if (v == 9) {
+              if (_optionCtrls.length <= 2) return;
+              setState(() {
+                _bindings.removeAt(i);
+                _optionCtrls.removeAt(i).dispose();
+              });
+              return;
+            }
+
+            _Binding next;
+            switch (v) {
+              case 1:
+                next = const _Binding(button: 1, gesture: 'single');
+                break;
+              case 2:
+                next = const _Binding(button: 1, gesture: 'hold');
+                break;
+              case 3:
+                next = const _Binding(button: 2, gesture: 'single');
+                break;
+              case 4:
+                next = const _Binding(button: 2, gesture: 'hold');
+                break;
+              default:
+                return;
+            }
+            setState(() => _bindings[i] = next);
+          },
+          child: const SizedBox(
+            width: 40,
+            height: 40,
+            child: Icon(Icons.more_horiz),
           ),
         ),
       ],
     );
   }
-}
 
-/// 집계 결과 자료형
-class _Counts {
-  final int yes;
-  final int no;
-  const _Counts(this.yes, this.no);
-}
+  Widget _sectionTitle(String text) {
+    return Center(
+      child: Container(
+        width: 948, // 블럭 너비
+        alignment: Alignment.centerLeft, // 내부 텍스트는 왼쪽 정렬
+        child: Text(
+          text,
+          style: const TextStyle(
+            color: Color(0xFF001A36),
+            fontSize: 24,
+            fontWeight: FontWeight.w500,
+            fontFamily: 'Lufga',
+          ),
+        ),
+      ),
+    );
+  }
 
-/// 이벤트 문서 목록을 학생별 마지막 선택으로 집계한다.
-/// - slotIndex '1' → 찬성, '2' → 반대
-/// - 같은 학생의 여러 이벤트는 마지막 ts/hubTs만 반영
-_Counts _tallyFromEvents(
-  List<QueryDocumentSnapshot<Map<String, dynamic>>> docs, {
-  required Timestamp startedAt,
-  Timestamp? endedAt,
-}) {
-  final startMs = startedAt.millisecondsSinceEpoch;
-  final endMs = endedAt?.millisecondsSinceEpoch;
+  // Poll Settings 카드
+  Widget _settingsCard() {
+    return Align(
+      alignment: Alignment.center,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints.tightFor(width: 948, height: 184),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: const Color(0xFFD2D2D2), width: 1),
+          ),
+          padding: const EdgeInsets.all(13),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _settingRow(
+                title: 'Show results',
+                left: _choice<bool>('in real time', _show == 'realtime', () {
+                  setState(() => _show = 'realtime');
+                }),
+                right: _choice<bool>('After voting ends', _show == 'after', () {
+                  setState(() => _show = 'after');
+                }),
+              ),
+              _settingRow(
+                title: 'Anonymous',
+                left: _choice<bool>('yes', _anonymous, () {
+                  setState(() => _anonymous = true);
+                }),
+                right: _choice<bool>('no', !_anonymous, () {
+                  setState(() => _anonymous = false);
+                }),
+              ),
+              _settingRow(
+                title: 'Multiple selections',
+                left: _choice<bool>('yes', _multi, () {
+                  setState(() => _multi = true);
+                }),
+                right: _choice<bool>('no', !_multi, () {
+                  setState(() => _multi = false);
+                }),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
-  // 학생별 마지막 (tsMs → slotIndex)
-  final Map<String, _StudentVote> lastByStudent = {};
+  Future<String?> _persistVote(String sid) async {
+    if (_titleCtrl.text.trim().isEmpty) {
+      _titleCtrl.text = 'Untitled question';
+    }
+    if (!_formKey.currentState!.validate()) return null;
 
-  for (final d in docs) {
-    final data = d.data();
+    final titles =
+        _optionCtrls
+            .map((c) => c.text.trim())
+            .where((t) => t.isNotEmpty)
+            .take(_maxOptions)
+            .toList();
 
-    // 시간 계산: hubTs vs ts 중 더 최신
-    final int hub = (data['hubTs'] is num) ? (data['hubTs'] as num).toInt() : 0;
-    final int ser = (data['ts'] is Timestamp)
-        ? (data['ts'] as Timestamp).millisecondsSinceEpoch
-        : 0;
-    final int t = hub > ser ? hub : ser;
-    if (t < startMs) continue;
-    if (endMs != null && t > endMs) continue;
+    if (titles.length < 2) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('문항은 2개 이상이어야 합니다.')));
+      return null;
+    }
 
-    final String? sid = data['studentId'] as String?;
-    final String? siRaw = data['slotIndex']?.toString();
-    if (sid == null) continue;
-    if (siRaw != '1' && siRaw != '2') continue;
+    final options = <Map<String, dynamic>>[];
+    for (var i = 0; i < titles.length; i++) {
+      final b = _bindings[i];
+      options.add({
+        'id': 'opt_$i',
+        'title': titles[i],
+        'votes': 0,
+        'binding': {'button': b.button, 'gesture': b.gesture},
+      });
+    }
 
-    final prev = lastByStudent[sid];
-    if (prev == null || t >= prev.tsMs) {
-      final String si = siRaw!; // '1' or '2'
-      lastByStudent[sid] = _StudentVote(tsMs: t, slotIndex: si);
+    final ref =
+        (widget.voteId == null)
+            ? FirebaseFirestore.instance.collection('sessions/$sid/votes').doc()
+            : FirebaseFirestore.instance.doc(
+              'sessions/$sid/votes/${widget.voteId}',
+            );
+
+    await ref.set({
+      'title': _titleCtrl.text.trim(),
+      'type': 'multiple',
+      if (widget.voteId == null) 'status': 'draft',
+      'options': options,
+      'settings': {'show': _show, 'anonymous': _anonymous, 'multi': _multi},
+      if (widget.voteId == null) 'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    return ref.id;
+  }
+
+  Future<void> _stopAllActive(String sid) async {
+    final fs = FirebaseFirestore.instance;
+    final running =
+        await fs
+            .collection('sessions/$sid/votes')
+            .where('status', isEqualTo: 'active')
+            .get();
+    if (running.docs.isEmpty) return;
+
+    final now = FieldValue.serverTimestamp();
+    final batch = fs.batch();
+    for (final d in running.docs) {
+      batch.set(d.reference, {
+        'status': 'closed',
+        'endedAt': now,
+        'updatedAt': now,
+      }, SetOptions(merge: true));
+    }
+    await batch.commit();
+  }
+
+  Future<void> _startVote() async {
+    final sid = context.read<SessionProvider>().sessionId;
+    if (sid == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('세션이 설정되지 않았습니다. (SessionProvider.sessionId=null)'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final voteId = await _persistVote(sid);
+      if (voteId == null) return;
+
+      await _stopAllActive(sid);
+
+      final doc = FirebaseFirestore.instance.doc('sessions/$sid/votes/$voteId');
+      await doc.set({
+        'status': 'active',
+        'startedAt': FieldValue.serverTimestamp(),
+        'endedAt': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Vote started!')));
+    } catch (e, st) {
+      debugPrint('[VOTE][start] $e\n$st');
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('시작 실패: $e')));
     }
   }
 
-  int yes = 0, no = 0;
-  for (final v in lastByStudent.values) {
-    if (v.slotIndex == '1') yes++;
-    if (v.slotIndex == '2') no++;
-  }
-  return _Counts(yes, no);
-}
-
-class _StudentVote {
-  final int tsMs;
-  final String slotIndex; // '1' | '2'
-  _StudentVote({required this.tsMs, required this.slotIndex});
-}
-
-/// Vote 문서 모델
-class _VoteDoc {
-  final String id;
-  final String question;
-  final String status; // draft | active | stopped
-  final Timestamp? createdAt;
-  final Timestamp? startedAt;
-  final Timestamp? endedAt;
-  final int? finalYes;
-  final int? finalNo;
-
-  _VoteDoc({
-    required this.id,
-    required this.question,
-    required this.status,
-    this.createdAt,
-    this.startedAt,
-    this.endedAt,
-    this.finalYes,
-    this.finalNo,
-  });
-
-  factory _VoteDoc.from(DocumentSnapshot<Map<String, dynamic>> d) {
-    final x = d.data() ?? const {};
-    return _VoteDoc(
-      id: d.id,
-      question: (x['question'] as String?) ?? '(no question)',
-      status: (x['status'] as String?) ?? 'draft',
-      createdAt: x['createdAt'] as Timestamp?,
-      startedAt: x['startedAt'] as Timestamp?,
-      endedAt: x['endedAt'] as Timestamp?,
-      finalYes: (x['finalYes'] as num?)?.toInt(),
-      finalNo: (x['finalNo'] as num?)?.toInt(),
+  Widget _radioPill<T>(
+    String label,
+    T value,
+    T group,
+    ValueChanged<T?> onChanged,
+  ) {
+    final selected = value == group;
+    return InkWell(
+      onTap: () => onChanged(value),
+      borderRadius: BorderRadius.circular(18),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Radio<T>(value: value, groupValue: group, onChanged: onChanged),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color:
+                  selected ? const Color(0xFFFFE483) : const Color(0xFFFFF3B8),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
     );
   }
+
+  Widget _settingRow({
+    required String title,
+    required Widget left,
+    required Widget right,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // 왼쪽 라벨 — width: 404px, 글씨 스타일 (#001A36, 24px, w500)
+        ConstrainedBox(
+          constraints: const BoxConstraints.tightFor(width: 404),
+          child: Text(
+            title,
+            style: const TextStyle(
+              color: Color(0xFF001A36),
+              fontSize: 24,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+        // 선택지 2개
+        Row(children: [left, const SizedBox(width: 28), right]),
+      ],
+    );
+  }
+
+  // 노란 원형 인디케이터
+  Widget _dot(bool selected) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
+      width: 24,
+      height: 24,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: selected ? const Color(0xFFFFE483) : Colors.transparent,
+        border: Border.all(
+          color: selected ? const Color(0xFFFFE483) : const Color(0xFFCCCCCC),
+          width: 2,
+        ),
+      ),
+    );
+  }
+
+  // "● label" 형태 선택지
+  Widget _choice<T>(String label, bool selected, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _dot(selected),
+          const SizedBox(width: 10),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF001A36),
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _rounded({required Widget child}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: Colors.black12.withOpacity(0.08)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.text, {super.key});
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+    );
+  }
+}
+
+class _Binding {
+  final int button; // 1 | 2
+  final String gesture; // 'single' | 'hold'
+  const _Binding({required this.button, required this.gesture});
+  @override
+  bool operator ==(Object other) =>
+      other is _Binding && other.button == button && other.gesture == gesture;
+  @override
+  int get hashCode => Object.hash(button, gesture);
 }

@@ -1,294 +1,424 @@
-
-
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../../../main.dart';
-import 'vote_models.dart';
+import '../../../provider/session_provider.dart';
 import 'vote_edit.dart';
+import 'vote_models.dart';
 
 class VoteManagerPage extends StatelessWidget {
   const VoteManagerPage({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final sid = context.watch<SessionProvider>().sessionId;
+    if (sid == null) {
+      return const Scaffold(
+        body: Center(child: Text('No session. Please set a session first.')),
+      );
+    }
     return ChangeNotifierProvider(
-      create: (_) => VoteStore(),
-      child: const _VoteManagerBody(),
+      create: (_) => VoteStore(sessionId: sid),
+      child: const _VoteManagerScaffold(),
     );
   }
 }
 
-class _VoteManagerBody extends StatelessWidget {
-  const _VoteManagerBody();
+class _VoteManagerScaffold extends StatefulWidget {
+  const _VoteManagerScaffold();
+
+  @override
+  State<_VoteManagerScaffold> createState() => _VoteManagerScaffoldState();
+}
+
+class _VoteManagerScaffoldState extends State<_VoteManagerScaffold> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  final TextEditingController _quickAddCtrl = TextEditingController();
+  String _keyword = '';
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    _quickAddCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<VoteStore>();
+    final sid = context.read<SessionProvider>().sessionId!;
+
+    final items = store.items.where((v) {
+      if (_keyword.isEmpty) return true;
+      final k = _keyword.toLowerCase();
+      return v.title.toLowerCase().contains(k);
+    }).toList();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('투표 관리')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () async {
-          final created = await Navigator.push<Vote>(
-            context,
-            MaterialPageRoute(builder: (_) => const VoteEditPage()),
-          );
-          if (created != null) {
-            await store.createVote(
-              title: created.title,
-              type: created.type,
-              options: created.options,
-            );
-          }
-        },
-        icon: const Icon(Icons.add),
-        label: const Text('새 투표'),
-      ),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(12),
-        itemCount: store.items.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (context, i) {
-          final v = store.items[i];
-          return Card(
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 8,
-              ),
-              title: Text(
-                v.title,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              subtitle: Text(
-                '${v.type == VoteType.binary ? '찬반' : '문항선택'} · ${_statusLabel(v.status)}'
-                '${v.type == VoteType.multiple ? ' · 문항 ${v.options.length}개' : ''}',
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (v.status != VoteStatus.active)
-                    IconButton(
-                      tooltip: '시작',
-                      onPressed: () async {
-                        // ✅ 시작 전 검증: 문항형은 옵션 2개 이상
-                        if (v.type == VoteType.multiple &&
-                            v.options.length < 2) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('문항형 투표는 옵션이 2개 이상이어야 합니다.'),
-                            ),
-                          );
-                          return;
-                        }
-
-                        await context.read<VoteStore>().startVote(v.id);
-                        await _upsertVoteToFirestore(
-                          v.copyWith(status: VoteStatus.active),
-                        );
-                        _broadcastStart(v); // 트랜잭션 완료 후 방송
-                      },
-                      icon: const Icon(Icons.play_arrow),
-                    ),
-                  if (v.status == VoteStatus.active)
-                    IconButton(
-                      tooltip: '종료',
-                      onPressed: () async {
-                        await context.read<VoteStore>().closeVote(v.id);
-                        await _setVoteActive(v.id, false);
-                        _broadcastClose(v.id);
-                      },
-                      icon: const Icon(Icons.stop),
-                    ),
-                  IconButton(
-                    tooltip: '편집',
-                    onPressed: () async {
-                      final edited = await Navigator.push<Vote>(
+      backgroundColor: const Color(0xFFF7F8FA),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0.5,
+        leading: IconButton(
+          tooltip: 'Back',
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => Navigator.maybePop(context),
+        ),
+        title: const Text('Vote'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilledButton.icon(
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      final created = await Navigator.push<Vote>(
                         context,
-                        MaterialPageRoute(
-                          builder: (_) => VoteEditPage(initial: v),
-                        ),
+                        MaterialPageRoute(builder: (_) => const VoteEditPage()),
                       );
-                      if (edited != null) {
-                        await context.read<VoteStore>().updateVote(edited);
-                        // 진행중이면 옵션 변경을 Firestore에도 반영(득표는 제목 기준 유지)
-                        await _maybeSyncIfActive(edited);
+                      if (created != null) {
+                        await store.createVote(
+                          title: created.title,
+                          type: created.type,
+                          options: created.options,
+                        );
                       }
                     },
-                    icon: const Icon(Icons.edit),
+              icon: const Icon(Icons.add),
+              label: const Text('새 투표'),
+            ),
+          ),
+        ],
+      ),
+
+      bottomNavigationBar: Container(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 6, offset: const Offset(0, -2))],
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _quickAddCtrl,
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.add_circle_outline),
+                  hintText: 'Add a question',
+                  filled: true,
+                  fillColor: const Color(0xFFF3F6FC),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  border: OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.black12.withOpacity(0.06)),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                  IconButton(
-                    tooltip: '삭제',
-                    onPressed: () async {
-                      await context.read<VoteStore>().deleteVote(v.id);
-                      await _deleteVoteFromFirestore(v.id);
-                      _broadcastDelete(v.id);
-                    },
-                    icon: const Icon(Icons.delete_outline),
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Colors.black12.withOpacity(0.06)),
+                    borderRadius: BorderRadius.circular(12),
                   ),
-                ],
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: const BorderSide(color: Color(0xFF8CA8FF)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onSubmitted: (_) => _quickAdd(context),
               ),
             ),
-          );
-        },
+            const SizedBox(width: 10),
+            FilledButton(onPressed: () => _quickAdd(context), child: const Text('Add')),
+          ],
+        ),
+      ),
+
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _TopInfoBar(
+            classLabel: 'Class : ${sid.substring(0, sid.length > 4 ? 4 : sid.length)}  |  Mathematics',
+            searchController: _searchCtrl,
+            onChanged: (s) => setState(() => _keyword = s.trim()),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: items.isEmpty
+                ? const Center(child: Text('No questions. Use “새 투표” or quick add below.'))
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (_, i) {
+                      final v = items[i];
+                      return _VoteCardItem(
+                        vote: v,
+                        onStart: (v) async {
+                          if (v.type == VoteType.multiple && v.options.length < 2) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('문항형 투표는 옵션이 2개 이상이어야 합니다.')),
+                            );
+                            return;
+                          }
+                          setState(() => _busy = true);
+                          try {
+                            await _stopAllActive(sid);
+                            await store.startVote(v.id);
+                            _broadcastStart(sid, v);
+                          } finally {
+                            if (mounted) setState(() => _busy = false);
+                          }
+                        },
+                        onStop: (v) async {
+                          setState(() => _busy = true);
+                          try {
+                            await store.closeVote(v.id);
+                            _broadcastClose(sid, v.id);
+                          } finally {
+                            if (mounted) setState(() => _busy = false);
+                          }
+                        },
+                        onEdit: (v) async {
+                          final edited = await Navigator.push<Vote>(
+                            context,
+                            MaterialPageRoute(builder: (_) => VoteEditPage(initial: v)),
+                          );
+                          if (edited != null) {
+                            await store.updateVote(edited);
+                            await store.syncActiveIfNeeded(edited.id);
+                          }
+                        },
+                        onDelete: (v) async {
+                          setState(() => _busy = true);
+                          try {
+                            await store.deleteVote(v.id);
+                            _broadcastDelete(sid, v.id);
+                          } finally {
+                            if (mounted) setState(() => _busy = false);
+                          }
+                        },
+                      );
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }
 
-  String _statusLabel(VoteStatus s) {
-    switch (s) {
-      case VoteStatus.draft:
-        return '시작 전';
-      case VoteStatus.active:
-        return '진행 중';
-      case VoteStatus.closed:
-        return '종료';
-    }
+  Future<void> _quickAdd(BuildContext context) async {
+    final text = _quickAddCtrl.text.trim();
+    if (text.isEmpty) return;
+    await context.read<VoteStore>().createVote(
+          title: text,
+          type: VoteType.binary,
+          options: const ['찬성', '반대'],
+        );
+    _quickAddCtrl.clear();
   }
 
-  /// Firestore 문서가 있으면 안전 파싱 후 옵션을 제목 기준으로 머지(기존 득표 유지).
-  /// 없으면 새 문서 생성.
-  Future<void> _upsertVoteToFirestore(Vote v) async {
-    final docRef = FirebaseFirestore.instance.collection('votes').doc(v.id);
-    final isMultiple = v.type == VoteType.multiple;
-    await FirebaseFirestore.instance.runTransaction((tx) async {
-      final snap = await tx.get(docRef);
+  Future<void> _stopAllActive(String sid) async {
+    final fs = FirebaseFirestore.instance;
+    final running =
+        await fs.collection('sessions/$sid/votes').where('status', isEqualTo: 'active').get();
+    final batch = fs.batch();
+    final now = FieldValue.serverTimestamp();
+    for (final d in running.docs) {
+      batch.set(d.reference, {'status': 'closed', 'endedAt': now, 'updatedAt': now}, SetOptions(merge: true));
+    }
+    await batch.commit();
+  }
 
-      // 기존 옵션 안전 파싱
-      final existingOptions = <_Option>[];
-      if (snap.exists) {
-        final data = (snap.data() ?? {}) as Map<String, dynamic>;
-        final rawOptions = data['options'];
-        if (rawOptions is List) {
-          for (final item in rawOptions) {
-            if (item is Map) {
-              final id = item['id'];
-              final title = item['title'];
-              final votes = item['votes'];
-              existingOptions.add(
-                _Option(
-                  id: (id is String) ? id : (title?.toString() ?? ''),
-                  title: (title is String) ? title : (id?.toString() ?? ''),
-                  votes: (votes is num) ? votes.toInt() : 0,
+  void _broadcastStart(String sid, Vote v) {
+    channel.postMessage(jsonEncode({
+      'type': 'vote_start',
+      'sid': sid,
+      'voteId': v.id,
+      'title': v.title,
+      'voteType': v.type == VoteType.binary ? 'binary' : 'multiple',
+    }));
+  }
+
+  void _broadcastClose(String sid, String voteId) {
+    channel.postMessage(jsonEncode({'type': 'vote_close', 'sid': sid, 'voteId': voteId}));
+  }
+
+  void _broadcastDelete(String sid, String voteId) {
+    channel.postMessage(jsonEncode({'type': 'vote_delete', 'sid': sid, 'voteId': voteId}));
+  }
+}
+
+class _TopInfoBar extends StatelessWidget {
+  const _TopInfoBar({
+    required this.classLabel,
+    required this.searchController,
+    required this.onChanged,
+  });
+
+  final String classLabel;
+  final TextEditingController searchController;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      decoration: const BoxDecoration(color: Colors.white),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              classLabel,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 260,
+            child: TextField(
+              controller: searchController,
+              onChanged: onChanged,
+              decoration: InputDecoration(
+                prefixIcon: const Icon(Icons.search),
+                hintText: 'Search Tools',
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                filled: true,
+                fillColor: const Color(0xFFF3F6FC),
+                border: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.black12.withOpacity(0.06)),
+                  borderRadius: BorderRadius.circular(20),
                 ),
-              );
-            } else if (item is String) {
-              existingOptions.add(_Option(id: item, title: item, votes: 0));
-            }
-          }
-        }
-      }
-
-      // 편집 화면의 옵션 목록(문자열들)을 기준으로 머지
-      final desiredTitles =
-          v.options
-              .map((e) => e.toString().trim())
-              .where((t) => t.isNotEmpty)
-              .toList();
-      final merged = _mergeOptionsByTitle(existingOptions, desiredTitles);
-
-      // 문서 쓰기
-      tx.set(docRef, {
-        'title': v.title,
-        'type': isMultiple ? 'multiple' : 'binary',
-        'active': v.status == VoteStatus.active,
-        'updatedAt': FieldValue.serverTimestamp(),
-        if (!snap.exists) 'createdAt': FieldValue.serverTimestamp(),
-        'options':
-            merged
-                .asMap()
-                .entries
-                .map(
-                  (e) => {
-                    'id': e.value.id.isNotEmpty ? e.value.id : 'opt_${e.key}',
-                    'title': e.value.title,
-                    'votes': e.value.votes,
-                  },
-                )
-                .toList(),
-      }, SetOptions(merge: true));
-    });
-  }
-
-  /// 진행중(active) 문서는 편집 시에도 Firestore 동기화(득표 유지).
-  Future<void> _maybeSyncIfActive(Vote v) async {
-    final doc =
-        await FirebaseFirestore.instance.collection('votes').doc(v.id).get();
-    final active =
-        (doc.data()?['active'] is bool)
-            ? (doc.data()?['active'] as bool)
-            : false;
-    if (active) {
-      await _upsertVoteToFirestore(v.copyWith(status: VoteStatus.active));
-    }
-  }
-
-  Future<void> _setVoteActive(String id, bool active) async {
-    await FirebaseFirestore.instance.collection('votes').doc(id).update({
-      'active': active,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
-
-  Future<void> _deleteVoteFromFirestore(String id) async {
-    await FirebaseFirestore.instance.collection('votes').doc(id).delete();
-  }
-
-  void _broadcastStart(Vote v) {
-    channel.postMessage(
-      jsonEncode({
-        'type': 'vote_start',
-        'voteId': v.id,
-        'title': v.title,
-        'voteType': v.type == VoteType.binary ? 'binary' : 'multiple',
-      }),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.black12.withOpacity(0.06)),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: const BorderSide(color: Color(0xFF8CA8FF)),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
+}
 
-  void _broadcastClose(String voteId) {
-    channel.postMessage(jsonEncode({'type': 'vote_close', 'voteId': voteId}));
-  }
+class _VoteCardItem extends StatelessWidget {
+  const _VoteCardItem({
+    required this.vote,
+    required this.onStart,
+    required this.onStop,
+    required this.onEdit,
+    required this.onDelete,
+  });
 
-  void _broadcastDelete(String id) {
-    channel.postMessage(jsonEncode({'type': 'vote_delete', 'voteId': id}));
+  final Vote vote;
+  final ValueChanged<Vote> onStart;
+  final ValueChanged<Vote> onStop;
+  final ValueChanged<Vote> onEdit;
+  final ValueChanged<Vote> onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final isActive = vote.status == VoteStatus.active;
+    final bg = const Color(0xFFEFF5FF);
+    final border = const Color(0xFFDBE6FF);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: border),
+      ),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 제목 + 삭제
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  vote.title,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Delete',
+                icon: const Icon(Icons.close),
+                onPressed: () => onDelete(vote),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          Row(
+            children: [
+              _StatusChip(status: vote.status),
+              const Spacer(),
+              if (!isActive)
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text('Start'),
+                  onPressed: () => onStart(vote),
+                ),
+              if (isActive)
+                FilledButton.icon(
+                  icon: const Icon(Icons.stop),
+                  label: const Text('Stop'),
+                  onPressed: () => onStop(vote),
+                ),
+              const SizedBox(width: 6),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.edit),
+                label: const Text('Edit'),
+                onPressed: () => onEdit(vote),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 
-/* ----------------- 내부 머지 도우미 ----------------- */
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.status});
+  final VoteStatus status;
 
-class _Option {
-  final String id;
-  final String title;
-  final int votes;
-  _Option({required this.id, required this.title, required this.votes});
-}
-
-/// Firestore에 이미 저장된 옵션(existing)을 유지하되,
-/// 편집 화면의 옵션(desiredTitles) 순서/구성을 반영.
-/// - 제목이 동일하면 투표수 유지
-/// - 새로 추가된 제목은 votes=0
-/// - 빠진 제목은 제거
-List<_Option> _mergeOptionsByTitle(
-  List<_Option> existing,
-  List<String> desiredTitles,
-) {
-  final map = <String, _Option>{};
-  for (final e in existing) {
-    map[_norm(e.title)] = e;
-  }
-  final out = <_Option>[];
-  for (final title in desiredTitles) {
-    final key = _norm(title);
-    if (map.containsKey(key)) {
-      final keep = map[key]!;
-      out.add(_Option(id: keep.id, title: keep.title, votes: keep.votes));
-    } else {
-      out.add(_Option(id: '', title: title, votes: 0));
+  @override
+  Widget build(BuildContext context) {
+    late Color c;
+    late String t;
+    switch (status) {
+      case VoteStatus.draft:
+        c = const Color(0xFFFFC36D);
+        t = 'Private';
+        break;
+      case VoteStatus.active:
+        c = const Color(0xFF41C983);
+        t = 'Active';
+        break;
+      case VoteStatus.closed:
+        c = Colors.grey;
+        t = 'Closed';
+        break;
     }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: c.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: c),
+      ),
+      child: Text(
+        t,
+        style: TextStyle(color: c, fontWeight: FontWeight.w700, fontSize: 12),
+      ),
+    );
   }
-  return out;
 }
-
-String _norm(String s) => s.trim().toLowerCase();
