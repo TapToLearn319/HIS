@@ -3,8 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 /// 대기 화면 커스터마이즈
-const Color kWaitingBgColor = Color(0xFF0B1324);
-const String kWaitingImageAsset = 'assets/display_wait.png'; // 없으면 아이콘 대체
+const Color kWaitingBgColor = Color.fromARGB(255, 246, 250, 255);
+const String kWaitingImageAsset = 'assets/logo_bird_standby.png'; // 없으면 아이콘 대체
 
 /// ✅ 컴팩트 리빌 모드: 리빌 시 하단에 추가 섹션(요약/상세 등) 전혀 표시하지 않음
 const bool kCompactReveal = true;
@@ -122,7 +122,6 @@ class _WaitingScreen extends StatelessWidget {
           children: [
             Image.asset(
               kWaitingImageAsset,
-              height: 200,
               errorBuilder: (_, __, ___) =>
                   const Icon(Icons.hourglass_top, color: Colors.white70, size: 100),
             ),

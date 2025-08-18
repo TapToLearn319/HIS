@@ -1,11 +1,13 @@
 // lib/pages/tools/presenter_tools_page.dart
 import 'package:flutter/material.dart';
+
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../sidebar_menu.dart';
 import 'timer/presenter_timer.dart';
 import 'vote/vote_manager.dart';
+
 
 // ▶ Tools 입장만으로 세션/좌석을 바로 준비시키기 위해 추가
 import '../../provider/session_provider.dart';
@@ -24,15 +26,15 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
   // 6개 카드
   final List<ToolItem> tools = [
     ToolItem(
-      id: 'timer',
-      title: 'Timer',
-      description: 'Manage class time with precision',
-      icon: Icons.timer_outlined,
-      color: const Color(0xFF3B82F6),
-      bgColor: const Color(0xFFEFF6FF),
-      usage: '24 sessions today',
-      trending: true,
-      route: '/tools/timer',
+      id: 'attendance',
+      title: 'Attendance',
+      description: 'Smart attendance tracking',
+      icon: Icons.check_circle_outline,
+      color: const Color(0xFFEF4444),
+      bgColor: const Color(0xFFFEF2F2),
+      usage: '',
+      trending: false,
+      route: '/tools/attendance',
     ),
     ToolItem(
       id: 'grouping',
@@ -41,10 +43,33 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       icon: Icons.groups_2_outlined,
       color: const Color(0xFF8B5CF6),
       bgColor: const Color(0xFFF5F3FF),
-      usage: '12 groups formed',
+      usage: '',
       trending: false,
       route: '/tools/grouping',
     ),
+    ToolItem(
+      id: 'random_seat',
+      title: 'Random Seat',
+      description: 'Optimal seat arrangements',
+      icon: Icons.location_on_outlined,
+      color: const Color(0xFF6366F1),
+      bgColor: const Color(0xFFEEF2FF),
+      usage: '',
+      trending: false,
+      route: '/tools/random_seat',
+    ),
+    ToolItem(
+      id: 'timer',
+      title: 'Timer',
+      description: 'Manage class time with precision',
+      icon: Icons.timer_outlined,
+      color: const Color(0xFF3B82F6),
+      bgColor: const Color(0xFFEFF6FF),
+      usage: '',
+      trending: false,
+      route: '/tools/timer',
+    ),
+    
     ToolItem(
       id: 'voting',
       title: 'Voting',
@@ -52,8 +77,8 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       icon: Icons.how_to_vote_outlined,
       color: const Color(0xFF10B981),
       bgColor: const Color(0xFFECFDF5),
-      usage: '8 active polls',
-      trending: true,
+      usage: '',
+      trending: false,
       route: '/tools/voting',
     ),
     ToolItem(
@@ -63,32 +88,12 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       icon: Icons.psychology_alt_outlined,
       color: const Color(0xFFF59E0B),
       bgColor: const Color(0xFFFFFBEB),
-      usage: '156 completed',
+      usage: "",
       trending: false,
       route: '/tools/quiz',
     ),
-    ToolItem(
-      id: 'attendance',
-      title: 'Attendance',
-      description: 'Smart attendance tracking',
-      icon: Icons.check_circle_outline,
-      color: const Color(0xFFEF4444),
-      bgColor: const Color(0xFFFEF2F2),
-      usage: '98% present today',
-      trending: false,
-      route: '/tools/attendance',
-    ),
-    ToolItem(
-      id: 'random_seat',
-      title: 'Random Seat',
-      description: 'Optimal seat arrangements',
-      icon: Icons.location_on_outlined,
-      color: const Color(0xFF6366F1),
-      bgColor: const Color(0xFFEEF2FF),
-      usage: '5 layouts saved',
-      trending: true,
-      route: '/tools/random_seat',
-    ),
+    
+    
   ];
 
   final List<QuickAction> quickActions = const [
@@ -107,6 +112,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ensureSessionAndBindSeatMap();
     });
+    
   }
 
   @override
@@ -193,87 +199,87 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 헤더
-              Material(
-                elevation: 1,
-                child: Container(
-                  width: double.infinity,
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: SafeArea(
-                    bottom: false,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Classroom Overview',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF111827),
-                                )),
-                            SizedBox(height: 2),
-                            Text('Manage your class efficiently',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF6B7280),
-                                )),
-                          ],
-                        ),
-                        if (wide)
-                          SizedBox(
-                            width: 280,
-                            child: TextField(
-                              decoration: InputDecoration(
-                                isDense: true,
-                                hintText: 'Search tools...',
-                                prefixIcon: const Icon(Icons.search, size: 18),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                filled: true,
-                                fillColor: const Color(0xFFFAFAFA),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
+              // Material(
+              //   elevation: 1,
+              //   child: Container(
+              //     width: double.infinity,
+              //     // decoration: const BoxDecoration(
+              //     //   color: Colors.white,
+              //     //   border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+              //     // ),
+              //     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              //     child: SafeArea(
+              //       bottom: false,
+              //       child: Row(
+              //         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              //         children: [
+              //           // const Column(
+              //           //   crossAxisAlignment: CrossAxisAlignment.start,
+              //           //   children: [
+              //           //     Text('Classroom Overview',
+              //           //         style: TextStyle(
+              //           //           fontSize: 18,
+              //           //           fontWeight: FontWeight.w600,
+              //           //           color: Color(0xFF111827),
+              //           //         )),
+              //           //     SizedBox(height: 2),
+              //           //     Text('Manage your class efficiently',
+              //           //         style: TextStyle(
+              //           //           fontSize: 12,
+              //           //           color: Color(0xFF6B7280),
+              //           //         )),
+              //           //   ],
+              //           // ),
+              //           // if (wide)
+              //           //   SizedBox(
+              //           //     width: 280,
+              //           //     child: TextField(
+              //           //       decoration: InputDecoration(
+              //           //         isDense: true,
+              //           //         hintText: 'Search tools...',
+              //           //         prefixIcon: const Icon(Icons.search, size: 18),
+              //           //         border: OutlineInputBorder(
+              //           //           borderRadius: BorderRadius.circular(10),
+              //           //         ),
+              //           //         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              //           //         filled: true,
+              //           //         fillColor: const Color(0xFFFAFAFA),
+              //           //       ),
+              //           //     ),
+              //           //   ),
+              //         ],
+              //       ),
+              //     ),
+              //   ),
+              // ),
+              // const SizedBox(height: 20),
 
               // 퀵 액션
-              const Text('Quick Actions',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
-              const SizedBox(height: 12),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: quickActions
-                      .map(
-                        (a) => Padding(
-                          padding: const EdgeInsets.only(right: 10),
-                          child: OutlinedButton.icon(
-                            onPressed: () {},
-                            icon: Icon(a.icon, size: 18, color: a.color),
-                            label: Text(a.label),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFF111827),
-                              side: const BorderSide(color: Color(0xFFE5E7EB)),
-                            ),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-              const SizedBox(height: 28),
+              // const Text('Quick Actions',
+              //     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
+              // const SizedBox(height: 12),
+              // SingleChildScrollView(
+              //   scrollDirection: Axis.horizontal,
+              //   child: Row(
+              //     children: quickActions
+              //         .map(
+              //           (a) => Padding(
+              //             padding: const EdgeInsets.only(right: 10),
+              //             child: OutlinedButton.icon(
+              //               onPressed: () {},
+              //               icon: Icon(a.icon, size: 18, color: a.color),
+              //               label: Text(a.label),
+              //               style: OutlinedButton.styleFrom(
+              //                 foregroundColor: const Color(0xFF111827),
+              //                 side: const BorderSide(color: Color(0xFFE5E7EB)),
+              //               ),
+              //             ),
+              //           ),
+              //         )
+              //         .toList(),
+              //   ),
+              // ),
+              // const SizedBox(height: 28),
 
               // 그리드 헤더
               Row(
@@ -281,7 +287,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
                 children: const [
                   Text('Classroom Tools',
                       style: TextStyle(
-                        fontSize: 18,
+                        fontSize: 48,
                         fontWeight: FontWeight.w600,
                         color: Color(0xFF111827),
                       )),

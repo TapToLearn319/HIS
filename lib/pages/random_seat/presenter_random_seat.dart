@@ -71,38 +71,32 @@ class _RandomSeatPageState extends State<RandomSeatPage> {
   // 랜덤 섞기 (Empty 제외)
   Future<void> _randomize() async {
   final seatMapProvider = context.read<SeatMapProvider>();
-  final studentsProvider = context.read<StudentsProvider>();
-  final current = Map<String, String?>.from(seatMapProvider.seatMap);
+  final seatMap = seatMapProvider.seatMap;
+  final seats = List.generate(24, (i) => _seatKey(i));
 
-  // 1) Empty 제외하고 현재 배정된 학생만 모으기
-  final assignedSeatKeys = <String>[];
-  final assignedStudentIds = <String>[];
-  for (int i = 0; i < 24; i++) {
-    final key = _seatKey(i);
-    final sid = current[key];
+  // 배정된 학생들만 추출 (Empty 제외)
+  final assigned = <String>[];
+  for (final s in seats) {
+    final sid = seatMap[s];
     if (sid != null && sid.isNotEmpty) {
-      assignedSeatKeys.add(key);
-      assignedStudentIds.add(sid);
+      assigned.add(sid);
     }
   }
-  if (assignedStudentIds.isEmpty) {
+  if (assigned.isEmpty) {
     _snack('배정된 학생이 없습니다.');
     return;
   }
 
-  // 2) 학생 id 셔플
-  assignedStudentIds.shuffle(Random());
+  // 랜덤 셔플
+  assigned.shuffle(Random());
 
-  // 3) 업데이트 맵 구성 (Empty 좌석은 건들지 않음)
-  final Map<String, String?> updates = {};
-  for (int i = 0; i < assignedSeatKeys.length; i++) {
-    updates[assignedSeatKeys[i]] = assignedStudentIds[i];
+  // Empty 좌석은 그대로 두고, 학생이 있던 좌석만 다시 채움
+  int idx = 0;
+  for (final s in seats) {
+    if (seatMap[s] != null && seatMap[s]!.isNotEmpty) {
+      await seatMapProvider.assignSeat(s, assigned[idx++]);
+    }
   }
-
-  // 4) ✅ 한 번에 커밋 + 한 번만 notify → UI가 동시에 바뀜
-  await seatMapProvider.assignSeatsBulk(updates);
-
-  _snack('랜덤 배치가 적용되었습니다.');
 }
 
   // 저장: 현재 좌석 상태로 새 세션을 만들고, 그 세션을 현재세션으로 전환

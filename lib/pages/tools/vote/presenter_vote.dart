@@ -14,7 +14,8 @@ class PresenterVotePage extends StatefulWidget {
   State<PresenterVotePage> createState() => _PresenterVotePageState();
 }
 
-class _PresenterVotePageState extends State<PresenterVotePage> {
+class _PresenterVotePageState extends State<PresenterVotePage>
+    with WidgetsBindingObserver {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _activeSub;
   String? _activeVoteId;
   bool _isRunning = false;
@@ -42,8 +43,18 @@ class _PresenterVotePageState extends State<PresenterVotePage> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _autoCloseIfRunning();
+    }
+  }
+
+  @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
     for (final t in const ['Great', "Its too difficult"]) {
       _optionCtrls.add(TextEditingController(text: t));
       _bindings.add(const _Binding(button: 1, gesture: 'hold'));
@@ -64,12 +75,41 @@ class _PresenterVotePageState extends State<PresenterVotePage> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _activeSub?.cancel();
     _titleCtrl.dispose();
     for (final c in _optionCtrls) {
       c.dispose();
     }
+
+    _autoCloseIfRunning();
+
     super.dispose();
+  }
+
+  Future<void> _autoCloseIfRunning() async {
+    if (!_isRunning) return;
+    _isRunning = false;
+
+    final sid = context.read<SessionProvider>().sessionId;
+    final id = _activeVoteId ?? widget.voteId;
+    if (sid == null || id == null) return;
+
+    try {
+      final doc = FirebaseFirestore.instance.doc('sessions/$sid/votes/$id');
+      await doc.set({
+        'status': 'closed',
+        'endedAt': FieldValue.serverTimestamp(),
+        'endedAtMs': DateTime.now().millisecondsSinceEpoch,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      await _updateHub(sid: sid, voteId: null);
+
+      if (mounted) setState(() => _isRunning = false);
+    } catch (e) {
+      debugPrint('[PresenterVote] autoCloseIfRunning error: $e');
+    }
   }
 
   Future<void> _updateHub({required String sid, String? voteId}) async {
@@ -363,161 +403,170 @@ class _PresenterVotePageState extends State<PresenterVotePage> {
   Widget build(BuildContext context) {
     final sid = context.watch<SessionProvider>().sessionId;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF6FAFF),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-        leading: IconButton(
-          tooltip: 'Back',
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.maybePop(context),
+    return WillPopScope(
+      onWillPop: () async {
+        await _autoCloseIfRunning();
+        return true;
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF6FAFF),
+        appBar: AppBar(
+          backgroundColor: Colors.white,
+          elevation: 0.5,
+          leading: IconButton(
+            tooltip: 'Back',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () async {
+              await _autoCloseIfRunning();
+              if (mounted) Navigator.maybePop(context);
+            },
+          ),
+          title: const Text('Vote'),
         ),
-        title: const Text('Vote'),
-      ),
-      body: Stack(
-        children: [
-          if (_loading)
-            const Center(child: CircularProgressIndicator())
-          else
-            Form(
-              key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 140),
-                children: [
-                  _sectionTitle('Poll Question'),
-                  const SizedBox(height: 8),
+        body: Stack(
+          children: [
+            if (_loading)
+              const Center(child: CircularProgressIndicator())
+            else
+              Form(
+                key: _formKey,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 140),
+                  children: [
+                    _sectionTitle('Poll Question'),
+                    const SizedBox(height: 8),
 
-                  Align(
-                    alignment: Alignment.center,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints.tightFor(
-                        width: 948,
-                        height: 65,
-                      ),
-                      child: TextFormField(
-                        controller: _titleCtrl,
-                        decoration: InputDecoration(
-                          hintText: 'Did you understand today’s lesson?',
-                          hintStyle: const TextStyle(
+                    Align(
+                      alignment: Alignment.center,
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints.tightFor(
+                          width: 948,
+                          height: 65,
+                        ),
+                        child: TextFormField(
+                          controller: _titleCtrl,
+                          decoration: InputDecoration(
+                            hintText: 'Did you understand today’s lesson?',
+                            hintStyle: const TextStyle(
+                              color: Color(0xFF001A36),
+                              // fontFamily: 'FONTSPRING DEMO - Lufga Medium',
+                              fontSize: 24,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 0,
+                            ),
+                            filled: true,
+                            fillColor: Colors.white,
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFD2D2D2),
+                                width: 1,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(
+                                color: Color(0xFFD2D2D2),
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                          style: const TextStyle(
                             color: Color(0xFF001A36),
                             // fontFamily: 'FONTSPRING DEMO - Lufga Medium',
                             fontSize: 24,
                             fontWeight: FontWeight.w500,
                           ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 0,
-                          ),
-                          filled: true,
-                          fillColor: Colors.white,
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                              color: Color(0xFFD2D2D2),
-                              width: 1,
-                            ),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(
-                              color: Color(0xFFD2D2D2),
-                              width: 1,
-                            ),
-                          ),
+                          validator:
+                              (v) =>
+                                  (v ?? '').trim().isEmpty
+                                      ? 'Enter the Question.'
+                                      : null,
                         ),
-                        style: const TextStyle(
-                          color: Color(0xFF001A36),
-                          // fontFamily: 'FONTSPRING DEMO - Lufga Medium',
-                          fontSize: 24,
-                          fontWeight: FontWeight.w500,
-                        ),
-                        validator:
-                            (v) =>
-                                (v ?? '').trim().isEmpty
-                                    ? 'Enter the Question.'
-                                    : null,
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 18),
+                    const SizedBox(height: 18),
 
-                  Center(
-                    child: Container(
-                      width: 948,
-                      alignment: Alignment.centerLeft,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: const [
-                          Text(
-                            'Poll Options',
-                            style: TextStyle(
-                              color: Color(0xFF001A36),
-                              fontSize: 24,
-                              fontWeight: FontWeight.w500,
-                              // fontFamily: 'Lufga',
+                    Center(
+                      child: Container(
+                        width: 948,
+                        alignment: Alignment.centerLeft,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            Text(
+                              'Poll Options',
+                              style: TextStyle(
+                                color: Color(0xFF001A36),
+                                fontSize: 24,
+                                fontWeight: FontWeight.w500,
+                                // fontFamily: 'Lufga',
+                              ),
                             ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            '*Up to 4',
-                            style: TextStyle(
-                              color: Color(0xFF001A36),
-                              fontSize: 15,
-                              fontWeight: FontWeight.w400,
-                              // fontFamily: 'Pretendard',
+                            SizedBox(height: 4),
+                            Text(
+                              '*Up to 4',
+                              style: TextStyle(
+                                color: Color(0xFF001A36),
+                                fontSize: 15,
+                                fontWeight: FontWeight.w400,
+                                // fontFamily: 'Pretendard',
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  _optionsCard(),
+                    const SizedBox(height: 8),
+                    _optionsCard(),
 
-                  const SizedBox(height: 18),
-                  _sectionTitle('Poll Settings'),
-                  const SizedBox(height: 8),
-                  _settingsCard(),
-                ],
+                    const SizedBox(height: 18),
+                    _sectionTitle('Poll Settings'),
+                    const SizedBox(height: 8),
+                    _settingsCard(),
+                  ],
+                ),
               ),
-            ),
 
-          Positioned(
-            right: 16,
-            bottom: 16,
-            child: SafeArea(
-              top: false,
-              child: SizedBox(
-                width: 160,
-                height: 160,
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: _handleStartStop,
-                    child: Padding(
-                      padding: const EdgeInsets.all(10.0),
-                      child: Image.asset(
-                        _isRunning
-                            ? 'assets/logo_bird_stop.png'
-                            : 'assets/logo_bird_start.png',
-                        fit: BoxFit.contain,
-                        // stop 이미지가 없을 때도 크래시 안 나도록 안전장치
-                        errorBuilder: (_, __, ___) {
-                          return Image.asset(
-                            'assets/logo_bird_start.png',
-                            fit: BoxFit.contain,
-                          );
-                        },
+            Positioned(
+              right: 16,
+              bottom: 16,
+              child: SafeArea(
+                top: false,
+                child: SizedBox(
+                  width: 160,
+                  height: 160,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: _handleStartStop,
+                      child: Padding(
+                        padding: const EdgeInsets.all(10.0),
+                        child: Image.asset(
+                          _isRunning
+                              ? 'assets/logo_bird_stop.png'
+                              : 'assets/logo_bird_start.png',
+                          fit: BoxFit.contain,
+                          // stop 이미지가 없을 때도 크래시 안 나도록 안전장치
+                          errorBuilder: (_, __, ___) {
+                            return Image.asset(
+                              'assets/logo_bird_start.png',
+                              fit: BoxFit.contain,
+                            );
+                          },
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
