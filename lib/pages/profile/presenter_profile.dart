@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../sidebar_menu.dart'; // AppScaffold
-import '../../login.dart';
 import '../../provider/students_provider.dart';
 
 const String kHubId = 'hub-001'; // 현재 허브(교실) ID
@@ -19,12 +18,6 @@ class PresenterMainPage extends StatefulWidget {
 class _PresenterMainPageState extends State<PresenterMainPage> {
   String selectedCategory = 'student';
   final List<String> categories = ['student', 'quiz'];
-
-  final List<Map<String, String>> quizItems = [
-    {'name': 'Timer', 'desc': 'Manage time effectively'},
-    {'name': 'OX Quiz', 'desc': 'True/False quick check'},
-    {'name': 'MCQ', 'desc': 'Multiple-choice quiz'},
-  ];
 
   // ---- Capture(대기 등록) 상태 ----
   bool _isCapturing = false;
@@ -440,12 +433,6 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
                     ),
                     Row(
                       children: [
-                        // OutlinedButton.icon(
-                        //   onPressed: _sanityWrite,
-                        //   icon: const Icon(Icons.health_and_safety),
-                        //   label: const Text('Test write'),
-                        // ),
-                        // const SizedBox(width: 8),
                         if (selectedCategory == 'student')
                           OutlinedButton.icon(
                             onPressed: _addStudent,
@@ -453,30 +440,6 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
                             label: const Text('Add student'),
                           ),
                         const SizedBox(width: 8),
-                        // OutlinedButton(
-                        //   onPressed: () {
-                        //     Navigator.pushReplacement(
-                        //       context,
-                        //       MaterialPageRoute(builder: (_) => const LoginPage()),
-                        //     );
-                        //   },
-                        //   style: OutlinedButton.styleFrom(
-                        //     side: const BorderSide(color: Colors.black),
-                        //     shape: RoundedRectangleBorder(
-                        //       borderRadius: BorderRadius.circular(32),
-                        //     ),
-                        //   ),
-                        //   child: const Padding(
-                        //     padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        //     child: Text(
-                        //       'Logout',
-                        //       style: TextStyle(
-                        //         fontWeight: FontWeight.bold,
-                        //         color: Colors.black,
-                        //       ),
-                        //     ),
-                        //   ),
-                        // ),
                       ],
                     ),
                   ],
@@ -546,229 +509,281 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
 
               // Grid
               Expanded(
-                child: GridView.count(
-                  padding: const EdgeInsets.all(12),
-                  crossAxisCount: 5,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 3 / 1.7,
-                  children: selectedCategory == 'student'
-                      ? entries.map((e) {
-                          final studentId = e.key;
-                          final name = (e.value['name'] as String?) ?? '(no name)';
-                          final color = getCategoryColor('student');
-
-                          return Card(
-                            shape: RoundedRectangleBorder(
-                              side: BorderSide(color: color, width: 1.5),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Stack(
-                              children: [
-                                // Settings icon (top-right)
-                                Positioned(
-                                  top: 6,
-                                  right: 6,
-                                  child: IconButton(
-                                    icon: const Icon(Icons.settings),
-                                    tooltip: 'Edit / Delete',
-                                    onPressed: () {
-                                      showModalBottomSheet(
-                                        context: context,
-                                        builder: (sheetCtx) => SafeArea(
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              ListTile(
-                                                leading: const Icon(Icons.edit),
-                                                title: const Text('Edit name'),
-                                                onTap: () async {
-                                                  Navigator.pop(sheetCtx);
-                                                  await _editStudentName(
-                                                    studentId: studentId,
-                                                    currentName: name,
-                                                  );
-                                                },
-                                              ),
-                                              ListTile(
-                                                leading: const Icon(Icons.delete, color: Colors.red),
-                                                title: const Text('Delete student'),
-                                                onTap: () async {
-                                                  Navigator.pop(sheetCtx);
-                                                  await _deleteStudent(
-                                                    studentId: studentId,
-                                                    name: name,
-                                                  );
-                                                },
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-
-                                // Body
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      // Name
-                                      Expanded(
-                                        child: Center(
-                                          child: Text(
-                                            name,
-                                            textAlign: TextAlign.center,
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w700,
-                                              color: Colors.black87,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-
-                                      // ▼ devices/{device} 실시간 매핑 표시 (Slot 1/2)
-                                      StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                                        stream: FirebaseFirestore.instance
-                                            .collection('devices')
-                                            .where('studentId', isEqualTo: studentId)
-                                            .snapshots(),
-                                        builder: (context, snap) {
-                                          String? s1;
-                                          String? s2;
-                                          if (snap.hasData) {
-                                            for (final d in snap.data!.docs) {
-                                              final si = d.data()['slotIndex']?.toString();
-                                              if (si == '1') s1 = d.id;
-                                              if (si == '2') s2 = d.id;
-                                            }
-                                          }
-                                          return Padding(
-                                            padding: const EdgeInsets.only(bottom: 8),
-                                            child: Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                              children: [
-                                                _slotChip('1', s1),
-                                                _slotChip('2', s2),
-                                              ],
-                                            ),
-                                          );
-                                        },
-                                      ),
-
-                                      // Action buttons (capture next press) — 오버플로우 방지: Wrap + compact style
-                                      Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                                        child: Wrap(
-                                          alignment: WrapAlignment.center,
-                                          spacing: 8,
-                                          runSpacing: 6,
-                                          children: [
-                                            _linkButton(
-                                              label: 'Add 1',
-                                              onTap: () => _captureButtonForSlot(
-                                                studentId: studentId,
-                                                slotIndex: '1',
-                                              ),
-                                            ),
-                                            _linkButton(
-                                              label: 'Add 2',
-                                              onTap: () => _captureButtonForSlot(
-                                                studentId: studentId,
-                                                slotIndex: '2',
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }).toList()
-                      : quizItems.map((item) {
-                          final color = getCategoryColor('quiz');
-                          return Card(
-                            shape: RoundedRectangleBorder(
-                              side: BorderSide(color: color, width: 1.5),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: InkWell(
-                              onTap: () {},
-                              child: Stack(
-                                children: [
-                                  Positioned(
-                                    top: 8,
-                                    right: 8,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: color.withOpacity(0.1),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Text(
-                                        'quiz',
-                                        style: TextStyle(
-                                          color: color,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  Center(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(Icons.apps, size: 44, color: Colors.black26),
-                                        const SizedBox(height: 6),
-                                        Text(
-                                          item['name']!,
-                                          textAlign: TextAlign.center,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Positioned(
-                                    left: 8,
-                                    right: 8,
-                                    bottom: 8,
-                                    child: Text(
-                                      item['desc']!,
-                                      textAlign: TextAlign.center,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 10,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                ),
+                child: selectedCategory == 'student'
+                    ? _buildStudentGrid(entries)
+                    : _buildTopicGrid(), // ✅ quiz 탭 → 토픽 카드 그리드
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  // 학생 그리드 (기존 유지)
+  Widget _buildStudentGrid(List<MapEntry<String, Map<String, dynamic>>> entries) {
+    final color = getCategoryColor('student');
+    return GridView.count(
+      padding: const EdgeInsets.all(12),
+      crossAxisCount: 5,
+      crossAxisSpacing: 12,
+      mainAxisSpacing: 12,
+      childAspectRatio: 3 / 1.7,
+      children: entries.map((e) {
+        final studentId = e.key;
+        final name = (e.value['name'] as String?) ?? '(no name)';
+        return Card(
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: color, width: 1.5),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Stack(
+            children: [
+              // Settings icon (top-right)
+              Positioned(
+                top: 6,
+                right: 6,
+                child: IconButton(
+                  icon: const Icon(Icons.settings),
+                  tooltip: 'Edit / Delete',
+                  onPressed: () {
+                    showModalBottomSheet(
+                      context: context,
+                      builder: (sheetCtx) => SafeArea(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ListTile(
+                              leading: const Icon(Icons.edit),
+                              title: const Text('Edit name'),
+                              onTap: () async {
+                                Navigator.pop(sheetCtx);
+                                await _editStudentName(
+                                  studentId: studentId,
+                                  currentName: name,
+                                );
+                              },
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.delete, color: Colors.red),
+                              title: const Text('Delete student'),
+                              onTap: () async {
+                                Navigator.pop(sheetCtx);
+                                await _deleteStudent(
+                                  studentId: studentId,
+                                  name: name,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              // Body
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // Name
+                    Expanded(
+                      child: Center(
+                        child: Text(
+                          name,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    // ▼ devices/{device} 실시간 매핑 표시 (Slot 1/2)
+                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: FirebaseFirestore.instance
+                          .collection('devices')
+                          .where('studentId', isEqualTo: studentId)
+                          .snapshots(),
+                      builder: (context, snap) {
+                        String? s1;
+                        String? s2;
+                        if (snap.hasData) {
+                          for (final d in snap.data!.docs) {
+                            final si = d.data()['slotIndex']?.toString();
+                            if (si == '1') s1 = d.id;
+                            if (si == '2') s2 = d.id;
+                          }
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              _slotChip('1', s1),
+                              _slotChip('2', s2),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+
+                    // Action buttons
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Wrap(
+                        alignment: WrapAlignment.center,
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          _linkButton(
+                            label: 'Add 1',
+                            onTap: () => _captureButtonForSlot(
+                              studentId: studentId,
+                              slotIndex: '1',
+                            ),
+                          ),
+                          _linkButton(
+                            label: 'Add 2',
+                            onTap: () => _captureButtonForSlot(
+                              studentId: studentId,
+                              slotIndex: '2',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  // 토픽 그리드 (quiz 탭)
+  Widget _buildTopicGrid() {
+    final color = getCategoryColor('quiz');
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('quizTopics')
+          .orderBy('createdAt', descending: true)
+          .snapshots(),
+      builder: (context, snap) {
+        if (snap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final topics = snap.data?.docs ?? const [];
+        if (topics.isEmpty) {
+          return const Center(child: Text('No topics yet. Create one in Presenter Quiz.'));
+        }
+        return GridView.count(
+          padding: const EdgeInsets.all(12),
+          crossAxisCount: 5,
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 3 / 1.7,
+          children: topics.map((d) {
+            final x = d.data();
+            final title = (x['title'] as String?) ?? '(untitled)';
+            final status = (x['status'] as String?) ?? 'draft';
+            final statusColor = _statusColor(status);
+
+            return Card(
+              shape: RoundedRectangleBorder(
+                side: BorderSide(color: color, width: 1.5),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: InkWell(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => _TopicStatsPage(topicId: d.id)),
+                  );
+                },
+                child: Stack(
+                  children: [
+                    // status pill
+                    Positioned(
+                      top: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        decoration: BoxDecoration(
+                          color: statusColor.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: statusColor),
+                        ),
+                        child: Text(
+                          status.toUpperCase(),
+                          style: TextStyle(
+                            color: statusColor,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // title
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // id bottom
+                    Positioned(
+                      left: 8,
+                      right: 8,
+                      bottom: 8,
+                      child: Text(
+                        d.id,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        );
+      },
+    );
+  }
+
+  Color _statusColor(String s) {
+    switch (s) {
+      case 'running':
+        return Colors.green;
+      case 'stopped':
+        return Colors.grey;
+      default:
+        return Colors.orange;
+    }
   }
 
   // 컴팩트 링크 버튼
@@ -780,8 +795,256 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
       style: OutlinedButton.styleFrom(
         visualDensity: VisualDensity.compact,
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        minimumSize: const Size(0, 36), // 폭 제약 완화
+        minimumSize: const Size(0, 36),
       ),
+    );
+  }
+}
+
+/// ─────────────────────────────────────────────────────────────────
+/// 토픽 통계 페이지: 퀴즈별로 선택 분포 + 정답률
+/// ─────────────────────────────────────────────────────────────────
+class _TopicStatsPage extends StatelessWidget {
+  const _TopicStatsPage({super.key, required this.topicId});
+  final String topicId;
+
+  @override
+  Widget build(BuildContext context) {
+    final fs = FirebaseFirestore.instance;
+    final topicRef = fs.doc('quizTopics/$topicId');
+    final quizzesStream =
+        fs.collection('quizTopics/$topicId/quizzes').orderBy('createdAt').snapshots();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Quiz stats'),
+        actions: [
+          IconButton(
+            tooltip: 'Refresh',
+            onPressed: () {}, // StreamBuilder가 자동 갱신
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        future: topicRef.get(),
+        builder: (context, topicSnap) {
+          final topicTitle = topicSnap.hasData
+              ? (topicSnap.data!.data()?['title']?.toString() ?? '(untitled)')
+              : '(loading…)';
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: Text('Topic • $topicTitle',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+              ),
+              const Divider(height: 0),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: quizzesStream,
+                  builder: (context, snap) {
+                    if (snap.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final quizzes = snap.data?.docs ?? const [];
+                    if (quizzes.isEmpty) {
+                      return const Center(child: Text('No quizzes in this topic.'));
+                    }
+                    return ListView.separated(
+                      padding: const EdgeInsets.all(12),
+                      itemCount: quizzes.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (_, i) {
+                        final qDoc = quizzes[i];
+                        return _QuizStatCard(topicId: topicId, quizDoc: qDoc);
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _QuizStatCard extends StatelessWidget {
+  const _QuizStatCard({super.key, required this.topicId, required this.quizDoc});
+  final String topicId;
+  final QueryDocumentSnapshot<Map<String, dynamic>> quizDoc;
+
+  @override
+  Widget build(BuildContext context) {
+    final x = quizDoc.data();
+    final question = (x['question'] as String?) ?? '(no question)';
+    final List choices = (x['choices'] as List?) ?? const [];
+    final int? correct = (x['correctIndex'] as num?)?.toInt();
+    final List<int> correctList =
+        ((x['correctIndices'] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
+    final bool allowMultiple = correctList.isNotEmpty;
+    final List triggers = (x['triggers'] as List?) ?? const [];
+    final bool anonymous = (x['anonymous'] as bool?) ?? false;
+
+    bool _isCorrectIdx(int idx) => allowMultiple ? correctList.contains(idx) : (correct != null && idx == correct);
+
+    final fs = FirebaseFirestore.instance;
+
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: fs.doc('quizTopics/$topicId/results/${quizDoc.id}').get(),
+      builder: (context, resSnap) {
+        final res = resSnap.data?.data();
+        final List<int> counts =
+            ((res?['counts'] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
+        final int total = counts.fold<int>(0, (p, c) => p + c);
+
+        // 정답률 계산
+        int correctVotes = 0;
+        if (total > 0) {
+          if (allowMultiple) {
+            for (final idx in correctList) {
+              if (idx >= 0 && idx < counts.length) correctVotes += counts[idx];
+            }
+          } else {
+            if (correct != null && correct >= 0 && correct < counts.length) {
+              correctVotes = counts[correct];
+            }
+          }
+        }
+        final double rate = total == 0 ? 0 : (correctVotes / total) * 100;
+
+        return Card(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // 제목 + 설정 뱃지
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        question,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    Wrap(
+                      spacing: 6,
+                      children: [
+                        if (allowMultiple)
+                          const Chip(visualDensity: VisualDensity.compact, label: Text('복수정답')),
+                        if (anonymous)
+                          const Chip(visualDensity: VisualDensity.compact, label: Text('익명')),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // 정답률 + 총 투표수
+                Row(
+                  children: [
+                    const Icon(Icons.analytics, size: 18, color: Colors.indigo),
+                    const SizedBox(width: 6),
+                    Text('정답률 ${rate.toStringAsFixed(1)}%  •  총 ${total}명',
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // 보기별 분포
+                for (int i = 0; i < choices.length; i++) ...[
+                  _ChoiceStatRow(
+                    label: '${String.fromCharCode(65 + i)}. ${choices[i]}',
+                    triggerKey: triggers.length > i ? (triggers[i] as String?) : null,
+                    isCorrect: _isCorrectIdx(i),
+                    count: (i < counts.length) ? counts[i] : 0,
+                    total: total,
+                  ),
+                  if (i != choices.length - 1) const SizedBox(height: 6),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _ChoiceStatRow extends StatelessWidget {
+  const _ChoiceStatRow({
+    super.key,
+    required this.label,
+    required this.triggerKey,
+    required this.isCorrect,
+    required this.count,
+    required this.total,
+  });
+
+  final String label;
+  final String? triggerKey;
+  final bool isCorrect;
+  final int count;
+  final int total;
+
+  String get _triggerLabel {
+    switch (triggerKey) {
+      case 'S1_CLICK':
+        return 'Slot 1 • Click';
+      case 'S1_HOLD':
+        return 'Slot 1 • Hold';
+      case 'S2_CLICK':
+        return 'Slot 2 • Click';
+      case 'S2_HOLD':
+        return 'Slot 2 • Hold';
+      default:
+        return 'No trigger';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = total == 0 ? 0.0 : (count / total);
+    return Column(
+      children: [
+        Row(
+          children: [
+            Chip(
+              visualDensity: VisualDensity.compact,
+              side: BorderSide(color: triggerKey == null ? Colors.grey : Colors.indigo),
+              backgroundColor: (triggerKey == null ? Colors.grey : Colors.indigo).withOpacity(0.08),
+              label: Text(_triggerLabel, style: TextStyle(color: triggerKey == null ? Colors.grey : Colors.indigo)),
+            ),
+            const SizedBox(width: 8),
+            Icon(isCorrect ? Icons.check_circle : Icons.circle_outlined,
+                size: 18, color: isCorrect ? Colors.green : Colors.grey),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(label, overflow: TextOverflow.ellipsis),
+            ),
+            Chip(
+              visualDensity: VisualDensity.compact,
+              label: Text(' $count '),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        // 퍼센트 바
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: LinearProgressIndicator(
+            value: pct.clamp(0.0, 1.0),
+            minHeight: 8,
+            backgroundColor: Colors.grey.shade200,
+          ),
+        ),
+      ],
     );
   }
 }

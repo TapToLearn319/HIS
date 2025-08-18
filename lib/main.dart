@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:project/pages/ai_chat/presenter_ai_char.dart';
+import 'package:project/pages/random_seat/presenter_random_seat.dart';
 import 'package:project/pages/tools/groupMaking/display_group_page.dart';
 import 'package:project/pages/tools/groupMaking/presenter_group_page.dart';
 import 'package:project/pages/tools/timer/display_timer.dart';
@@ -159,6 +160,7 @@ class PresenterApp extends StatelessWidget {
             '/tools/grouping': (_) =>  PresenterGroupPage(),
             '/tools/voting': (_) =>  PresenterVotePage(),
             '/tools/attendance': (_) =>  PresenterHomePage(),
+            '/tools/random_seat': (_) =>  RandomSeatPage(),
           },
         );
       },
@@ -224,6 +226,8 @@ class _DisplayAppState extends State<DisplayApp> {
             '/tools/timer': (_) =>  DisplayTimerPage(),
             '/tools/voting': (_) =>  DisplayVotePage(),
             '/tools/grouping': (_) =>  GroupDisplayPage(),
+            '/tools/random_seat': (_) =>  DisplayStandByPage(),
+
           },
         );
       },

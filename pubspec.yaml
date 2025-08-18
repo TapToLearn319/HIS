@@ -38,3 +38,5 @@ flutter:
     - assets/logo_bird_start.png
     - assets/logo_bird_stop.png
     - assets/logo_bird_standby.png
+    - assets/logo_bird_save.png
+    - assets/logo_bird_create.png

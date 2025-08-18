@@ -4,12 +4,17 @@ import 'package:flutter/material.dart';
 
 const String kHubId = 'hub-001'; // 집계용: hubs/{hubId}.currentSessionId 사용
 
+// 둥둥 뜨는 FAB용 이미지(원하는 경로로 교체하세요)
+const String kFabCreateTopicAsset = 'assets/icons/fab_create_topic.png';
+const String kFabAddQuizAsset = 'assets/icons/fab_add_quiz.png';
+const String kSaveIconAsset = 'assets/icons/save_quiz.png';
+
 /// Presenter Quiz (Top-level: quizTopics/{topicId}/quizzes/{quizId})
 /// - Topic: title, status(draft|running|stopped), startedAt, endedAt,
 ///          currentIndex, currentQuizId, phase('question'|'reveal'|'finished'),
 ///          questionStartedAt, showSummaryOnDisplay
-/// - Quiz: question, choices[2..4], correctIndex, triggers[per choice]
-///         triggers values: S1_CLICK, S1_HOLD, S2_CLICK, S2_HOLD
+/// - Quiz: question, choices[2..4], correctIndex | correctIndices[], triggers[per choice],
+///         anonymous(bool), allowMultiple(bool), showMode('realtime'|'after')
 /// - Result: quizTopics/{topicId}/results/{quizId}
 ///           { counts: int[], correctIndex, startedAt, endedAt, computedAt }
 class PresenterQuizPage extends StatelessWidget {
@@ -18,6 +23,7 @@ class PresenterQuizPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color.fromARGB(255, 246, 250, 255),
       appBar: AppBar(
         leading: IconButton(
           tooltip: 'Back',
@@ -25,17 +31,19 @@ class PresenterQuizPage extends StatelessWidget {
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text('Quiz (Presenter)'),
-        actions: [
-          IconButton(
-            tooltip: 'Create topic',
-            icon: const Icon(Icons.create_new_folder_outlined),
-            onPressed: () => _createTopicDialog(context),
-          ),
+      ),
+      body: Stack(
+        children: const [
+          _TopicList(),
+          _CreateTopicFab(), // 오른쪽 아래 둥둥 FAB
         ],
       ),
-      body: const _TopicList(),
     );
   }
+}
+
+class _CreateTopicFab extends StatelessWidget {
+  const _CreateTopicFab();
 
   Future<void> _createTopicDialog(BuildContext context) async {
     final c = TextEditingController();
@@ -68,12 +76,22 @@ class PresenterQuizPage extends StatelessWidget {
         'updatedAt': FieldValue.serverTimestamp(),
         'currentIndex': null,
         'currentQuizId': null,
-        'phase': 'finished', // 초기엔 진행 아님
+        'phase': 'finished',
         'questionStartedAt': null,
         'showSummaryOnDisplay': false,
       });
       _snack(context, 'Topic created.');
     }
+    c.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _DraggableFabImage(
+      assetPath: kFabCreateTopicAsset,
+      semanticsLabel: 'Create topic',
+      onTap: () => _createTopicDialog(context),
+    );
   }
 }
 
@@ -94,10 +112,7 @@ class _TopicList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
-    final stream = fs
-        .collection('quizTopics')
-        .orderBy('createdAt', descending: true)
-        .snapshots();
+    final stream = fs.collection('quizTopics').orderBy('createdAt', descending: true).snapshots();
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: stream,
@@ -108,7 +123,7 @@ class _TopicList extends StatelessWidget {
         if (!snap.hasData || snap.data!.docs.isEmpty) {
           return const _EmptyState(
             title: 'No topics yet',
-            subtitle: '우측 상단 + 아이콘으로 토픽을 만들어 주세요.',
+            subtitle: '오른쪽 아래 버튼으로 토픽을 만들어 주세요.',
           );
         }
 
@@ -123,6 +138,7 @@ class _TopicList extends StatelessWidget {
             final color = _statusColor(status);
 
             return Card(
+              color: Colors.white,
               child: ListTile(
                 title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
                 subtitle: Row(
@@ -159,7 +175,6 @@ class _TopicList extends StatelessWidget {
                       ),
                     );
                     if (ok == true) {
-                      // 하위 quizzes, results 삭제
                       final qs = await fs.collection('quizTopics/${d.id}/quizzes').get();
                       final rs = await fs.collection('quizTopics/${d.id}/results').get();
                       final batch = fs.batch();
@@ -174,9 +189,7 @@ class _TopicList extends StatelessWidget {
                 onTap: () {
                   Navigator.push(
                     context,
-                    MaterialPageRoute(
-                      builder: (_) => _TopicDetailPage(topicId: d.id),
-                    ),
+                    MaterialPageRoute(builder: (_) => _TopicDetailPage(topicId: d.id)),
                   );
                 },
               ),
@@ -198,10 +211,8 @@ class _TopicDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
     final topicStream = fs.doc('quizTopics/$topicId').snapshots();
-    final quizzesStream = fs
-        .collection('quizTopics/$topicId/quizzes')
-        .orderBy('createdAt', descending: false) // 진행 순서 = 생성 순서
-        .snapshots();
+    final quizzesStream =
+        fs.collection('quizTopics/$topicId/quizzes').orderBy('createdAt', descending: false).snapshots();
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: topicStream,
@@ -219,102 +230,205 @@ class _TopicDetailPage extends StatelessWidget {
           builder: (context, snap) {
             final quizzes = snap.data?.docs ?? const [];
             return Scaffold(
-              appBar: AppBar(
-                leading: IconButton(
-                  tooltip: 'Back',
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () => Navigator.pop(context),
-                ),
-                title: Text('Topic • $title'),
-                actions: [
-                  IconButton(
-                    tooltip: 'Create quiz',
-                    icon: const Icon(Icons.note_add_outlined),
-                    onPressed: () => _createQuizDialog(context, fs),
+  backgroundColor: const Color.fromARGB(255, 246, 250, 255),
+  appBar: AppBar(
+    leading: IconButton(
+      tooltip: 'Back',
+      icon: const Icon(Icons.arrow_back),
+      onPressed: () => Navigator.pop(context),
+    ),
+    title: Text('Topic • $title'),
+  ),
+  body: Stack(
+    children: [
+      Column(
+        children: [
+          _RunBar(
+            topicId: topicId,
+            quizzes: quizzes,
+            status: status,
+            phase: phase,
+            currentIndex: currentIndex,
+            currentQuizId: currentQuizId,
+            questionStartedAt: questionStartedAt,
+          ),
+          const Divider(height: 0),
+          Expanded(
+            child: quizzes.isEmpty
+                ? const _EmptyState(
+                    title: 'No quizzes',
+                    subtitle: '오른쪽 아래 버튼으로 퀴즈를 추가해 주세요.',
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemBuilder: (_, i) => _QuizCardTile(
+                      topicId: topicId,
+                      fs: fs,
+                      quizDoc: quizzes[i],
+                      isCurrent: currentQuizId == quizzes[i].id,
+                      topicStatus: status,
+                    ),
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemCount: quizzes.length,
                   ),
-                ],
-              ),
-              body: Column(
-                children: [
-                  // 진행 컨트롤 바
-                  _RunBar(
-                    topicId: topicId,
-                    quizzes: quizzes,
-                    status: status,
-                    phase: phase,
-                    currentIndex: currentIndex,
-                    currentQuizId: currentQuizId,
-                    questionStartedAt: questionStartedAt,
-                  ),
-                  const Divider(height: 0),
-                  // 퀴즈 목록
-                  Expanded(
-                    child: quizzes.isEmpty
-                        ? const _EmptyState(
-                            title: 'No quizzes',
-                            subtitle: '우측 상단 + 아이콘으로 퀴즈를 만들어 주세요.',
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.all(16),
-                            itemBuilder: (_, i) => _quizCard(context, fs, quizzes[i], topic,
-                                isCurrent: currentQuizId == quizzes[i].id),
-                            separatorBuilder: (_, __) => const SizedBox(height: 10),
-                            itemCount: quizzes.length,
-                          ),
-                  ),
-                ],
-              ),
-            );
+          ),
+        ],
+      ),
+
+      // ⬇️ 여기로 교체
+      _CreateQuizFabImage(
+        topicId: topicId,
+        fs: fs,
+        isRunning: status == 'running', // 이미지 토글 용(동작은 동일)
+      ),
+    ],
+  ),
+);
           },
         );
       },
     );
   }
+}
+class _CreateQuizFabImage extends StatelessWidget {
+  const _CreateQuizFabImage({
+    required this.topicId,
+    required this.fs,
+    this.isRunning = false,
+  });
 
-  // 개별 퀴즈 카드 + 최근 결과 표시 + 편집/삭제
-  Widget _quizCard(
-    BuildContext context,
-    FirebaseFirestore fs,
-    QueryDocumentSnapshot<Map<String, dynamic>> d,
-    Map<String, dynamic>? topic, {
-    required bool isCurrent,
-  }) {
+  final String topicId;
+  final FirebaseFirestore fs;
+  final bool isRunning;
+
+  Future<void> _handleStartStop(BuildContext context) async {
+    // 실제 동작: 퀴즈 생성 화면으로 이동
+    final created = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _CreateQuizPage(topicId: topicId, fs: fs),
+        fullscreenDialog: true,
+      ),
+    );
+    if (created == true && context.mounted) {
+      _snack(context, 'Quiz created.');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      right: 16,
+      bottom: 16,
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          width: 160,
+          height: 160,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _handleStartStop(context),
+              child: Padding(
+                padding: const EdgeInsets.all(10.0),
+                child: Image.asset(
+                  'assets/logo_bird_create.png', // 그 외엔 start 이미지
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) {
+                    // 에셋 없을 때 안전장치: 기본 아이콘
+                    return const Icon(Icons.add_circle, size: 48, color: Colors.indigo);
+                  },
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+// ------------------- 퀴즈 카드 (more를 누르면만 옵션+인원 표시) -------------------
+
+class _QuizCardTile extends StatefulWidget {
+  const _QuizCardTile({
+    required this.topicId,
+    required this.fs,
+    required this.quizDoc,
+    required this.isCurrent,
+    required this.topicStatus,
+  });
+
+  final String topicId;
+  final FirebaseFirestore fs;
+  final QueryDocumentSnapshot<Map<String, dynamic>> quizDoc;
+  final bool isCurrent;
+  final String topicStatus;
+
+  @override
+  State<_QuizCardTile> createState() => _QuizCardTileState();
+}
+
+class _QuizCardTileState extends State<_QuizCardTile> {
+  bool _showMore = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final d = widget.quizDoc;
     final x = d.data();
     final question = (x['question'] as String?) ?? '(no question)';
     final List choices = (x['choices'] as List?) ?? const [];
-    final correct = (x['correctIndex'] as num?)?.toInt();
+    final int? correct = (x['correctIndex'] as num?)?.toInt();
+    final List<int> correctList =
+        ((x['correctIndices'] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
+    final bool allowMultiple = correctList.isNotEmpty;
     final List triggers = (x['triggers'] as List?) ?? const [];
-    final status = (topic?['status'] as String?) ?? 'draft';
+    final bool anonymous = (x['anonymous'] as bool?) ?? false;
+
+    bool _isCorrectIdx(int idx) => allowMultiple ? correctList.contains(idx) : (correct != null && idx == correct);
 
     return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: fs.doc('quizTopics/$topicId/results/${d.id}').get(),
+      future: widget.fs.doc('quizTopics/${widget.topicId}/results/${d.id}').get(),
       builder: (context, resSnap) {
         final res = resSnap.data?.data();
-        final List? counts = res?['counts'] as List?;
+        final List<int> counts =
+            ((res?['counts'] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
+        final total = counts.fold<int>(0, (p, c) => p + c);
+
         return Card(
+          color: Colors.white,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // 제목 + 액션
+                // ── 헤더: 타이틀만 보이게(요청) + 우측 액션들 ──
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
-                      child: Text(question, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                      child: Text(
+                        question,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                     IconButton(
-                      tooltip: 'Edit quiz',
-                      icon: const Icon(Icons.edit),
-                      onPressed: () => _editQuizDialog(context, fs, quizId: d.id, initial: x),
+                      tooltip: 'Edit (설정)',
+                      icon: const Icon(Icons.settings),
+                      onPressed: () => _editQuizDialog(context, widget.fs, quizId: d.id, initial: x),
+                    ),
+                    IconButton(
+                      tooltip: _showMore ? 'Less' : 'More',
+                      icon: Icon(_showMore ? Icons.expand_less : Icons.more_vert),
+                      onPressed: () => setState(() => _showMore = !_showMore),
                     ),
                     IconButton(
                       tooltip: 'Delete quiz',
                       icon: const Icon(Icons.delete_outline, color: Colors.red),
                       onPressed: () async {
-                        // 진행 중이고 현재 문제면 삭제 차단(안전)
-                        if (status == 'running' && isCurrent) {
+                        if (widget.topicStatus == 'running' && widget.isCurrent) {
                           _snack(context, '현재 진행 중인 퀴즈는 삭제할 수 없습니다. Next/Finish 후 삭제하세요.');
                           return;
                         }
@@ -330,9 +444,9 @@ class _TopicDetailPage extends StatelessWidget {
                           ),
                         );
                         if (ok == true) {
-                          final batch = fs.batch();
-                          batch.delete(fs.doc('quizTopics/$topicId/quizzes/${d.id}'));
-                          batch.delete(fs.doc('quizTopics/$topicId/results/${d.id}'));
+                          final batch = widget.fs.batch();
+                          batch.delete(widget.fs.doc('quizTopics/${widget.topicId}/quizzes/${d.id}'));
+                          batch.delete(widget.fs.doc('quizTopics/${widget.topicId}/results/${d.id}'));
                           await batch.commit();
                           _snack(context, 'Quiz deleted.');
                         }
@@ -340,35 +454,76 @@ class _TopicDetailPage extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
 
-                // 본문
-                for (int idx = 0; idx < choices.length; idx++)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(
-                          idx == correct ? Icons.check_circle : Icons.circle_outlined,
-                          size: 18,
-                          color: idx == correct ? Colors.green : Colors.grey,
+                // ── more 펼쳤을 때만: 설정 뱃지 + "누르는 방식"별 인원수 ──
+                if (_showMore) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      if (allowMultiple)
+                        const Padding(
+                          padding: EdgeInsets.only(right: 6),
+                          child: Chip(visualDensity: VisualDensity.compact, label: Text('복수정답')),
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(child: Text('${String.fromCharCode(65 + idx)}. ${choices[idx]}')),
-                        const SizedBox(width: 8),
-                        _triggerChip(triggers.length > idx ? (triggers[idx] as String?) : null),
-                        if (counts != null && idx < counts.length)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 8),
-                            child: Chip(
-                              visualDensity: VisualDensity.compact,
-                              label: Text(' ${counts[idx]} '),
+                      if (anonymous)
+                        const Chip(visualDensity: VisualDensity.compact, label: Text('익명')),
+                    ],
+                  ),
+                  const Divider(height: 18),
+
+                  // 제목
+                  Row(
+                    children: const [
+                      Icon(Icons.touch_app, size: 18, color: Colors.indigo),
+                      SizedBox(width: 6),
+                      Text('누르는 방식 및 인원수', style: TextStyle(fontWeight: FontWeight.w700, color: Colors.indigo)),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+
+                  // 각 옵션: 트리거칩 + (정답표시) + 텍스트 + 인원칩
+                  for (int i = 0; i < choices.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          // 트리거(누르는 방식)
+                          _triggerChip(triggers.length > i ? (triggers[i] as String?) : null),
+                          const SizedBox(width: 8),
+
+                          // 정답 표시 아이콘
+                          Icon(
+                            _isCorrectIdx(i) ? Icons.check_circle : Icons.circle_outlined,
+                            size: 18,
+                            color: _isCorrectIdx(i) ? Colors.green : Colors.grey,
+                          ),
+                          const SizedBox(width: 6),
+
+                          // 보기 텍스트
+                          Expanded(
+                            child: Text(
+                              '${String.fromCharCode(65 + i)}. ${choices[i]}',
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                      ],
+
+                          // 인원수
+                          Chip(
+                            visualDensity: VisualDensity.compact,
+                            label: Text(' ${i < counts.length ? counts[i] : 0} '),
+                          ),
+                        ],
+                      ),
                     ),
+
+                  // 총계
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: Text('총 ${total}명', style: const TextStyle(fontWeight: FontWeight.w700)),
                   ),
+                ],
               ],
             ),
           ),
@@ -376,471 +531,227 @@ class _TopicDetailPage extends StatelessWidget {
       },
     );
   }
+}
 
-  // ── Create quiz dialog (choices + correct + Flic trigger mapping) ──
-  static const _kTriggerOptions = <String, String>{
-    'S1_CLICK': 'Slot 1 • Click',
-    'S1_HOLD' : 'Slot 1 • Hold',
-    'S2_CLICK': 'Slot 2 • Click',
-    'S2_HOLD' : 'Slot 2 • Hold',
-  };
+// ------------------- 공용 트리거칩/에딧 다이얼로그 등 -------------------
 
-  Widget _triggerChip(String? key) {
-    final label = key == null ? 'No trigger' : _kTriggerOptions[key] ?? key;
-    final color = key == null ? Colors.grey : Colors.indigo;
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      side: BorderSide(color: color),
-      backgroundColor: color.withOpacity(0.08),
-      label: Text(label, style: TextStyle(color: color)),
-    );
+const _kTriggerLabel = <String, String>{
+  'S1_CLICK': 'Slot 1 • Click',
+  'S1_HOLD': 'Slot 1 • Hold',
+  'S2_CLICK': 'Slot 2 • Click',
+  'S2_HOLD': 'Slot 2 • Hold',
+};
+
+Widget _triggerChip(String? key) {
+  final label = key == null ? 'No trigger' : _kTriggerLabel[key] ?? key;
+  final color = key == null ? Colors.grey : Colors.indigo;
+  return Chip(
+    visualDensity: VisualDensity.compact,
+    side: BorderSide(color: color),
+    backgroundColor: color.withOpacity(0.08),
+    label: Text(label, style: TextStyle(color: color)),
+  );
+}
+
+// ── Edit dialog (단일정답 유지) ──
+Future<void> _editQuizDialog(
+  BuildContext context,
+  FirebaseFirestore fs, {
+  required String quizId,
+  required Map<String, dynamic> initial,
+}) async {
+  final qCtrl = TextEditingController(text: (initial['question'] as String?) ?? '');
+  final List initChoices = (initial['choices'] as List?) ?? const [];
+  final List initTriggers = (initial['triggers'] as List?) ?? const [];
+  int correctIndex = (initial['correctIndex'] as num?)?.toInt() ?? 0;
+
+  final choiceCtrls = <TextEditingController>[
+    for (final c in initChoices) TextEditingController(text: c.toString()),
+  ];
+  if (choiceCtrls.length < 2) choiceCtrls.addAll([TextEditingController(), TextEditingController()]);
+  final triggerKeys = <String?>[...initTriggers.map((e) => e?.toString()).cast<String?>()];
+  while (triggerKeys.length < choiceCtrls.length) {
+    triggerKeys.add(null);
   }
 
-  Future<void> _createQuizDialog(BuildContext context, FirebaseFirestore fs) async {
-    final qCtrl = TextEditingController();
-    final choiceCtrls = <TextEditingController>[
-      TextEditingController(),
-      TextEditingController(),
-    ];
-    int correctIndex = 0;
-    final triggerKeys = <String?>['S1_CLICK', 'S2_CLICK']; // 기본값 2개
-
-    List<String> _availableForIndex(int idx) {
-      final used = triggerKeys.toList()..removeAt(idx);
-      return _kTriggerOptions.keys.where((k) => !used.contains(k)).toList();
-    }
-
-    void _ensureTriggerLength() {
-      while (triggerKeys.length < choiceCtrls.length) {
-        final opts = _kTriggerOptions.keys.toList();
-        final used = triggerKeys.whereType<String>().toSet();
-        final firstFree = opts.firstWhere((k) => !used.contains(k), orElse: () => opts.first);
-        triggerKeys.add(firstFree);
-      }
-      while (triggerKeys.length > choiceCtrls.length) {
-        triggerKeys.removeLast();
-      }
-    }
-
-    void addChoiceSync() {
-      if (choiceCtrls.length >= 4) return;
-      choiceCtrls.add(TextEditingController());
-      _ensureTriggerLength();
-    }
-
-    void removeChoiceSync(int idx) {
-      if (choiceCtrls.length <= 2) return;
-      final c = choiceCtrls.removeAt(idx);
-      c.dispose();
-      _ensureTriggerLength();
-      if (correctIndex >= choiceCtrls.length) {
-        correctIndex = choiceCtrls.length - 1;
-      }
-    }
-
-    final ok = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            _ensureTriggerLength();
-            return AlertDialog(
-              title: const Text('Create quiz'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Question
-                    TextField(
-                      controller: qCtrl,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'Question',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Choices 2~4 + trigger dropdown per choice + radio(correct)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Choices (2~4)', style: TextStyle(fontWeight: FontWeight.w700)),
-                        IconButton(
-                          tooltip: 'Add choice',
-                          onPressed: choiceCtrls.length >= 4
-                              ? null
-                              : () => setState(() {
-                                    addChoiceSync();
-                                  }),
-                          icon: const Icon(Icons.add_circle_outline),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-
-                    for (int i = 0; i < choiceCtrls.length; i++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Correct radio
-                            Radio<int>(
-                              value: i,
-                              groupValue: correctIndex,
-                              onChanged: (v) => setState(() => correctIndex = v ?? correctIndex),
-                            ),
-                            // Choice text
-                            Expanded(
-                              flex: 3,
-                              child: TextField(
-                                controller: choiceCtrls[i],
-                                decoration: InputDecoration(
-                                  labelText: 'Choice ${String.fromCharCode(65 + i)}',
-                                  border: const OutlineInputBorder(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            // Trigger dropdown (unique per choice)
-                            Expanded(
-                              flex: 2,
-                              child: InputDecorator(
-                                decoration: const InputDecoration(
-                                  labelText: 'Trigger',
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    isExpanded: true,
-                                    value: triggerKeys[i],
-                                    items: _availableForIndex(i)
-                                        .map((k) => DropdownMenuItem(
-                                              value: k,
-                                              child: Text(_kTriggerOptions[k] ?? k),
-                                            ))
-                                        .toList()
-                                      ..sort((a, b) => (a.child as Text).data!
-                                          .compareTo((b.child as Text).data!)),
-                                    onChanged: (v) => setState(() {
-                                      triggerKeys[i] = v;
-                                    }),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            // Remove
-                            IconButton(
-                              tooltip: 'Remove',
-                              icon: const Icon(Icons.remove_circle_outline),
-                              onPressed: choiceCtrls.length <= 2
-                                  ? null
-                                  : () => setState(() {
-                                        removeChoiceSync(i);
-                                      }),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                    const SizedBox(height: 6),
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '라디오가 선택된 항목이 정답입니다. 각 선택지에는 Flic 입력 트리거를 하나씩 매핑하세요.',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                ElevatedButton(
-                  onPressed: () async {
-                    final q = qCtrl.text.trim();
-                    final choices = choiceCtrls.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
-                    if (q.isEmpty || choices.length < 2) {
-                      _snack(context, '문제와 최소 2개의 선택지를 입력하세요.');
-                      return;
-                    }
-                    if (correctIndex < 0 || correctIndex >= choices.length) {
-                      _snack(context, '정답 인덱스가 올바르지 않습니다.');
-                      return;
-                    }
-                    // triggers 검증
-                    if (triggerKeys.length != choices.length || triggerKeys.any((k) => k == null)) {
-                      _snack(context, '모든 선택지에 트리거를 지정하세요.');
-                      return;
-                    }
-                    final setCheck = <String>{};
-                    for (final k in triggerKeys.whereType<String>()) {
-                      if (!setCheck.add(k)) {
-                        _snack(context, '트리거가 중복되었습니다: $k');
-                        return;
-                      }
-                    }
-
-                    await fs.collection('quizTopics/$topicId/quizzes').add({
-                      'question': q,
-                      'choices': choices,
-                      'correctIndex': correctIndex,
-                      'triggers': triggerKeys.whereType<String>().toList(),
-                      'createdAt': FieldValue.serverTimestamp(),
-                      'updatedAt': FieldValue.serverTimestamp(),
-                    });
-                    Navigator.pop(context, true);
-                    _snack(context, 'Quiz created.');
-                  },
-                  child: const Text('Create'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    // clean up
-    qCtrl.dispose();
-    for (final c in choiceCtrls) {
-      c.dispose();
-    }
+  List<String> _availableForIndex(int idx) {
+    final used = triggerKeys.toList()..removeAt(idx);
+    return _kTriggerLabel.keys.where((k) => !used.contains(k)).toList();
   }
 
-  // ── Edit quiz dialog ──
-  Future<void> _editQuizDialog(
-    BuildContext context,
-    FirebaseFirestore fs, {
-    required String quizId,
-    required Map<String, dynamic> initial,
-  }) async {
-    final qCtrl = TextEditingController(text: (initial['question'] as String?) ?? '');
-    final List initChoices = (initial['choices'] as List?) ?? const [];
-    final List initTriggers = (initial['triggers'] as List?) ?? const [];
-    int correctIndex = (initial['correctIndex'] as num?)?.toInt() ?? 0;
+  void _ensureTriggerLength() {
+    while (triggerKeys.length < choiceCtrls.length) triggerKeys.add(null);
+    while (triggerKeys.length > choiceCtrls.length) triggerKeys.removeLast();
+  }
 
-    final choiceCtrls = <TextEditingController>[
-      for (final c in initChoices) TextEditingController(text: c.toString()),
-    ];
-    if (choiceCtrls.length < 2) {
-      choiceCtrls.addAll([TextEditingController(), TextEditingController()]);
-    }
-    final triggerKeys = <String?>[
-      ...initTriggers.map((e) => e?.toString()).cast<String?>(),
-    ];
-    while (triggerKeys.length < choiceCtrls.length) {
-      triggerKeys.add(null);
-    }
+  void addChoiceSync(StateSetter setState) {
+    if (choiceCtrls.length >= 4) return;
+    choiceCtrls.add(TextEditingController());
+    setState(_ensureTriggerLength);
+  }
 
-    List<String> _availableForIndex(int idx) {
-      final used = triggerKeys.toList()..removeAt(idx);
-      return _kTriggerOptions.keys.where((k) => !used.contains(k)).toList();
-    }
+  void removeChoiceSync(StateSetter setState, int idx) {
+    if (choiceCtrls.length <= 2) return;
+    final c = choiceCtrls.removeAt(idx);
+    c.dispose();
+    if (correctIndex >= choiceCtrls.length) correctIndex = choiceCtrls.length - 1;
+    setState(_ensureTriggerLength);
+  }
 
-    void _ensureTriggerLength() {
-      while (triggerKeys.length < choiceCtrls.length) {
-        triggerKeys.add(null);
-      }
-      while (triggerKeys.length > choiceCtrls.length) {
-        triggerKeys.removeLast();
-      }
-    }
-
-    void addChoiceSync(StateSetter setState) {
-      if (choiceCtrls.length >= 4) return;
-      choiceCtrls.add(TextEditingController());
-      setState(() {
-        _ensureTriggerLength();
-      });
-    }
-
-    void removeChoiceSync(StateSetter setState, int idx) {
-      if (choiceCtrls.length <= 2) return;
-      final c = choiceCtrls.removeAt(idx);
-      c.dispose();
-      if (correctIndex >= choiceCtrls.length) correctIndex = choiceCtrls.length - 1;
-      setState(() {
-        _ensureTriggerLength();
-      });
-    }
-
-    final ok = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) {
-        return StatefulBuilder(
-          builder: (context, setState) {
-            _ensureTriggerLength();
-            return AlertDialog(
-              title: const Text('Edit quiz'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Question
-                    TextField(
-                      controller: qCtrl,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'Question',
-                        border: OutlineInputBorder(),
+  final ok = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          _ensureTriggerLength();
+          return AlertDialog(
+            backgroundColor: Colors.white,
+            title: const Text('Edit quiz'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: qCtrl,
+                    maxLines: 2,
+                    decoration: const InputDecoration(labelText: 'Question', border: OutlineInputBorder()),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Choices (2~4)', style: TextStyle(fontWeight: FontWeight.w700)),
+                      IconButton(
+                        tooltip: 'Add choice',
+                        onPressed: choiceCtrls.length >= 4 ? null : () => addChoiceSync(setState),
+                        icon: const Icon(Icons.add_circle_outline),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Choices 2~4 + trigger dropdown per choice + radio(correct)
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text('Choices (2~4)', style: TextStyle(fontWeight: FontWeight.w700)),
-                        Row(
-                          children: [
-                            IconButton(
-                              tooltip: 'Add choice',
-                              onPressed: choiceCtrls.length >= 4
-                                  ? null
-                                  : () => addChoiceSync(setState),
-                              icon: const Icon(Icons.add_circle_outline),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  for (int i = 0; i < choiceCtrls.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Radio<int>(
+                            value: i,
+                            groupValue: correctIndex,
+                            onChanged: (v) => setState(() => correctIndex = v ?? correctIndex),
+                          ),
+                          Expanded(
+                            flex: 3,
+                            child: TextField(
+                              controller: choiceCtrls[i],
+                              decoration: InputDecoration(
+                                labelText: 'Choice ${String.fromCharCode(65 + i)}',
+                                border: const OutlineInputBorder(),
+                              ),
                             ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-
-                    for (int i = 0; i < choiceCtrls.length; i++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Correct radio
-                            Radio<int>(
-                              value: i,
-                              groupValue: correctIndex,
-                              onChanged: (v) => setState(() => correctIndex = v ?? correctIndex),
-                            ),
-                            // Choice text
-                            Expanded(
-                              flex: 3,
-                              child: TextField(
-                                controller: choiceCtrls[i],
-                                decoration: InputDecoration(
-                                  labelText: 'Choice ${String.fromCharCode(65 + i)}',
-                                  border: const OutlineInputBorder(),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            flex: 2,
+                            child: InputDecorator(
+                              decoration: const InputDecoration(
+                                labelText: 'Trigger',
+                                border: OutlineInputBorder(),
+                                isDense: true,
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  isExpanded: true,
+                                  value: triggerKeys[i],
+                                  items: _availableForIndex(i)
+                                      .map((k) => DropdownMenuItem(value: k, child: Text(_kTriggerLabel[k] ?? k)))
+                                      .toList()
+                                    ..sort((a, b) => (a.child as Text).data!.compareTo((b.child as Text).data!)),
+                                  onChanged: (v) => setState(() => triggerKeys[i] = v),
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            // Trigger dropdown
-                            Expanded(
-                              flex: 2,
-                              child: InputDecorator(
-                                decoration: const InputDecoration(
-                                  labelText: 'Trigger',
-                                  border: OutlineInputBorder(),
-                                  isDense: true,
-                                ),
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    isExpanded: true,
-                                    value: triggerKeys[i],
-                                    items: _availableForIndex(i)
-                                        .map((k) => DropdownMenuItem(
-                                              value: k,
-                                              child: Text(_kTriggerOptions[k] ?? k),
-                                            ))
-                                        .toList()
-                                      ..sort((a, b) => (a.child as Text).data!
-                                          .compareTo((b.child as Text).data!)),
-                                    onChanged: (v) => setState(() {
-                                      triggerKeys[i] = v;
-                                    }),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            // Remove
-                            IconButton(
-                              tooltip: 'Remove',
-                              icon: const Icon(Icons.remove_circle_outline),
-                              onPressed: choiceCtrls.length <= 2
-                                  ? null
-                                  : () => removeChoiceSync(setState, i),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                    const SizedBox(height: 6),
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '라디오가 선택된 항목이 정답입니다. 각 선택지에는 Flic 입력 트리거를 하나씩 매핑하세요.',
-                        style: TextStyle(color: Colors.grey),
+                          ),
+                          const SizedBox(width: 6),
+                          IconButton(
+                            tooltip: 'Remove',
+                            icon: const Icon(Icons.remove_circle_outline),
+                            onPressed: choiceCtrls.length <= 2 ? null : () => removeChoiceSync(setState, i),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
+                  const SizedBox(height: 6),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text('라디오가 선택된 항목이 정답입니다. 각 선택지에는 Flic 입력 트리거를 하나씩 매핑하세요.',
+                        style: TextStyle(color: Colors.grey)),
+                  ),
+                ],
               ),
-              actions: [
-                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                ElevatedButton(
-                  onPressed: () async {
-                    final q = qCtrl.text.trim();
-                    final choices = choiceCtrls.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
-                    if (q.isEmpty || choices.length < 2) {
-                      _snack(context, '문제와 최소 2개의 선택지를 입력하세요.');
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: () async {
+                  final q = qCtrl.text.trim();
+                  final choices = choiceCtrls.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
+                  if (q.isEmpty || choices.length < 2) {
+                    _snack(context, '문제와 최소 2개의 선택지를 입력하세요.');
+                    return;
+                  }
+                  if (correctIndex < 0 || correctIndex >= choices.length) {
+                    _snack(context, '정답 인덱스가 올바르지 않습니다.');
+                    return;
+                  }
+                  if (triggerKeys.length != choices.length || triggerKeys.any((k) => k == null)) {
+                    _snack(context, '모든 선택지에 트리거를 지정하세요.');
+                    return;
+                  }
+                  final used = <String>{};
+                  for (final k in triggerKeys.whereType<String>()) {
+                    if (!used.add(k)) {
+                      _snack(context, '트리거가 중복되었습니다: $k');
                       return;
                     }
-                    if (correctIndex < 0 || correctIndex >= choices.length) {
-                      _snack(context, '정답 인덱스가 올바르지 않습니다.');
-                      return;
-                    }
-                    if (triggerKeys.length != choices.length || triggerKeys.any((k) => k == null)) {
-                      _snack(context, '모든 선택지에 트리거를 지정하세요.');
-                      return;
-                    }
-                    // 중복 트리거 방지
-                    final used = <String>{};
-                    for (final k in triggerKeys.whereType<String>()) {
-                      if (!used.add(k)) {
-                        _snack(context, '트리거가 중복되었습니다: $k');
-                        return;
-                      }
-                    }
+                  }
 
-                    await fs.doc('quizTopics/$topicId/quizzes/$quizId').set({
-                      'question': q,
-                      'choices': choices,
-                      'correctIndex': correctIndex,
-                      'triggers': triggerKeys.whereType<String>().toList(),
-                      'updatedAt': FieldValue.serverTimestamp(),
-                    }, SetOptions(merge: true));
+                  await fs.doc('quizTopics/${(ModalRoute.of(context)!.settings.arguments ?? '')}/quizzes/$quizId')
+                      .set({
+                    'question': q,
+                    'choices': choices,
+                    'correctIndex': correctIndex,
+                    'correctIndices': FieldValue.delete(),
+                    'triggers': triggerKeys.whereType<String>().toList(),
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  }, SetOptions(merge: true));
 
-                    Navigator.pop(context, true);
-                    _snack(context, 'Quiz updated.');
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+                  await fs.doc('quizTopics/${(context.findAncestorWidgetOfExactType<_TopicDetailPage>()?.topicId ?? '')}/quizzes/$quizId')
+                      .set({
+                    'question': q,
+                    'choices': choices,
+                    'correctIndex': correctIndex,
+                    'correctIndices': FieldValue.delete(),
+                    'triggers': triggerKeys.whereType<String>().toList(),
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  }, SetOptions(merge: true));
 
-    // clean up
-    qCtrl.dispose();
-    for (final c in choiceCtrls) {
-      c.dispose();
-    }
+                  Navigator.pop(context, true);
+                  _snack(context, 'Quiz updated.');
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+
+  qCtrl.dispose();
+  for (final c in choiceCtrls) {
+    c.dispose();
   }
 }
 
@@ -881,8 +792,7 @@ class _RunBarState extends State<_RunBar> {
     final onReveal = isRunning && widget.phase == 'reveal';
     final idx = widget.currentIndex ?? -1;
 
-    final current =
-        (idx >= 0 && idx < widget.quizzes.length) ? widget.quizzes[idx] : null;
+    final current = (idx >= 0 && idx < widget.quizzes.length) ? widget.quizzes[idx] : null;
     final currentQ = current?.data();
 
     return Container(
@@ -891,7 +801,6 @@ class _RunBarState extends State<_RunBar> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 상태/현재 문제 표시
           Row(
             children: [
               Text(
@@ -917,21 +826,14 @@ class _RunBarState extends State<_RunBar> {
             ],
           ),
           const SizedBox(height: 8),
-
-          // 버튼들 (로딩 오버레이/바 없음, 버튼만 잠깐 비활성화)
           Row(
             children: [
-              // Start
               ElevatedButton.icon(
-                onPressed: (!_busy && hasQuizzes && !isRunning)
-                    ? () => _startTopic(context)
-                    : null,
+                onPressed: (!_busy && hasQuizzes && !isRunning) ? () => _startTopic(context) : null,
                 icon: const Icon(Icons.play_arrow),
                 label: const Text('Start topic'),
               ),
               const SizedBox(width: 8),
-
-              // Reveal 토글
               ElevatedButton.icon(
                 onPressed: (!_busy && (onQuestion || onReveal))
                     ? () => _toggleReveal(context, onQuestion: onQuestion, onReveal: onReveal)
@@ -940,18 +842,12 @@ class _RunBarState extends State<_RunBar> {
                 label: Text(onReveal ? 'Hide results' : 'Reveal answer'),
               ),
               const SizedBox(width: 8),
-
-              // Next/Finish
               ElevatedButton.icon(
-                onPressed: (!_busy && (onQuestion || onReveal))
-                    ? () => _nextOrFinish(context)
-                    : null,
+                onPressed: (!_busy && (onQuestion || onReveal)) ? () => _nextOrFinish(context) : null,
                 icon: const Icon(Icons.skip_next),
                 label: Text((idx >= 0 && idx == widget.quizzes.length - 1) ? 'Finish' : 'Next'),
               ),
               const Spacer(),
-
-              // 결과 보기 (stopped 상태): 디스플레이와 동기화
               if (widget.status == 'stopped')
                 TextButton.icon(
                   onPressed: () => _openResultsDialog(context),
@@ -988,19 +884,11 @@ class _RunBarState extends State<_RunBar> {
     }
   }
 
-  // Reveal 토글
   Future<void> _toggleReveal(BuildContext context, {required bool onQuestion, required bool onReveal}) async {
-    if (onQuestion) {
-      // question -> reveal : 기존 로직 재사용 (집계 수행)
-      return _revealCurrent(context);
-    }
-    if (onReveal) {
-      // reveal -> question : 집계 없이 화면만 되돌림 (타임윈도우 유지)
-      return _hideReveal(context);
-    }
+    if (onQuestion) return _revealCurrent(context);
+    if (onReveal) return _hideReveal(context);
   }
 
-  /// 리빌 해제: phase만 question 으로 되돌림 (questionStartedAt 유지)
   Future<void> _hideReveal(BuildContext context) async {
     _setBusy(true);
     try {
@@ -1021,19 +909,16 @@ class _RunBarState extends State<_RunBar> {
     final startedAt = widget.questionStartedAt;
     if (startedAt == null) return;
 
-    // 버튼만 잠깐 비활성화(시각적 로딩 표시 없음)
     _setBusy(true);
     try {
       final fs = FirebaseFirestore.instance;
       final qDoc = widget.quizzes[idx];
 
-      // 1) 먼저 phase만 'reveal'로 바꿔 디스플레이가 즉시 전환되게 함
       await fs.doc('quizTopics/${widget.topicId}').set({
         'phase': 'reveal',
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      // 2) 집계는 백그라운드로 수행 (await하지 않음 → 오버레이/로딩 없음)
       () async {
         try {
           final counts = await _computeCountsForQuiz(
@@ -1048,7 +933,7 @@ class _RunBarState extends State<_RunBar> {
             'endedAt': FieldValue.serverTimestamp(),
             'computedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
-        } catch (e) {
+        } catch (_) {
           _snack(context, '집계가 지연되고 있습니다. 잠시 후 자동 반영됩니다.');
         }
       }();
@@ -1070,7 +955,6 @@ class _RunBarState extends State<_RunBar> {
       final fs = FirebaseFirestore.instance;
       final qDoc = widget.quizzes[idx];
 
-      // 현재 퀴즈 최종 집계 저장(덮어쓰기) - 버튼만 잠깐 비활성화, 로딩표시 없음
       try {
         final counts = await _computeCountsForQuiz(
           qDoc,
@@ -1088,7 +972,6 @@ class _RunBarState extends State<_RunBar> {
         _snack(context, '집계가 지연되고 있습니다. 잠시 후 자동 반영됩니다.');
       }
 
-      // 다음으로 이동 or 종료
       if (idx == widget.quizzes.length - 1) {
         await fs.doc('quizTopics/${widget.topicId}').set({
           'status': 'stopped',
@@ -1121,7 +1004,6 @@ class _RunBarState extends State<_RunBar> {
     final fs = FirebaseFirestore.instance;
     final quizzes = widget.quizzes;
 
-    // 디스플레이에 결과 띄우기 ON
     await fs.doc('quizTopics/${widget.topicId}').set({
       'showSummaryOnDisplay': true,
       'updatedAt': FieldValue.serverTimestamp(),
@@ -1131,6 +1013,7 @@ class _RunBarState extends State<_RunBar> {
       await showDialog(
         context: context,
         builder: (_) => AlertDialog(
+          backgroundColor: Colors.white,
           title: const Text('Results'),
           content: SizedBox(
             width: 500,
@@ -1191,7 +1074,6 @@ class _RunBarState extends State<_RunBar> {
         ),
       );
     } finally {
-      // Dialog 닫히면 디스플레이 결과 OFF
       await fs.doc('quizTopics/${widget.topicId}').set({
         'showSummaryOnDisplay': false,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -1199,8 +1081,6 @@ class _RunBarState extends State<_RunBar> {
     }
   }
 
-  // ------------- 집계 로직 -------------
-  // events → 학생별 마지막 트리거 → 선택지 index 매핑 → counts[]
   Future<List<int>> _computeCountsForQuiz(
     QueryDocumentSnapshot<Map<String, dynamic>> quizDoc, {
     required Timestamp startedAt,
@@ -1208,7 +1088,6 @@ class _RunBarState extends State<_RunBar> {
   }) async {
     final fs = FirebaseFirestore.instance;
 
-    // 세션 확인 (허브 현재 세션)
     final hub = await fs.doc('hubs/$kHubId').get();
     final sid = hub.data()?['currentSessionId'] as String?;
     if (sid == null || sid.isEmpty) {
@@ -1216,12 +1095,11 @@ class _RunBarState extends State<_RunBar> {
       return List<int>.filled(choiceLen, 0);
     }
 
-    // 퀴즈 정의
     final qx = quizDoc.data();
-    final List<String> triggers = (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+    final List<String> triggers =
+        (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ?? const [];
     final choiceLen = triggers.length;
 
-    // 이벤트: 시작~종료 구간
     final q = await fs
         .collection('sessions/$sid/events')
         .where('ts', isGreaterThanOrEqualTo: startedAt)
@@ -1231,7 +1109,6 @@ class _RunBarState extends State<_RunBar> {
     final startMs = startedAt.millisecondsSinceEpoch;
     final endMs = endedAt.millisecondsSinceEpoch;
 
-    // 학생별 마지막 트리거
     final Map<String, _Last> last = {};
     for (final d in q.docs) {
       final x = d.data();
@@ -1255,7 +1132,6 @@ class _RunBarState extends State<_RunBar> {
       last[sidStudent] = _Last(t, trig);
     }
 
-    // counts
     final counts = List<int>.filled(choiceLen, 0);
     for (final v in last.values) {
       final idx = triggers.indexOf(v.trig);
@@ -1269,6 +1145,680 @@ class _Last {
   final int t;
   final String trig;
   _Last(this.t, this.trig);
+}
+
+// ------------------- Create Quiz Page (새 화면 • 디자인 반영) -------------------
+
+class _AddQuizFab extends StatelessWidget {
+  const _AddQuizFab({required this.topicId, required this.fs});
+  final String topicId;
+  final FirebaseFirestore fs;
+
+  @override
+  Widget build(BuildContext context) {
+    return _DraggableFabImage(
+      assetPath: kFabAddQuizAsset,
+      semanticsLabel: 'Add quiz',
+      initialOffset: const Offset(16, 100),
+      onTap: () async {
+        final created = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => _CreateQuizPage(topicId: topicId, fs: fs),
+            fullscreenDialog: true,
+          ),
+        );
+        if (created == true && context.mounted) {
+          _snack(context, 'Quiz created.');
+        }
+      },
+    );
+  }
+}
+
+class _CreateQuizPage extends StatefulWidget {
+  const _CreateQuizPage({required this.topicId, required this.fs});
+  final String topicId;
+  final FirebaseFirestore fs;
+
+  @override
+  State<_CreateQuizPage> createState() => _CreateQuizPageState();
+}
+
+class _CreateQuizPageState extends State<_CreateQuizPage> {
+  final _qCtrl = TextEditingController();
+  final _choiceCtrls = <TextEditingController>[TextEditingController(), TextEditingController()];
+  final _triggerKeys = <String?>['S1_CLICK', 'S2_CLICK'];
+
+  bool _allowMultiple = false;
+  bool _anonymous = false;
+  String _showMode = 'realtime'; // 'realtime' | 'after'
+
+  int _correctIndex = 0; // 단일정답
+  final Set<int> _correctSet = {0}; // 복수정답
+
+  static const _kTriggerOptions = <String, String>{
+    'S1_CLICK': '1 • click',
+    'S1_HOLD': '1 • hold',
+    'S2_CLICK': '2 • click',
+    'S2_HOLD': '2 • hold',
+  };
+
+  @override
+  void dispose() {
+    _qCtrl.dispose();
+    for (final c in _choiceCtrls) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  void _ensureTriggerLength() {
+    while (_triggerKeys.length < _choiceCtrls.length) {
+      final opts = _kTriggerOptions.keys.toList();
+      final used = _triggerKeys.whereType<String>().toSet();
+      final firstFree = opts.firstWhere((k) => !used.contains(k), orElse: () => opts.first);
+      _triggerKeys.add(firstFree);
+    }
+    while (_triggerKeys.length > _choiceCtrls.length) {
+      _triggerKeys.removeLast();
+    }
+  }
+
+  List<String> _availableForIndex(int idx) {
+    final used = _triggerKeys.toList()..removeAt(idx);
+    return _kTriggerOptions.keys.where((k) => !used.contains(k)).toList();
+  }
+
+  void _addChoice() {
+    if (_choiceCtrls.length >= 4) return;
+    setState(() {
+      _choiceCtrls.add(TextEditingController());
+      _ensureTriggerLength();
+      if (!_allowMultiple && _correctIndex >= _choiceCtrls.length) {
+        _correctIndex = _choiceCtrls.length - 1;
+      }
+    });
+  }
+
+  void _removeChoice(int idx) {
+    if (_choiceCtrls.length <= 2) return;
+    setState(() {
+      final c = _choiceCtrls.removeAt(idx);
+      c.dispose();
+      _ensureTriggerLength();
+      if (_allowMultiple) {
+        _correctSet.remove(idx);
+        final newSet = <int>{};
+        for (final v in _correctSet) {
+          newSet.add(v > idx ? v - 1 : v);
+        }
+        _correctSet
+          ..clear()
+          ..addAll(newSet.isEmpty ? {0} : newSet);
+      } else {
+        if (_correctIndex >= _choiceCtrls.length) _correctIndex = _choiceCtrls.length - 1;
+      }
+    });
+  }
+
+  Future<void> _save() async {
+    final q = _qCtrl.text.trim();
+    final choices = _choiceCtrls.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
+    if (q.isEmpty || choices.length < 2) {
+      _snack(context, '문제와 최소 2개의 선택지를 입력하세요.');
+      return;
+    }
+    if (_triggerKeys.length != choices.length || _triggerKeys.any((k) => k == null)) {
+      _snack(context, '모든 선택지에 트리거를 지정하세요.');
+      return;
+    }
+    final used = <String>{};
+    for (final k in _triggerKeys.whereType<String>()) {
+      if (!used.add(k)) {
+        _snack(context, '트리거가 중복되었습니다: $k');
+        return;
+      }
+    }
+
+    List<int> correctIndices;
+    int? correctIndex;
+    if (_allowMultiple) {
+      correctIndices = _correctSet.where((i) => i >= 0 && i < choices.length).toList()..sort();
+      if (correctIndices.isEmpty) {
+        _snack(context, '복수정답 모드에서는 최소 1개 이상 정답을 선택하세요.');
+        return;
+      }
+      correctIndex = correctIndices.first;
+    } else {
+      if (_correctIndex < 0 || _correctIndex >= choices.length) {
+        _snack(context, '정답 인덱스가 올바르지 않습니다.');
+        return;
+      }
+      correctIndices = const [];
+      correctIndex = _correctIndex;
+    }
+
+    await widget.fs.collection('quizTopics/${widget.topicId}/quizzes').add({
+      'question': q,
+      'choices': choices,
+      'triggers': _triggerKeys.whereType<String>().toList(),
+      'anonymous': _anonymous,
+      'allowMultiple': _allowMultiple,
+      'showMode': _showMode, // 'realtime' | 'after'
+      'correctIndex': correctIndex,
+      if (_allowMultiple) 'correctIndices': correctIndices,
+      if (!_allowMultiple) 'correctIndices': FieldValue.delete(),
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    if (mounted) Navigator.pop(context, true);
+  }
+
+  @override
+Widget build(BuildContext context) {
+  _ensureTriggerLength();
+
+  return Scaffold(
+    backgroundColor: const Color.fromARGB(255, 246, 250, 255),
+    appBar: AppBar(
+      elevation: 0,
+      backgroundColor: const Color.fromARGB(255, 246, 250, 255),
+      titleSpacing: 0,
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () => Navigator.pop(context, false),
+      ),
+      title: const Text('Create quiz'),
+    ),
+    // ⬇️ FAB 대신 Stack으로 둥둥 저장 버튼 오버레이
+    body: Stack(
+      children: [
+        SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 180), // 좌우 마진 ↑, 하단 여유 ↑
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _SectionCard(
+                title: 'Quiz question',
+                child: TextField(
+                  controller: _qCtrl,
+                  maxLines: 2,
+                  decoration: const InputDecoration(
+                    hintText: 'Did you understand today’s lesson?',
+                    border: OutlineInputBorder(),
+                    filled: true,
+                    fillColor: Colors.white,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: 'Answer Options   ·  up to 4',
+                trailing: IconButton(
+                  tooltip: 'Add option',
+                  icon: const Icon(Icons.add_circle_outline),
+                  onPressed: _choiceCtrls.length >= 4 ? null : _addChoice,
+                ),
+                child: Column(
+                  children: [
+                    for (int i = 0; i < _choiceCtrls.length; i++)
+                      Padding(
+                        padding: EdgeInsets.only(bottom: i == _choiceCtrls.length - 1 ? 0 : 10),
+                        child: _OptionRow(
+                          index: i,
+                          controller: _choiceCtrls[i],
+                          triggerValue: _triggerKeys[i],
+                          triggerLabelMap: _kTriggerOptions,
+                          availableValues: _availableForIndex(i),
+                          allowMultiple: _allowMultiple,
+                          selectedInMulti: _correctSet.contains(i),
+                          singleSelectedIndex: _correctIndex,
+                          onTriggerChanged: (v) => setState(() => _triggerKeys[i] = v),
+                          onRemove: _choiceCtrls.length <= 2 ? null : () => _removeChoice(i),
+                          onMarkCorrectSingle: () => setState(() => _correctIndex = i),
+                          onToggleCorrectMulti: () => setState(() {
+                            if (_correctSet.contains(i)) {
+                              if (_correctSet.length == 1) return;
+                              _correctSet.remove(i);
+                            } else {
+                              _correctSet.add(i);
+                            }
+                          }),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: 'Quiz Settings',
+                child: Column(
+                  children: [
+                    _SettingRow(
+                      label: 'Show results',
+                      leading: const Text('in real time'),
+                      trailing: const Text('After voting ends'),
+                      valueLeft: _showMode == 'realtime',
+                      onChanged: (left) => setState(() => _showMode = left ? 'realtime' : 'after'),
+                    ),
+                    const SizedBox(height: 8),
+                    _SettingRow(
+                      label: 'Anonymous',
+                      leading: const Text('yes'),
+                      trailing: const Text('no'),
+                      valueLeft: _anonymous,
+                      onChanged: (left) => setState(() => _anonymous = left),
+                    ),
+                    const SizedBox(height: 8),
+                    _SettingRow(
+                      label: 'Multiple selections',
+                      leading: const Text('yes'),
+                      trailing: const Text('no'),
+                      valueLeft: _allowMultiple,
+                      onChanged: (left) {
+                        setState(() {
+                          _allowMultiple = left;
+                          if (_allowMultiple) {
+                            _correctSet
+                              ..clear()
+                              ..add(_correctIndex);
+                          } else {
+                            _correctIndex = _correctSet.isEmpty ? 0 : _correctSet.first;
+                          }
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // ⬇️ 둥둥 떠다니는 Save 이미지 버튼
+        _SaveQuizFabImage(onTap: _save),
+      ],
+    ),
+  );
+}
+}
+class _SaveQuizFabImage extends StatelessWidget {
+  const _SaveQuizFabImage({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      right: 16,
+      bottom: 16,
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          width: 160,
+          height: 160,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.all(10.0),
+                child: Image.asset(
+                  'assets/logo_bird_save.png', // e.g. 'assets/icons/save_quiz.png'
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Icon(Icons.check_circle, size: 48, color: Colors.indigo),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---- Pretty section / rows ----
+
+class _SectionCard extends StatelessWidget {
+  const _SectionCard({
+    required this.title,
+    required this.child,
+    this.trailing,
+  });
+
+  final String title;
+  final Widget child;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      color: Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: Color(0xFFDAE2EE)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0B1324),
+                    ),
+                  ),
+                ),
+                if (trailing != null) trailing!,
+              ],
+            ),
+            const SizedBox(height: 10),
+            child,
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OptionRow extends StatelessWidget {
+  const _OptionRow({
+    required this.index,
+    required this.controller,
+    required this.triggerValue,
+    required this.triggerLabelMap,
+    required this.availableValues,
+    required this.allowMultiple,
+    required this.selectedInMulti,
+    required this.singleSelectedIndex,
+    required this.onTriggerChanged,
+    required this.onRemove,
+    required this.onMarkCorrectSingle,
+    required this.onToggleCorrectMulti,
+  });
+
+  final int index;
+  final TextEditingController controller;
+  final String? triggerValue;
+  final Map<String, String> triggerLabelMap;
+  final List<String> availableValues;
+
+  final bool allowMultiple;
+  final bool selectedInMulti;
+  final int singleSelectedIndex;
+
+  final ValueChanged<String?> onTriggerChanged;
+  final VoidCallback? onRemove;
+  final VoidCallback onMarkCorrectSingle;
+  final VoidCallback onToggleCorrectMulti;
+
+  @override
+  Widget build(BuildContext context) {
+    final isCorrect = allowMultiple ? selectedInMulti : (singleSelectedIndex == index);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFDAE2EE)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      child: Row(
+        children: [
+          allowMultiple
+              ? Checkbox(value: selectedInMulti, onChanged: (_) => onToggleCorrectMulti())
+              : Radio<int>(value: index, groupValue: singleSelectedIndex, onChanged: (_) => onMarkCorrectSingle()),
+          const SizedBox(width: 4),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              decoration: const InputDecoration(
+                hintText: 'Option',
+                border: InputBorder.none,
+                filled: true,
+                fillColor: Colors.white,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 120, maxWidth: 150),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                isExpanded: true,
+                value: triggerValue,
+                items: availableValues
+                    .map(
+                      (k) => DropdownMenuItem(
+                        value: k,
+                        child: Text(triggerLabelMap[k] ?? k),
+                      ),
+                    )
+                    .toList()
+                  ..sort((a, b) => (a.child as Text).data!.compareTo((b.child as Text).data!)),
+                onChanged: onTriggerChanged,
+              ),
+            ),
+          ),
+          const SizedBox(width: 2),
+          IconButton(
+            tooltip: 'Remove',
+            icon: const Icon(Icons.more_vert, color: Colors.grey),
+            onPressed: onRemove,
+          ),
+          if (isCorrect)
+            const Padding(
+              padding: EdgeInsets.only(left: 4),
+              child: Icon(Icons.check_circle, color: Colors.green, size: 18),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SettingRow extends StatelessWidget {
+  const _SettingRow({
+    required this.label,
+    required this.leading,
+    required this.trailing,
+    required this.valueLeft,
+    required this.onChanged,
+  });
+
+  final String label;
+  final Widget leading;
+  final Widget trailing;
+  final bool valueLeft; // true면 왼쪽 옵션
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFDAE2EE)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          Expanded(child: Text(label, style: const TextStyle(fontWeight: FontWeight.w700))),
+          Row(
+            children: [
+              _DotRadio(
+                selected: valueLeft,
+                onTap: () => onChanged(true),
+                child: leading,
+              ),
+              const SizedBox(width: 14),
+              _DotRadio(
+                selected: !valueLeft,
+                onTap: () => onChanged(false),
+                child: trailing,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DotRadio extends StatelessWidget {
+  const _DotRadio({required this.selected, required this.onTap, required this.child});
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final dot = Container(
+      width: 18,
+      height: 18,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: selected ? const Color(0xFF2563EB) : const Color(0xFFCBD5E1)),
+      ),
+      alignment: Alignment.center,
+      margin: const EdgeInsets.only(right: 8),
+      child: selected
+          ? Container(
+              width: 10,
+              height: 10,
+              decoration: const BoxDecoration(
+                shape: BoxShape.circle,
+                color: Color(0xFF2563EB),
+              ),
+            )
+          : const SizedBox.shrink(),
+    );
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: onTap,
+      child: Row(
+        children: [
+          dot,
+          DefaultTextStyle.merge(
+            style: TextStyle(color: selected ? const Color(0xFF0B1324) : const Color(0xFF6B7280)),
+            child: child,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ------------------- 둥둥 떠다니는 이미지 FAB -------------------
+
+class _DraggableFabImage extends StatefulWidget {
+  const _DraggableFabImage({
+    required this.assetPath,
+    required this.onTap,
+    required this.semanticsLabel,
+    this.initialOffset = const Offset(16, 16),
+    this.size = 64,
+  });
+
+  final String assetPath;
+  final VoidCallback onTap;
+  final String semanticsLabel;
+  final Offset initialOffset;
+  final double size;
+
+  @override
+  State<_DraggableFabImage> createState() => _DraggableFabImageState();
+}
+
+class _DraggableFabImageState extends State<_DraggableFabImage> {
+  late Offset _offset; // from bottom-right
+
+  @override
+  void initState() {
+    super.initState();
+    _offset = widget.initialOffset;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaMemo(context);
+    final bottom = _offset.dy;
+    final right = _offset.dx;
+
+    return Positioned(
+      bottom: bottom,
+      right: right,
+      child: Draggable(
+        feedback: _fabBody(opacity: 0.8),
+        childWhenDragging: const SizedBox.shrink(),
+        onDragEnd: (d) {
+          final size = mq.size;
+          // global → 기준 오프셋 근사치 (간단화)
+          final local = d.offset;
+          final newRight = (size.width - local.dx - widget.size / 2).clamp(8, size.width - 8);
+          final newBottom = (size.height - local.dy - widget.size / 2).clamp(8, size.height - 8);
+          setState(() {
+            _offset = Offset(newRight.toDouble(), newBottom.toDouble());
+          });
+        },
+        child: _fabBody(),
+      ),
+    );
+  }
+
+  Widget _fabBody({double opacity = 1}) {
+    return Semantics(
+      label: widget.semanticsLabel,
+      button: true,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedOpacity(
+          duration: const Duration(milliseconds: 150),
+          opacity: opacity,
+          child: Container(
+            width: widget.size,
+            height: widget.size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.12),
+                  blurRadius: 10,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Image.asset(
+              widget.assetPath,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => Container(
+                color: Colors.indigo,
+                alignment: Alignment.center,
+                child: const Icon(Icons.add, color: Colors.white),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// 작은 유틸: 미디어쿼리 size 캐시
+class MediaMemo {
+  MediaMemo(BuildContext ctx) : size = MediaQuery.of(ctx).size;
+  final Size size;
 }
 
 // ------------------- 공용 -------------------
@@ -1309,7 +1859,6 @@ class _QuizWithResult {
   });
 }
 
-/// snack helper
 void _snack(BuildContext context, String msg) {
   final m = ScaffoldMessenger.maybeOf(context);
   (m ?? ScaffoldMessenger.of(context))

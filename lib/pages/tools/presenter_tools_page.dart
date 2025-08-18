@@ -1,37 +1,17 @@
-// lib/main.dart
+// lib/pages/tools/presenter_tools_page.dart
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import '../../sidebar_menu.dart';
 import 'timer/presenter_timer.dart';
-//import 'random_grouping.dart'; // AppScaffold 경로에 맞게 수정
 import 'vote/vote_manager.dart';
 
+// ▶ Tools 입장만으로 세션/좌석을 바로 준비시키기 위해 추가
+import '../../provider/session_provider.dart';
+import '../../provider/seat_map_provider.dart';
 
-// class ClassHubApp extends StatelessWidget {
-//   const ClassHubApp({super.key});
-
-//   @override
-//   Widget build(BuildContext context) {
-//     return MaterialApp(
-//       title: 'ClassHub',
-//       debugShowCheckedModeBanner: false,
-//       theme: ThemeData(
-//         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2563EB)),
-//         useMaterial3: true,
-//         scaffoldBackgroundColor: const Color(0xFFF9FAFB),
-//       ),
-//       // ✅ 카드별 네임드 라우트
-//       routes: {
-//         '/tools/timer': (_) =>  TimerPage(),
-//         '/tools/grouping': (_) =>  RandomGroupingPage(),
-//         //'/tools/voting': (_) => const VotingPage(),
-//         // '/tools/quiz': (_) => const QuizPage(),
-//         // '/tools/attendance': (_) => const AttendancePage(),
-//         // '/tools/seating': (_) => const SeatingPage(),
-//       },
-//       home: const PresenterToolsPage(),
-//     );
-//   }
-// }
+const String kHubId = 'hub-001';
 
 class PresenterToolsPage extends StatefulWidget {
   const PresenterToolsPage({super.key});
@@ -41,7 +21,7 @@ class PresenterToolsPage extends StatefulWidget {
 }
 
 class _PresenterToolsPageState extends State<PresenterToolsPage> {
-  // 6개 카드 + 각 카드의 라우트
+  // 6개 카드
   final List<ToolItem> tools = [
     ToolItem(
       id: 'timer',
@@ -99,15 +79,15 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       route: '/tools/attendance',
     ),
     ToolItem(
-      id: 'seating',
-      title: 'Seating Chart',
+      id: 'random_seat',
+      title: 'Random Seat',
       description: 'Optimal seat arrangements',
       icon: Icons.location_on_outlined,
       color: const Color(0xFF6366F1),
       bgColor: const Color(0xFFEEF2FF),
       usage: '5 layouts saved',
       trending: true,
-      route: '/tools/seating',
+      route: '/tools/random_seat',
     ),
   ];
 
@@ -117,6 +97,86 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     QuickAction('Create Poll', Icons.how_to_vote_outlined, Color(0xFF10B981)),
     QuickAction('New Quiz', Icons.psychology_alt_outlined, Color(0xFFF59E0B)),
   ];
+
+  bool _boundOnce = false; // didChangeDependencies 보강 바인딩 1회만
+
+  @override
+  void initState() {
+    super.initState();
+    // Tools 들어오자마자 세션 확정 + seatMap 구독
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ensureSessionAndBindSeatMap();
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // 위젯 트리 재결합 타이밍 보강 (1회만)
+    if (!_boundOnce) {
+      _boundOnce = true;
+      _ensureSessionAndBindSeatMap();
+    }
+  }
+
+  Future<void> _ensureSessionAndBindSeatMap() async {
+    final fs = FirebaseFirestore.instance;
+    final session = context.read<SessionProvider>();
+    final seatMap = context.read<SeatMapProvider>();
+
+    // 1) 세션 있으면 seatMap만 보장
+    if (session.sessionId != null) {
+      try {
+        await seatMap.bindSession(session.sessionId!);
+      } catch (_) {}
+      return;
+    }
+
+    // 2) 최근 세션 선택 (없으면 새로 생성)
+    String? sid;
+    try {
+      final snap = await fs.collection('sessions').get();
+      if (snap.docs.isNotEmpty) {
+        final docs = [...snap.docs];
+        docs.sort((a, b) {
+          final ta = a.data()['updatedAt'] as Timestamp?;
+          final tb = b.data()['updatedAt'] as Timestamp?;
+          final va = ta?.millisecondsSinceEpoch ?? 0;
+          final vb = tb?.millisecondsSinceEpoch ?? 0;
+          return vb.compareTo(va);
+        });
+        sid = docs.first.id;
+      }
+    } catch (_) {
+      sid = null;
+    }
+    sid ??= _defaultSessionId();
+
+    // 3) 세션 문서 보장
+    await fs.doc('sessions/$sid').set({
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'note': 'auto (tools entry)',
+    }, SetOptions(merge: true));
+
+    // 4) Provider 바인딩 + hub 동기화
+    session.setSession(sid);
+    try {
+      await seatMap.bindSession(sid); // ← 여기에서 seatMap이 바로 실시간 구독 시작
+    } catch (_) {}
+
+    await fs.doc('hubs/$kHubId').set(
+      {'currentSessionId': sid, 'updatedAt': FieldValue.serverTimestamp()},
+      SetOptions(merge: true),
+    );
+  }
+
+  String _defaultSessionId() {
+    final now = DateTime.now();
+    return '${now.toIso8601String().substring(0, 10)}-'
+        '${now.hour.toString().padLeft(2, '0')}'
+        '${now.minute.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -188,7 +248,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
               ),
               const SizedBox(height: 20),
 
-              // 퀵 액션 (그리드 위)
+              // 퀵 액션
               const Text('Quick Actions',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
               const SizedBox(height: 12),
@@ -229,7 +289,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
               ),
               const SizedBox(height: 12),
 
-              // ✅ 6개 카드 그리드 (아래 모든 섹션 제거)
+              // 6개 카드 그리드
               LayoutBuilder(
                 builder: (context, constraints) {
                   int crossAxisCount = 1;
@@ -258,7 +318,6 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
                   );
                 },
               ),
-              // ⛔️ 여기서 끝! (아래 Activity/Stats/ProTip/Footer 전부 제거)
             ],
           ),
         ),
@@ -278,7 +337,7 @@ class ToolItem {
   final Color bgColor;
   final String usage;
   final bool trending;
-  final String route; // ✅ 이동할 라우트
+  final String route;
 
   ToolItem({
     required this.id,
@@ -401,5 +460,3 @@ class ToolCard extends StatelessWidget {
     );
   }
 }
-
-
