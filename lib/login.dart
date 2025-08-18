@@ -117,23 +117,23 @@ class _LoginPageState extends State<LoginPage> {
                     alignment: Alignment.center,
                     children: [
                       Image.asset(
-                        'assets/flicbutton.png',
+                        'assets/logo_bird_main.png',
                         width: 451,
                         height: 300,
                       ),
-                      Transform.translate(
-                        offset: const Offset(0, -20),
-                        child: ArcText(
-                          radius: 65,
-                          text: "My Button",
-                          textStyle: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 40,
-                            color: Color.fromARGB(255, 53, 64, 112),
-                          ),
-                          startAngle: -2.8 / 2,
-                        ),
-                      ),
+                      // Transform.translate(
+                      //   offset: const Offset(0, -20),
+                      //   child: ArcText(
+                      //     radius: 65,
+                      //     text: "My Button",
+                      //     textStyle: const TextStyle(
+                      //       fontWeight: FontWeight.w800,
+                      //       fontSize: 40,
+                      //       color: Color.fromARGB(255, 53, 64, 112),
+                      //     ),
+                      //     startAngle: -2.8 / 2,
+                      //   ),
+                      // ),
                     ],
                   ),
                 ],
@@ -219,23 +219,37 @@ class _LoginPageState extends State<LoginPage> {
 
               const SizedBox(height: 16),
 
-              Center(
-                child: RichText(
-                  text: const TextSpan(
-                    text: "Already have an account? ",
-                    style: TextStyle(color: Colors.black, fontSize: 14),
-                    children: [
-                      TextSpan(
-                        text: "Login",
-                        style: TextStyle(
-                          color: Color.fromARGB(255, 251, 211, 103),
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: Center(
+                  child: Text(
+                    "© 2025 Team MyButton. All rights reserved.",
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade600,
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
-                ),
-              ),
+                )
+              )
+
+              // Center(
+              //   child: RichText(
+              //     text: const TextSpan(
+              //       text: "Already have an account? ",
+              //       style: TextStyle(color: Colors.black, fontSize: 14),
+              //       children: [
+              //         TextSpan(
+              //           text: "Login",
+              //           style: TextStyle(
+              //             color: Color.fromARGB(255, 251, 211, 103),
+              //             fontWeight: FontWeight.bold,
+              //           ),
+              //         ),
+              //       ],
+              //     ),
+              //   ),
+              // ),
             ],
           ),
         ),
