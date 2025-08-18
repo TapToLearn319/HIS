@@ -466,12 +466,7 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
     final bool hide = (_showMode == 'after' && _status != 'closed');
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F8FA),
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        elevation: 0.5,
-        title: Text('Vote (Student)${sid == null ? '' : ' • $sid'}'),
-      ),
+      backgroundColor: const Color(0xFFF6FAFF),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 1100),
