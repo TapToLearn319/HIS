@@ -1,5 +1,4 @@
 
-
 import 'package:flutter/material.dart';
 import 'grouping_controller.dart';
 
@@ -48,7 +47,7 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
         return Scaffold(
           appBar: AppBar(
             elevation: 0,
-            backgroundColor: Colors.white,
+            backgroundColor: Color(0xFFF6FAFF),
             leading: IconButton(
               tooltip: 'Back',
               icon: const Icon(Icons.arrow_back),

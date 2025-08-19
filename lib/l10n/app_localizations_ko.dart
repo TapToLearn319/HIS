@@ -61,4 +61,46 @@ class AppLocalizationsKo extends AppLocalizations {
 
   @override
   String get presenterMain => '대시보드';
+
+  @override
+  String get toolsTitle => '수업 도구';
+
+  @override
+  String get toolOpen => '열기';
+
+  @override
+  String get toolAttendance => '출석';
+
+  @override
+  String get toolAttendanceDesc => '스마트 출석 추적';
+
+  @override
+  String get toolRandomGrouping => '무작위 그룹 제작';
+
+  @override
+  String get toolRandomGroupingDesc => '공정한 팀 배정 시스템';
+
+  @override
+  String get toolRandomSeat => '무작위 자리 배정';
+
+  @override
+  String get toolRandomSeatDesc => '최적의 자리 배치';
+
+  @override
+  String get toolTimer => '타이머';
+
+  @override
+  String get toolTimerDesc => '수업 시간을 정확하게 관리';
+
+  @override
+  String get toolVoting => '투표';
+
+  @override
+  String get toolVotingDesc => '즉각적인 수업 피드백 수집';
+
+  @override
+  String get toolQuiz => '퀴즈';
+
+  @override
+  String get toolQuizDesc => '상호작용 학습 과제';
 }

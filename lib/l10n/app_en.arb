@@ -17,5 +17,21 @@
   "noName" : "No name",
   "setting": "Setting",
   "toggleLanguage": "Switch to Korean",
-  "presenterMain": "Dashboard"
+  "presenterMain": "Dashboard",
+
+
+  "toolsTitle" : "Classroom Tools",
+  "toolOpen" : "Open",
+  "toolAttendance" : "Attendance",
+  "toolAttendanceDesc" : "Smart attendance tracking",
+  "toolRandomGrouping" : "Random Grouping",
+  "toolRandomGroupingDesc" : "Fair team distribution system",
+  "toolRandomSeat" : "Random Seat",
+  "toolRandomSeatDesc" : "Optimal seat arrangements",
+  "toolTimer" : "Timer",
+  "toolTimerDesc" : "Manage class time with precision",
+  "toolVoting" : "Voting",
+  "toolVotingDesc" : "Collect instant class feedback",
+  "toolQuiz" : "Quiz",
+  "toolQuizDesc" : "Interactive learning assessments"
 }

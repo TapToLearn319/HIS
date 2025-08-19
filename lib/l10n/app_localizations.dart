@@ -202,6 +202,90 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Dashboard'**
   String get presenterMain;
+
+  /// No description provided for @toolsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Classroom Tools'**
+  String get toolsTitle;
+
+  /// No description provided for @toolOpen.
+  ///
+  /// In en, this message translates to:
+  /// **'Open'**
+  String get toolOpen;
+
+  /// No description provided for @toolAttendance.
+  ///
+  /// In en, this message translates to:
+  /// **'Attendance'**
+  String get toolAttendance;
+
+  /// No description provided for @toolAttendanceDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Smart attendance tracking'**
+  String get toolAttendanceDesc;
+
+  /// No description provided for @toolRandomGrouping.
+  ///
+  /// In en, this message translates to:
+  /// **'Random Grouping'**
+  String get toolRandomGrouping;
+
+  /// No description provided for @toolRandomGroupingDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Fair team distribution system'**
+  String get toolRandomGroupingDesc;
+
+  /// No description provided for @toolRandomSeat.
+  ///
+  /// In en, this message translates to:
+  /// **'Random Seat'**
+  String get toolRandomSeat;
+
+  /// No description provided for @toolRandomSeatDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Optimal seat arrangements'**
+  String get toolRandomSeatDesc;
+
+  /// No description provided for @toolTimer.
+  ///
+  /// In en, this message translates to:
+  /// **'Timer'**
+  String get toolTimer;
+
+  /// No description provided for @toolTimerDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Manage class time with precision'**
+  String get toolTimerDesc;
+
+  /// No description provided for @toolVoting.
+  ///
+  /// In en, this message translates to:
+  /// **'Voting'**
+  String get toolVoting;
+
+  /// No description provided for @toolVotingDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Collect instant class feedback'**
+  String get toolVotingDesc;
+
+  /// No description provided for @toolQuiz.
+  ///
+  /// In en, this message translates to:
+  /// **'Quiz'**
+  String get toolQuiz;
+
+  /// No description provided for @toolQuizDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Interactive learning assessments'**
+  String get toolQuizDesc;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

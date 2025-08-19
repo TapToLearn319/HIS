@@ -61,4 +61,46 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get presenterMain => 'Dashboard';
+
+  @override
+  String get toolsTitle => 'Classroom Tools';
+
+  @override
+  String get toolOpen => 'Open';
+
+  @override
+  String get toolAttendance => 'Attendance';
+
+  @override
+  String get toolAttendanceDesc => 'Smart attendance tracking';
+
+  @override
+  String get toolRandomGrouping => 'Random Grouping';
+
+  @override
+  String get toolRandomGroupingDesc => 'Fair team distribution system';
+
+  @override
+  String get toolRandomSeat => 'Random Seat';
+
+  @override
+  String get toolRandomSeatDesc => 'Optimal seat arrangements';
+
+  @override
+  String get toolTimer => 'Timer';
+
+  @override
+  String get toolTimerDesc => 'Manage class time with precision';
+
+  @override
+  String get toolVoting => 'Voting';
+
+  @override
+  String get toolVotingDesc => 'Collect instant class feedback';
+
+  @override
+  String get toolQuiz => 'Quiz';
+
+  @override
+  String get toolQuizDesc => 'Interactive learning assessments';
 }

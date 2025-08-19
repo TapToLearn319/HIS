@@ -1,3 +1,5 @@
+
+
 // lib/login_page.dart
 import 'dart:html' as html;
 import 'package:flutter/foundation.dart';
@@ -24,6 +26,42 @@ class _LoginPageState extends State<LoginPage> {
       );
     }
     Navigator.pushReplacementNamed(context, '/tools');
+  }
+
+  static const _underlineColor = Color(0xFF354070);
+  InputDecoration _dec(String label) => const InputDecoration(
+    labelText: '',
+    enabledBorder: UnderlineInputBorder(
+      borderSide: BorderSide(color: _underlineColor, width: 1.5),
+    ),
+    focusedBorder: UnderlineInputBorder(
+      borderSide: BorderSide(color: _underlineColor, width: 1.5),
+    ),
+  );
+
+  Widget _underlineField(String label, {bool obscure = false}) {
+    return SizedBox(
+      width: 542,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: _underlineColor,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          TextField(
+            obscureText: obscure,
+            decoration: _dec(label),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -91,13 +129,13 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
         Positioned(
-          right: -250,
-          top: -267,
+          right: -192,
+          top: -262,
           child: Container(
             width: 667,
             height: 667,
             decoration: const BoxDecoration(
-              color: Color.fromARGB(255, 239, 191, 251),
+              color: Color(0xFFC4F6FE),
               shape: BoxShape.circle,
             ),
           ),
@@ -108,54 +146,38 @@ class _LoginPageState extends State<LoginPage> {
           child: ListView(
             padding: const EdgeInsets.symmetric(horizontal: 24),
             children: <Widget>[
-              const SizedBox(height: 50),
+              // const SizedBox(height: 50),
 
-              /// 이미지 + ArcText
-              Column(
-                children: [
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Image.asset(
-                        'assets/logo_bird_main.png',
-                        width: 451,
-                        height: 300,
-                      ),
-                      // Transform.translate(
-                      //   offset: const Offset(0, -20),
-                      //   child: ArcText(
-                      //     radius: 65,
-                      //     text: "My Button",
-                      //     textStyle: const TextStyle(
-                      //       fontWeight: FontWeight.w800,
-                      //       fontSize: 40,
-                      //       color: Color.fromARGB(255, 53, 64, 112),
-                      //     ),
-                      //     startAngle: -2.8 / 2,
-                      //   ),
-                      // ),
-                    ],
-                  ),
-                ],
-              ),
+              Center(
+            child: Column(
+              children: [
+                
+                const SizedBox(height: 8),
+                Image.asset('assets/logo_bird_main.png', width: 501, height: 344),
+              ],
+            ),
+          ),
 
-              const SizedBox(height: 12),
+              Align(alignment: Alignment.center, child: _underlineField('Full Name')),
+          const SizedBox(height: 24),
+          Align(alignment: Alignment.center, child: _underlineField('Email')),
+          const SizedBox(height: 24),
+          Align(alignment: Alignment.center, child: _underlineField('Password', obscure: true)),
 
-              // Align(
-              //   alignment: Alignment.center,
-              //   child: SizedBox(
-              //     width: 542,
-              //     child: const TextField(
-              //       decoration: InputDecoration(
-              //         labelText: "Full Name",
-              //         labelStyle: TextStyle(fontWeight: FontWeight.w900 ),
-              //         enabledBorder: UnderlineInputBorder(
-              //           borderSide: BorderSide(color: Colors.black),
-              //         ),
+              // SizedBox(
+              //   width: 542,
+              //   height: 1.5,
+              //   child: const TextField(
+              //     decoration: InputDecoration(
+              //       labelText: "Full Name",
+              //       labelStyle: TextStyle(fontWeight: FontWeight.w500),
+              //       enabledBorder: UnderlineInputBorder(
+              //         borderSide: BorderSide(color: Color(0xFF354070)),
               //       ),
               //     ),
               //   ),
               // ),
+             
               const SizedBox(height: 16),
 
               // Align(
@@ -173,7 +195,7 @@ class _LoginPageState extends State<LoginPage> {
               //     ),
               //   ),
               // ),
-              const SizedBox(height: 16),
+              // const SizedBox(height: 16),
 
               // Align(
               //   alignment: Alignment.center,
@@ -192,30 +214,24 @@ class _LoginPageState extends State<LoginPage> {
               //   ),
               // ),
 
-              const SizedBox(height: 32),
+              // const SizedBox(height: 32),
 
               Align(
-                alignment: Alignment.center,
-                child: SizedBox(
-                  width: 281,
-                  height: 47,
-                  child: ElevatedButton(
-                    onPressed: _continueAsGuest,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor:
-                          const Color.fromARGB(255, 100, 122, 220),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                    ),
-                    child: const Text(
-                      "Let's begin",
-                      style: TextStyle(fontSize: 18),
-                    ),
-                  ),
+            alignment: Alignment.center,
+            child: SizedBox(
+              width: 281, height: 47,
+              child: ElevatedButton(
+                onPressed: _continueAsGuest,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF9370F7), // 원하던 색
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                  elevation: 0,
                 ),
+                child: const Text("Let's begin", style: TextStyle(fontSize: 18)),
               ),
+            ),
+          ),
 
               const SizedBox(height: 16),
 

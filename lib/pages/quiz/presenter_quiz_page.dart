@@ -25,6 +25,7 @@ class PresenterQuizPage extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color.fromARGB(255, 246, 250, 255),
       appBar: AppBar(
+        backgroundColor: const Color.fromARGB(255, 255, 255, 255),
         leading: IconButton(
           tooltip: 'Back',
           icon: const Icon(Icons.arrow_back),
@@ -87,32 +88,69 @@ class _CreateTopicFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _DraggableFabImage(
-      assetPath: kFabCreateTopicAsset,
-      semanticsLabel: 'Create topic',
-      onTap: () => _createTopicDialog(context),
+    return Positioned(
+      right: 16,
+      bottom: 16,
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          width: 200,   // 필요시 조절
+          height: 200,  // 필요시 조절
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              hoverColor: Colors.black.withOpacity(0.05),   // 마우스 오버
+              splashColor: Colors.black.withOpacity(0.1),   // 클릭 물결
+              onTap: () => _createTopicDialog(context),
+              child: Tooltip(
+                message: 'Create topic',
+                child: Padding(
+                  padding: const EdgeInsets.all(10.0),
+                  child: Image.asset(
+                    'assets/logo_bird_create.png',   // 원하는 이미지 경로로 교체
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.add_circle,
+                      size: 48,
+                      color: Colors.indigo,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
 
+
+
 class _TopicList extends StatelessWidget {
   const _TopicList();
-
-  Color _statusColor(String s) {
-    switch (s) {
-      case 'running':
-        return Colors.green;
-      case 'stopped':
-        return Colors.grey;
-      default:
-        return Colors.orange;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
-    final stream = fs.collection('quizTopics').orderBy('createdAt', descending: true).snapshots();
+    final stream = fs.collection('quizTopics')
+        .orderBy('createdAt', descending: true)
+        .snapshots();
+
+    String _fmtDate(Timestamp? ts) {
+      final dt = ts?.toDate();
+      if (dt == null) return '-';
+      final y = dt.year.toString().padLeft(4, '0');
+      final m = dt.month.toString().padLeft(2, '0');
+      final d = dt.day.toString().padLeft(2, '0');
+      return '$y-$m-$d';
+    }
+
+    Future<int> _quizCount(String topicId) async {
+      final qs = await fs.collection('quizTopics/$topicId/quizzes').get();
+      return qs.size;
+    }
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: stream,
@@ -130,76 +168,119 @@ class _TopicList extends StatelessWidget {
         final topics = snap.data!.docs;
         return Center(
           child: FractionallySizedBox(
-            widthFactor: 0.8, // 리스트 폭 80%
-            child: ListView.separated(
+            widthFactor: 0.95,
+            child: GridView.builder(
               padding: const EdgeInsets.all(16),
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 440, // ✅ 카드 최대 폭 크게
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                childAspectRatio: 4 / 3,
+              ),
+              itemCount: topics.length,
               itemBuilder: (_, i) {
                 final d = topics[i];
                 final x = d.data();
                 final title = (x['title'] as String?) ?? '(untitled)';
-                final status = (x['status'] as String?) ?? 'draft';
-                final color = _statusColor(status);
+                final createdAt = x['createdAt'] as Timestamp?;
 
                 return Card(
                   color: Colors.white,
-                  child: ListTile(
-                    title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: color.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(color: color),
-                          ),
-                          child: Text(
-                            (status).toUpperCase(),
-                            style: TextStyle(fontSize: 12, color: color, fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(d.id, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                      ],
-                    ),
-                    trailing: IconButton(
-                      tooltip: 'Delete topic',
-                      icon: const Icon(Icons.delete_outline, color: Colors.red),
-                      onPressed: () async {
-                        final ok = await showDialog<bool>(
-                          context: context,
-                          builder: (_) => AlertDialog(
-                            title: const Text('Delete topic'),
-                            content: const Text('이 토픽과 그 안의 퀴즈/결과가 모두 삭제됩니다. 계속할까요?'),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                              ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
-                            ],
-                          ),
-                        );
-                        if (ok == true) {
-                          final qs = await fs.collection('quizTopics/${d.id}/quizzes').get();
-                          final rs = await fs.collection('quizTopics/${d.id}/results').get();
-                          final batch = fs.batch();
-                          for (final q in qs.docs) batch.delete(q.reference);
-                          for (final r in rs.docs) batch.delete(r.reference);
-                          batch.delete(d.reference);
-                          await batch.commit();
-                          _snack(context, 'Topic deleted.');
-                        }
-                      },
-                    ),
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: const BorderSide(color: Color(0xFFDAE2EE)),
+                  ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
                     onTap: () {
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (_) => _TopicDetailPage(topicId: d.id)),
                       );
                     },
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 제목
+                          Text(
+                            title,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 20, // ✅ 폰트 크기 키움
+                              color: Color(0xFF0B1324),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 6),
+                          const Divider(color: Colors.black, thickness: 1), // ✅ 검은색 디바이더
+
+                          const SizedBox(height: 12),
+                          // 퀴즈 개수
+                          FutureBuilder<int>(
+                            future: _quizCount(d.id),
+                            builder: (context, snapCount) {
+                              final cnt = snapCount.data ?? 0;
+                              return Row(
+                                children: [
+                                  const Icon(Icons.view_module_outlined, size: 20),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '퀴즈 $cnt개',
+                                    style: const TextStyle(fontSize: 16), // ✅ 폰트 크기 키움
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                          const SizedBox(height: 12),
+
+                          // 생성일
+                          Row(
+                            children: [
+                              const Icon(Icons.calendar_today_outlined, size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                _fmtDate(createdAt),
+                                style: const TextStyle(fontSize: 16), // ✅ 폰트 크기 키움
+                              ),
+                            ],
+                          ),
+
+                          const Spacer(),
+
+                          // more 버튼
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              style: TextButton.styleFrom(
+                                minimumSize: const Size(0, 36),
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                              ),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => _TopicDetailPage(topicId: d.id)),
+                                );
+                              },
+                              child: const Text(
+                                'more ›',
+                                style: TextStyle(
+                                  fontSize: 16, // ✅ 버튼 폰트 크기 키움
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 );
               },
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemCount: topics.length,
             ),
           ),
         );
@@ -207,6 +288,8 @@ class _TopicList extends StatelessWidget {
     );
   }
 }
+
+
 
 class _TopicDetailPage extends StatelessWidget {
   const _TopicDetailPage({required this.topicId});
@@ -231,85 +314,91 @@ class _TopicDetailPage extends StatelessWidget {
         final questionStartedAt = topic?['questionStartedAt'] as Timestamp?;
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: quizzesStream,
-          builder: (context, snap) {
-            final quizzes = snap.data?.docs ?? const [];
-            return Scaffold(
-              backgroundColor: const Color.fromARGB(255, 246, 250, 255),
-              appBar: AppBar(
-                leading: IconButton(
-  tooltip: 'Back',
-  icon: const Icon(Icons.arrow_back),
-  onPressed: () async {
-    await _maybeStopRunningTopic(status: status, topicId: topicId);
-    if (context.mounted) Navigator.pop(context);
-  },
-),
-                title: Text('Topic • $title'),
-              ),
-              body: Stack(
-                children: [
-                  Column(
-                    children: [
-                      // RunBar도 중앙 80% + 살짝 높은 높이감(패딩↑)
-                      Center(
-                        child: FractionallySizedBox(
-                          widthFactor: 0.8,
-                          child: _RunBar(
-                            topicId: topicId,
-                            quizzes: quizzes,
-                            status: status,
-                            phase: phase,
-                            currentIndex: currentIndex,
-                            currentQuizId: currentQuizId,
-                            questionStartedAt: questionStartedAt,
+  stream: quizzesStream,
+  builder: (context, snap) {
+    final quizzes = snap.data?.docs ?? const [];
+    // ⬇️ 여기서부터 Scaffold를 WillPopScope로 감싼다
+    return WillPopScope(
+      onWillPop: () async {
+        // 진행 중이면 자동으로 stopped로 정리
+        await _maybeStopRunningTopic(status: status, topicId: topicId);
+        return true; // pop 진행
+      },
+      child: Scaffold(
+        backgroundColor: const Color.fromARGB(255, 246, 250, 255),
+        appBar: AppBar(
+          backgroundColor: const Color.fromARGB(255, 255, 255, 255),
+          leading: IconButton(
+            tooltip: 'Back',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () async {
+              await _maybeStopRunningTopic(status: status, topicId: topicId);
+              if (context.mounted) Navigator.pop(context);
+            },
+          ),
+          title: Text('Topic • $title'),
+        ),
+        body: Stack(
+          children: [
+            Column(
+              children: [
+                Center(
+                  child: FractionallySizedBox(
+                    widthFactor: 0.8,
+                    child: _RunBar(
+                      topicId: topicId,
+                      quizzes: quizzes,
+                      status: status,
+                      phase: phase,
+                      currentIndex: currentIndex,
+                      currentQuizId: currentQuizId,
+                      questionStartedAt: questionStartedAt,
+                    ),
+                  ),
+                ),
+                const Divider(height: 0),
+                Expanded(
+                  child: quizzes.isEmpty
+                      ? const Center(
+                          child: FractionallySizedBox(
+                            widthFactor: 0.8,
+                            child: _EmptyState(
+                              title: 'No quizzes',
+                              subtitle: '오른쪽 아래 버튼으로 퀴즈를 추가해 주세요.',
+                            ),
+                          ),
+                        )
+                      : Center(
+                          child: FractionallySizedBox(
+                            widthFactor: 0.8,
+                            child: ListView.separated(
+                              padding: const EdgeInsets.all(16),
+                              itemBuilder: (_, i) => _QuizCardTile(
+                                topicId: topicId,
+                                fs: fs,
+                                quizDoc: quizzes[i],
+                                isCurrent: currentQuizId == quizzes[i].id,
+                                topicStatus: status,
+                              ),
+                              separatorBuilder: (_, __) => const SizedBox(height: 10),
+                              itemCount: quizzes.length,
+                            ),
                           ),
                         ),
-                      ),
-                      const Divider(height: 0),
-                      Expanded(
-                        child: quizzes.isEmpty
-                            ? const Center(
-                                child: FractionallySizedBox(
-                                  widthFactor: 0.8,
-                                  child: _EmptyState(
-                                    title: 'No quizzes',
-                                    subtitle: '오른쪽 아래 버튼으로 퀴즈를 추가해 주세요.',
-                                  ),
-                                ),
-                              )
-                            : Center(
-                                child: FractionallySizedBox(
-                                  widthFactor: 0.8, // 리스트 폭 80%
-                                  child: ListView.separated(
-                                    padding: const EdgeInsets.all(16),
-                                    itemBuilder: (_, i) => _QuizCardTile(
-                                      topicId: topicId,
-                                      fs: fs,
-                                      quizDoc: quizzes[i],
-                                      isCurrent: currentQuizId == quizzes[i].id,
-                                      topicStatus: status,
-                                    ),
-                                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                                    itemCount: quizzes.length,
-                                  ),
-                                ),
-                              ),
-                      ),
-                    ],
-                  ),
-
-                  // 퀴즈 추가 둥둥 버튼(이미지)
-                  _CreateQuizFabImage(
-                    topicId: topicId,
-                    fs: fs,
-                    isRunning: status == 'running',
-                  ),
-                ],
-              ),
-            );
-          },
-        );
+                ),
+              ],
+            ),
+            _CreateQuizFabImage(
+              topicId: topicId,
+              fs: fs,
+              isRunning: status == 'running',
+            ),
+          ],
+        ),
+      ),
+    );
+  },
+);
       },
     );
   }
@@ -348,8 +437,8 @@ class _CreateQuizFabImage extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: SizedBox(
-          width: 160,
-          height: 160,
+          width: 200,
+          height: 200,
           child: Material(
             color: Colors.transparent,
             child: InkWell(
@@ -1354,7 +1443,7 @@ class _CreateQuizPageState extends State<_CreateQuizPage> {
       backgroundColor: const Color.fromARGB(255, 246, 250, 255),
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: const Color.fromARGB(255, 246, 250, 255),
+        backgroundColor: const Color.fromARGB(255, 255, 255, 255),
         titleSpacing: 0,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -1490,12 +1579,35 @@ class _SaveQuizFabImage extends StatelessWidget {
     return Positioned(
       right: 20,
       bottom: 20,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Image.asset(
-          'assets/logo_bird_save.png', // ✅ 넣고 싶은 이미지 경로
-          width: 72,
-          height: 72,
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          width: 200,
+          height: 200,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              hoverColor: Colors.black.withOpacity(0.05),   // 마우스 오버 효과
+              splashColor: Colors.black.withOpacity(0.1),   // 클릭 잔물결 효과
+              onTap: onTap,
+              child: Tooltip(
+                message: 'Save quiz', // 마우스 올렸을 때 표시
+                child: Padding(
+                  padding: const EdgeInsets.all(10.0),
+                  child: Image.asset(
+                    'assets/logo_bird_save.png', // 원하는 이미지 경로
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.save_alt,
+                      size: 64,
+                      color: Colors.indigo,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

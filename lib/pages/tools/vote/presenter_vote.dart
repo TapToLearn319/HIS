@@ -1,3 +1,5 @@
+
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -411,7 +413,7 @@ class _PresenterVotePageState extends State<PresenterVotePage>
       child: Scaffold(
         backgroundColor: const Color(0xFFF6FAFF),
         appBar: AppBar(
-          backgroundColor: Colors.white,
+          backgroundColor: Color(0xFFF6FAFF),
           elevation: 0.5,
           leading: IconButton(
             tooltip: 'Back',

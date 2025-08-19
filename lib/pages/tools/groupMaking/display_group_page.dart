@@ -1,3 +1,4 @@
+
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../../main.dart';
@@ -63,7 +64,7 @@ class _GroupDisplayPageState extends State<GroupDisplayPage> {
 
     return Scaffold(
       appBar: AppBar(
-        elevation: 0, backgroundColor: Colors.white,
+        elevation: 0, backgroundColor: Color(0xFFF6FAFF),
         automaticallyImplyLeading: false,
         leading: const SizedBox.shrink(),
       ),

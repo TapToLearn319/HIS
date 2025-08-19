@@ -17,5 +17,21 @@
   "noName" : "이름 없음",
   "setting": "설정",
   "toggleLanguage": "영어로 전환",
-  "presenterMain": "대시보드"
+  "presenterMain": "대시보드",
+
+
+  "toolsTitle" : "수업 도구",
+  "toolOpen" : "열기",
+  "toolAttendance" : "출석",
+  "toolAttendanceDesc" : "스마트 출석 추적",
+  "toolRandomGrouping" : "무작위 그룹 제작",
+  "toolRandomGroupingDesc" : "공정한 팀 배정 시스템",
+  "toolRandomSeat" : "무작위 자리 배정",
+  "toolRandomSeatDesc" : "최적의 자리 배치",
+  "toolTimer" : "타이머",
+  "toolTimerDesc" : "수업 시간을 정확하게 관리",
+  "toolVoting" : "투표",
+  "toolVotingDesc" : "즉각적인 수업 피드백 수집",
+  "toolQuiz" : "퀴즈",
+  "toolQuizDesc" : "상호작용 학습 과제"
 }
