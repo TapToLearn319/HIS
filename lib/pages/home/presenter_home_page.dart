@@ -24,6 +24,10 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
   bool _showLogs = false;
   bool _popping = false;
 
+  // ===== Board layout (now session-configured) =====
+  int _cols = 6; // fallback defaults
+  int _rows = 4;
+
   // Busy overlay
   bool _busy = false;
   String? _busyMsg;
@@ -39,7 +43,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
   String _ts() => DateTime.now().toIso8601String();
   void _log(String msg) => debugPrint('[HOME ${_ts()}] $msg');
 
-  // Seat doc ids: "1".."24"
+  // Seat doc ids: "1".."N"
   String _seatKey(int index) => '${index + 1}';
 
   // ---- Safe pop (route/dialog) on next frame ----
@@ -88,7 +92,9 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
 
     try {
       if (currentSid != null) {
-        _log('ensureSessionOnStart: already bound to $currentSid -> clear events');
+        _log('ensureSessionOnStart: already bound to $currentSid');
+        await _loadLayoutFromSession(currentSid);              // ⬅️ cols/rows 로드
+        _log('ensureSessionOnStart: clear events');
         await _clearEventsForSession(currentSid);
         return;
       }
@@ -105,6 +111,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
       final sid = ids.first;
       _log('ensureSessionOnStart: auto-load recent "$sid"');
       await _switchSessionAndBind(context, sid);
+      await _loadLayoutFromSession(sid);                      // ⬅️ cols/rows 로드
 
       // touch updatedAt
       await FirebaseFirestore.instance.doc('sessions/$sid').set(
@@ -149,6 +156,40 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     }
   }
 
+  // ===== robust slot extraction =====
+  String? _extractSlot(dynamic raw, {String? triggerKey}) {
+    final s = raw?.toString().trim().toUpperCase();
+    if (s == '1' || s == 'SLOT1' || s == 'S1' || s == 'LEFT') return '1';
+    if (s == '2' || s == 'SLOT2' || s == 'S2' || s == 'RIGHT') return '2';
+
+    final t = triggerKey?.toString().trim().toUpperCase();
+    if (t?.startsWith('S1_') == true) return '1';
+    if (t?.startsWith('S2_') == true) return '2';
+
+    return null;
+  }
+
+  // ===== load cols/rows from session =====
+  Future<void> _loadLayoutFromSession(String sid) async {
+    try {
+      final doc = await FirebaseFirestore.instance.doc('sessions/$sid').get();
+      final data = doc.data();
+      final cols = (data?['cols'] as num?)?.toInt();
+      final rows = (data?['rows'] as num?)?.toInt();
+      setState(() {
+        _cols = (cols != null && cols > 0) ? cols : 6;
+        _rows = (rows != null && rows > 0) ? rows : 4;
+      });
+      _log('loadLayoutFromSession: cols=$_cols rows=$_rows');
+    } catch (e) {
+      _log('loadLayoutFromSession ERROR: $e');
+      setState(() {
+        _cols = 6;
+        _rows = 4;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = context.watch<SessionProvider>();
@@ -156,7 +197,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
 
     final seatMapProvider = context.watch<SeatMapProvider>();
     final studentsProvider = context.watch<StudentsProvider>();
-    final debugProvider = context.watch<DebugEventsProvider>();
+    final debugProvider = context.watch<DebugEventsProvider>(); // listen → color 즉시 반영
 
     // 최신 이벤트 기반 좌석 색상 계산 (hubTs/ts 중 큰 값 기준)
     final Map<String, String> lastSlotByStudent = {};
@@ -168,37 +209,51 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     }
 
     for (final ev in debugProvider.events) {
-      final sid = ev.studentId;
-      final slot = (ev.slotIndex == '1' || ev.slotIndex == '2') ? ev.slotIndex : null;
-      if (sid == null || slot == null) continue;
+      final sid = ev.studentId?.toString().trim();
+      if (sid == null || sid.isEmpty) continue;
+
+      final slot = _extractSlot(ev.slotIndex);
+      if (slot != '1' && slot != '2') continue;
+
       final s = scoreOf(ev);
       final prev = lastScoreByStudent[sid];
       if (prev == null || s > prev) {
         lastScoreByStudent[sid] = s;
-        lastSlotByStudent[sid] = slot;
+        lastSlotByStudent[sid] = slot!;
       }
     }
 
-    Color _colorFor(String? slot) {
+    // 하이라이트 컬러 (없으면 null)
+    Color? _highlightColor(String? slot) {
       if (slot == '2') return Colors.lightGreenAccent; // slot2=초록
       if (slot == '1') return Colors.redAccent;        // slot1=빨강
-      return const Color(0xFF6063C6);                  // 기본
+      return null;
     }
+
+    // ✅ Total: 좌석에 "배정된" 학생 수 (공백 제거 후 카운트)
+    final int assignedCount = seatMapProvider.seatMap.values
+        .where((v) => (v as String?)?.trim().isNotEmpty == true)
+        .length;
+
+    final seatCount = (_cols <= 0 || _rows <= 0) ? 0 : _cols * _rows;
 
     // 프레임마다 핵심 상태 로그
     _log('build: sid=$sessionId, seats=${seatMapProvider.seatMap.length}, '
-         'students=${studentsProvider.students.length}, events=${debugProvider.events.length}');
+        'assigned=$assignedCount, events=${debugProvider.events.length}, '
+        'cols=$_cols rows=$_rows');
+
+    final double screenW = MediaQuery.sizeOf(context).width;
 
     return Scaffold(
       body: Stack(
         children: [
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Top bar (Back + Session + Logout)
+                  // Top bar (Back + Session)
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -219,70 +274,156 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                           ),
                         ],
                       ),
-                      Row(
-                        children: [
-                          OutlinedButton(
-                            onPressed: () {
-                              _log('Session button tapped');
-                              _openSessionMenu(context);
-                            },
-                            child: const Text('Session'),
-                          ),
-                          // const SizedBox(width: 8),
-                          // OutlinedButton(
-                          //   onPressed: () {
-                          //     _log('Logout pressed -> pop route');
-                          //     Navigator.pop(context);
-                          //   },
-                          //   style: OutlinedButton.styleFrom(
-                          //     shape: RoundedRectangleBorder(
-                          //       borderRadius: BorderRadius.circular(20),
-                          //     ),
-                          //   ),
-                          //   child: const Text('Logout'),
-                          // ),
-                        ],
+                      OutlinedButton(
+                        onPressed: () {
+                          _log('Session button tapped');
+                          _openSessionMenu(context);
+                        },
+                        child: const Text('Session'),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 10),
 
-                  // Seat grid
-                  Expanded(
-                    child: GridView.builder(
-                      itemCount: 24,
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 6,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        childAspectRatio: 1.8,
-                      ),
-                      itemBuilder: (context, index) {
-                        final key = _seatKey(index);
-                        final studentId = seatMapProvider.seatMap[key];
-                        final displayName = studentId == null
-                            ? 'Empty'
-                            : studentsProvider.displayName(studentId);
-                        final slot = studentId == null ? null : lastSlotByStudent[studentId];
-
-                        return InkWell(
-                          onTap: () => _openSeatPicker(seatIndex: index),
-                          child: Container(
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: _colorFor(slot),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Text(
-                              displayName,
-                              textAlign: TextAlign.center,
+                  // ===== Board header (Total / Board / Layout label) =====
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Left: Total & layout label
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Total $assignedCount',
                               style: const TextStyle(
-                                color: Colors.black,
                                 fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF111827),
+                              )),
+                          const SizedBox(height: 2),
+                          Text('$_cols column / $_rows row',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF6B7280),
+                              )),
+                        ],
+                      ),
+                      const Spacer(),
+                      // Center: Board pill  ← 길이 조금 더 늘림
+                      Container(
+                        width: (screenW * 0.60).clamp(320.0, 720.0),
+                        height: 42,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFCCFF88),
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: const Text('Board',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF111827),
+                            )),
+                      ),
+                      const Spacer(),
+                      // Right: (no steppers anymore)
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+
+                  // ===== Seat grid =====
+                  Expanded(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        if (seatCount == 0) {
+                          return const Center(child: Text('No seat layout (cols/rows not set).'));
+                        }
+
+                        // 가용 영역에서 셀 비율을 역산 → 스크롤 없이 정확히 맞춤
+                        const double crossSpacing = 16.0;
+                        const double mainSpacing = 16.0;
+
+                        final double gridW = constraints.maxWidth;
+                        final double gridH = constraints.maxHeight;
+
+                        final double tileW =
+                            (gridW - crossSpacing * (_cols - 1)) / _cols;
+                        final double tileH =
+                            (gridH - mainSpacing * (_rows - 1)) / _rows;
+
+                        final double ratio = (tileW / tileH).isFinite
+                            ? tileW / tileH
+                            : 1.0;
+
+                        return GridView.builder(
+                          physics: const NeverScrollableScrollPhysics(), // 스크롤 금지
+                          itemCount: seatCount,
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: _cols,
+                            crossAxisSpacing: crossSpacing,
+                            mainAxisSpacing: mainSpacing,
+                            childAspectRatio: ratio, // 화면에 딱 맞게
                           ),
+                          itemBuilder: (context, index) {
+                            final key = _seatKey(index);
+                            final rawId = seatMapProvider.seatMap[key];
+                            final seatStudentId = (rawId as String?)?.trim();
+                            final displayName = seatStudentId == null || seatStudentId.isEmpty
+                                ? null
+                                : studentsProvider.displayName(seatStudentId);
+                            final slot = seatStudentId == null
+                                ? null
+                                : lastSlotByStudent[seatStudentId];
+                            final highlight = _highlightColor(slot);
+
+                            final Color fillColor = highlight ?? // 이벤트 하이라이트 최우선
+                                (displayName == null
+                                    ? Colors.white
+                                    : const Color(0xFFE6F0FF));
+
+                            // 빈 칸은 점선, 지정좌석은 실선, 하이라이트는 테두리 없음
+                            final Border? solidBorder = (highlight != null)
+                                ? null
+                                : (displayName == null
+                                    ? null
+                                    : Border.all(
+                                        color: const Color(0xFF8DB3FF),
+                                        width: 1.2,
+                                      ));
+
+                            final child = Container(
+                              decoration: BoxDecoration(
+                                color: fillColor,
+                                borderRadius: BorderRadius.circular(12),
+                                border: solidBorder,
+                              ),
+                              alignment: Alignment.center,
+                              child: _seatContent(
+                                index: index,
+                                name: displayName,
+                                hasHighlight: highlight != null,
+                              ),
+                            );
+
+                            // empty + no highlight → 점선 테두리 오버레이
+                            final bool showDashed =
+                                displayName == null && highlight == null;
+
+                            return InkWell(
+                              onTap: () => _openSeatPicker(seatIndex: index),
+                              child: showDashed
+                                  ? CustomPaint(
+                                      foregroundPainter: _DashedBorderPainter(
+                                        radius: 12,
+                                        color: const Color(0xFFCBD5E1),
+                                        strokeWidth: 1.4,
+                                        dash: 6,
+                                        gap: 5,
+                                      ),
+                                      child: child,
+                                    )
+                                  : child,
+                            );
+                          },
                         );
                       },
                     ),
@@ -332,8 +473,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                                       : studentsProvider.displayName(ev.studentId!);
                                   final timeStr =
                                       ev.ts?.toDate().toLocal().toString() ?? '-';
-                                  final slot = ev.slotIndex ?? '-';
-                                  // deviceId 끝 5자리
+                                  final slot = ev.slotIndex?.toString() ?? '-';
                                   final tail5 = ev.deviceId.length > 5
                                       ? ev.deviceId.substring(ev.deviceId.length - 5)
                                       : ev.deviceId;
@@ -355,7 +495,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
           ),
 
           // Provider pagination overlay (기존)
-          if (debugProvider.isLoading)
+          if (context.watch<DebugEventsProvider>().isLoading)
             Positioned.fill(
               child: Container(
                 color: Colors.black.withOpacity(0.5),
@@ -408,6 +548,58 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     );
   }
 
+  // ====== Seat content renderer ======
+  Widget _seatContent({
+    required int index,
+    required String? name,
+    required bool hasHighlight,
+  }) {
+    if (hasHighlight) {
+      return Text(
+        name ?? '',
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          color: Colors.black,
+          fontWeight: FontWeight.w700,
+        ),
+      );
+    }
+
+    if (name == null) {
+      return const Text(
+        'empty',
+        style: TextStyle(
+          color: Color(0xFF9CA3AF),
+          fontWeight: FontWeight.w600,
+        ),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '${index + 1}',
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0xFF1F2937),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          name,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 14,
+            color: Color(0xFF0B1324),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+
   // ===================== Session menu =====================
   Future<void> _openSessionMenu(BuildContext context) async {
     _log('Open session sheet');
@@ -429,20 +621,11 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
               children: [
                 ListTile(
                   leading: const Icon(Icons.fiber_new),
-                  title: const Text('New session (empty)'),
-                  subtitle: const Text('Start fresh without seat layout'),
+                  title: const Text('New session'),
+                  subtitle: const Text('Set seat layout (cols/rows)'),
                   onTap: () {
                     _log('sheet tap: new_empty');
                     Navigator.of(sheetCtx, rootNavigator: true).pop('new_empty');
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.copy_all),
-                  title: const Text('New session from previous'),
-                  subtitle: const Text('Copy seat layout from a previous session'),
-                  onTap: () {
-                    _log('sheet tap: new_from_prev');
-                    Navigator.of(sheetCtx, rootNavigator: true).pop('new_from_prev');
                   },
                 ),
                 ListTile(
@@ -480,9 +663,6 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
         case 'new_empty':
           await _createEmptySession(context);
           break;
-        case 'new_from_prev':
-          await _createFromPrevious(context);
-          break;
         case 'load_existing':
           await _loadExistingSession(context);
           break;
@@ -494,10 +674,14 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     });
   }
 
-  // ---------- New session (empty) ----------
+  // ---------- New session (with cols/rows) ----------
   Future<void> _createEmptySession(BuildContext context) async {
     _log('createEmptySession: open dialog');
-    final controller = TextEditingController(text: _defaultSessionId());
+
+    final ctrlSid = TextEditingController(text: _defaultSessionId());
+    int cols = 6;
+    int rows = 4;
+
     final ok = await showDialog<bool>(
       context: context,
       useRootNavigator: true,
@@ -509,16 +693,46 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
         );
         return Theme(
           data: noSplashTheme,
-          child: AlertDialog(
-            title: const Text('New session ID'),
-            content: TextField(
-              controller: controller,
-              decoration: const InputDecoration(border: OutlineInputBorder()),
+          child: StatefulBuilder(
+            builder: (context, setLocal) => AlertDialog(
+              title: const Text('New session'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: ctrlSid,
+                    decoration: const InputDecoration(
+                      labelText: 'Session ID',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _DialogStepper(
+                          label: 'Cols',
+                          value: cols,
+                          onChanged: (v) => setLocal(() => cols = v.clamp(1, 12)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _DialogStepper(
+                          label: 'Rows',
+                          value: rows,
+                          onChanged: (v) => setLocal(() => rows = v.clamp(1, 12)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(onPressed: () => _safeRootPop(false), child: const Text('Cancel')),
+                ElevatedButton(onPressed: () => _safeRootPop(true), child: const Text('Create')),
+              ],
             ),
-            actions: [
-              TextButton(onPressed: () => _safeRootPop(false), child: const Text('Cancel')),
-              ElevatedButton(onPressed: () => _safeRootPop(true), child: const Text('Create')),
-            ],
           ),
         );
       },
@@ -527,23 +741,28 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     if (ok != true) return;
 
     await _runNextFrame(() async {
-      final sid = controller.text.trim();
+      final sid = ctrlSid.text.trim();
       if (sid.isEmpty) {
         _log('createEmptySession: empty sid, abort');
         return;
       }
+
       _log('createEmptySession: switch/bind sid=$sid');
       await _switchSessionAndBind(context, sid);
 
-      _log('createEmptySession: write sessions/$sid meta');
+      _log('createEmptySession: write sessions/$sid meta with cols/rows');
       await FirebaseFirestore.instance.doc('sessions/$sid').set(
         {
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
           'note': 'empty layout',
+          'cols': cols,
+          'rows': rows,
         },
         SetOptions(merge: true),
       );
+
+      await _loadLayoutFromSession(sid); // 반영
 
       // 새 세션이어도 초기화 UX 일관성 유지 (no-op이어도 호출)
       await _clearEventsForSession(sid);
@@ -551,48 +770,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
       if (!mounted) return;
       _log('createEmptySession: snackbar');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Started new session: $sid')),
-      );
-    });
-  }
-
-  // ---------- New session from previous ----------
-  Future<void> _createFromPrevious(BuildContext context) async {
-    _log('createFromPrevious: pick source dialog');
-    final fromSid = await _pickSessionId(context, title: 'Pick source session');
-    _log('createFromPrevious: picked=$fromSid');
-    if (fromSid == null) return;
-
-    await _runNextFrame(() async {
-      _log('createFromPrevious: input target dialog');
-      final toSid = await _inputSessionId(context, title: 'New session ID');
-      _log('createFromPrevious: target=$toSid');
-      if (toSid == null || toSid.trim().isEmpty) return;
-
-      final target = toSid.trim();
-      _log('createFromPrevious: switch/bind sid=$target');
-      await _switchSessionAndBind(context, target);
-
-      _log('createFromPrevious: copy seatMap $fromSid -> $target');
-      await _copySeatMap(fromSid, target);
-
-      _log('createFromPrevious: write sessions/$target meta');
-      await FirebaseFirestore.instance.doc('sessions/$target').set(
-        {
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-          'copiedFrom': fromSid,
-        },
-        SetOptions(merge: true),
-      );
-
-      // 새 세션 초기화 (대개 no-op)
-      await _clearEventsForSession(target);
-
-      if (!mounted) return;
-      _log('createFromPrevious: snackbar');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('New session from "$fromSid": $target')),
+        SnackBar(content: Text('Started new session: $sid ($cols×$rows)')),
       );
     });
   }
@@ -613,6 +791,8 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
         {'updatedAt': FieldValue.serverTimestamp()},
         SetOptions(merge: true),
       );
+
+      await _loadLayoutFromSession(sid); // ⬅️ cols/rows 로드
 
       // ▶ 다른 세션 로드 시에도 초기화
       await _clearEventsForSession(sid);
@@ -671,26 +851,6 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
   }
 
   // ---------- Helpers ----------
-  Future<void> _copySeatMap(String fromSid, String toSid) async {
-    final fs = FirebaseFirestore.instance;
-    final src = await fs.collection('sessions/$fromSid/seatMap').get();
-    if (src.docs.isEmpty) {
-      _log('copySeatMap: source empty');
-      return;
-    }
-    final batch = fs.batch();
-    for (final d in src.docs) {
-      final data = d.data();
-      batch.set(
-        fs.doc('sessions/$toSid/seatMap/${d.id}'),
-        {'studentId': data['studentId']},
-        SetOptions(merge: true),
-      );
-    }
-    await batch.commit();
-    _log('copySeatMap: copied ${src.docs.length} seats');
-  }
-
   // 서버 orderBy 없이 가져와 로컬에서 정렬
   Future<List<String>> _listRecentSessionIds({int limit = 50}) async {
     final fs = FirebaseFirestore.instance;
@@ -759,45 +919,6 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     );
   }
 
-  Future<String?> _inputSessionId(BuildContext context, {required String title}) async {
-    final ctrl = TextEditingController(text: _defaultSessionId());
-    final ok = await showDialog<bool>(
-      context: context,
-      useRootNavigator: true,
-      builder: (_) {
-        final noSplashTheme = Theme.of(context).copyWith(
-          splashFactory: NoSplash.splashFactory,
-          highlightColor: Colors.transparent,
-          splashColor: Colors.transparent,
-        );
-        return Theme(
-          data: noSplashTheme,
-          child: AlertDialog(
-            title: Text(title),
-            content: TextField(
-              controller: ctrl,
-              decoration: const InputDecoration(border: OutlineInputBorder()),
-            ),
-            actions: [
-              TextButton(onPressed: () => _safeRootPop(false), child: const Text('Cancel')),
-              ElevatedButton(onPressed: () => _safeRootPop(true), child: const Text('OK')),
-            ],
-          ),
-        );
-      },
-    );
-    if (ok == true) return ctrl.text.trim();
-    return null;
-  }
-
-  String _defaultSessionId() {
-    final now = DateTime.now();
-    return '${now.toIso8601String().substring(0, 10)}-'
-        '${now.hour.toString().padLeft(2, '0')}'
-        '${now.minute.toString().padLeft(2, '0')}';
-  }
-
-  // 좌석 피커 (이름 중복 배정 방지 포함)
   Future<void> _openSeatPicker({required int seatIndex}) async {
     final seatMapProvider = context.read<SeatMapProvider>();
     final studentsProvider = context.read<StudentsProvider>();
@@ -846,32 +967,15 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     if (ok == true) {
       try {
         final newStudentId = selected;
-
-        // 1) 동일 학생이 다른 좌석에 배정돼 있으면 그 좌석을 Empty로
-        if (newStudentId != null) {
-          String? otherSeatKey;
-          seatMapProvider.seatMap.forEach((k, v) {
-            if (k != seatNo && v == newStudentId) {
-              otherSeatKey = k;
-            }
-          });
-          if (otherSeatKey != null) {
-            _log('assignSeat: "$newStudentId" already at seat=$otherSeatKey -> set Empty first');
-            await seatMapProvider.assignSeat(otherSeatKey!, null);
-          }
-        }
-
-        // 2) 현재 좌석에 최종 지정
-        await seatMapProvider.assignSeat(seatNo, newStudentId);
-
+        await _assignSeatExclusive(seatNo: seatNo, studentId: newStudentId); // ⬅️ 원샷 트랜잭션
         final name = newStudentId == null ? 'Empty' : studentsProvider.displayName(newStudentId);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Seat $seatNo → $name')),
         );
-        _log('assignSeat OK: seat=$seatNo student=$newStudentId');
+        _log('assignSeatExclusive OK: seat=$seatNo student=$newStudentId');
       } catch (e, st) {
-        _log('assignSeat ERROR: $e\n$st');
+        _log('assignSeatExclusive ERROR: $e\n$st');
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Assign failed: $e')),
@@ -964,5 +1068,158 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
       if (snap.docs.length < batchSize) break;
     }
     _log('deleteCollection: done $path');
+  }
+
+  String _defaultSessionId() {
+    final now = DateTime.now();
+    return '${now.toIso8601String().substring(0, 10)}-'
+        '${now.hour.toString().padLeft(2, '0')}'
+        '${now.minute.toString().padLeft(2, '0')}';
+  }
+
+  // ===== exclusive seat assign (no duplicates) =====
+  Future<void> _assignSeatExclusive({
+    required String seatNo,
+    required String? studentId, // null이면 비우기
+  }) async {
+    final sid = context.read<SessionProvider>().sessionId;
+    if (sid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No session is set.')),
+      );
+      return;
+    }
+
+    final fs = FirebaseFirestore.instance;
+    final col = fs.collection('sessions/$sid/seatMap');
+
+    // 미리 중복 후보 목록 조회 (쿼리는 트랜잭션 밖에서만 가능)
+    List<DocumentSnapshot<Map<String, dynamic>>> dupDocs = const [];
+    if (studentId != null) {
+      final qSnap = await col.where('studentId', isEqualTo: studentId).limit(50).get();
+      dupDocs = qSnap.docs;
+    }
+
+    await fs.runTransaction((tx) async {
+      // 1) 기존에 그 학생이 앉아 있던 다른 좌석 -> 비우기
+      for (final d in dupDocs) {
+        if (d.id == seatNo) continue;
+        final dr = col.doc(d.id);
+        final latest = await tx.get(dr);
+        final latestStudent = latest.data()?['studentId'] as String?;
+        if (latest.exists && latestStudent == studentId) {
+          tx.set(dr, {'studentId': null}, SetOptions(merge: true));
+        }
+      }
+      // 2) 타깃 좌석 최종 배정/비우기
+      final targetRef = col.doc(seatNo);
+      tx.set(targetRef, {'studentId': studentId}, SetOptions(merge: true));
+    });
+  }
+}
+
+/* ---------- small UI pieces ---------- */
+
+class _DialogStepper extends StatelessWidget {
+  const _DialogStepper({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280), fontWeight: FontWeight.w700)),
+          Row(
+            children: [
+              _roundBtn(Icons.remove, onTap: () => onChanged((value - 1).clamp(1, 12))),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: Text('$value', style: const TextStyle(fontWeight: FontWeight.w800)),
+              ),
+              _roundBtn(Icons.add, onTap: () => onChanged((value + 1).clamp(1, 12))),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _roundBtn(IconData icon, {required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Padding(
+        padding: const EdgeInsets.all(4.0),
+        child: Icon(icon, size: 16),
+      ),
+    );
+  }
+}
+
+/* ---------- dashed border painter ---------- */
+
+class _DashedBorderPainter extends CustomPainter {
+  _DashedBorderPainter({
+    required this.radius,
+    required this.color,
+    this.strokeWidth = 1.0,
+    this.dash = 6.0,
+    this.gap = 4.0,
+  });
+
+  final double radius;
+  final double strokeWidth;
+  final double dash;
+  final double gap;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rrect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
+    );
+    final path = Path()..addRRect(rrect);
+
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..color = color;
+
+    for (final metric in path.computeMetrics()) {
+      double distance = 0.0;
+      while (distance < metric.length) {
+        final double len = distance + dash > metric.length
+            ? metric.length - distance
+            : dash;
+        final extract = metric.extractPath(distance, distance + len);
+        canvas.drawPath(extract, paint);
+        distance += dash + gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedBorderPainter oldDelegate) {
+    return radius != oldDelegate.radius ||
+        strokeWidth != oldDelegate.strokeWidth ||
+        dash != oldDelegate.dash ||
+        gap != oldDelegate.gap ||
+        color != oldDelegate.color;
   }
 }

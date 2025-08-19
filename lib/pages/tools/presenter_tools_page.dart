@@ -8,7 +8,6 @@ import '../../sidebar_menu.dart';
 import 'timer/presenter_timer.dart';
 import 'vote/vote_manager.dart';
 
-
 // ▶ Tools 입장만으로 세션/좌석을 바로 준비시키기 위해 추가
 import '../../provider/session_provider.dart';
 import '../../provider/seat_map_provider.dart';
@@ -69,7 +68,6 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       trending: false,
       route: '/tools/timer',
     ),
-    
     ToolItem(
       id: 'voting',
       title: 'Voting',
@@ -92,8 +90,6 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       trending: false,
       route: '/tools/quiz',
     ),
-    
-    
   ];
 
   final List<QuickAction> quickActions = const [
@@ -112,7 +108,6 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ensureSessionAndBindSeatMap();
     });
-    
   }
 
   @override
@@ -184,6 +179,45 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
         '${now.minute.toString().padLeft(2, '0')}';
   }
 
+  // ----------------- ✅ 카드 탭 가드: Random Seat 차단 -----------------
+  Future<void> _onToolTap(BuildContext context, ToolItem t) async {
+    if (t.id == 'random_seat') {
+      final session = context.read<SessionProvider>();
+      // 세션 바인딩이 아직 없으면 실제로 세션 존재 여부까지 확인
+      if (session.sessionId == null) {
+        try {
+          final snap = await FirebaseFirestore.instance.collection('sessions').limit(1).get();
+          final hasAnySession = snap.docs.isNotEmpty;
+          if (!hasAnySession) {
+            await _showNeedSessionDialog(context);
+            return; // ▶ 진입 차단
+          }
+        } catch (_) {
+          // 조회 에러 시도 세션이 확실치 않으면 진입 막고 안내
+          await _showNeedSessionDialog(context);
+          return;
+        }
+      }
+    }
+    // 통과 시 정상 이동
+    if (!mounted) return;
+    Navigator.pushNamed(context, t.route);
+  }
+
+  Future<void> _showNeedSessionDialog(BuildContext context) async {
+    await showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('세션이 필요해요'),
+        content: const Text('랜덤 좌석 기능을 사용하려면 먼저 세션을 생성하세요.\n상단의 Session 버튼에서 새 세션을 만들 수 있어요.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('확인')),
+        ],
+      ),
+    );
+  }
+  // --------------------------------------------------------------------
+
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
@@ -198,89 +232,6 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 헤더
-              // Material(
-              //   elevation: 1,
-              //   child: Container(
-              //     width: double.infinity,
-              //     // decoration: const BoxDecoration(
-              //     //   color: Colors.white,
-              //     //   border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
-              //     // ),
-              //     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              //     child: SafeArea(
-              //       bottom: false,
-              //       child: Row(
-              //         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              //         children: [
-              //           // const Column(
-              //           //   crossAxisAlignment: CrossAxisAlignment.start,
-              //           //   children: [
-              //           //     Text('Classroom Overview',
-              //           //         style: TextStyle(
-              //           //           fontSize: 18,
-              //           //           fontWeight: FontWeight.w600,
-              //           //           color: Color(0xFF111827),
-              //           //         )),
-              //           //     SizedBox(height: 2),
-              //           //     Text('Manage your class efficiently',
-              //           //         style: TextStyle(
-              //           //           fontSize: 12,
-              //           //           color: Color(0xFF6B7280),
-              //           //         )),
-              //           //   ],
-              //           // ),
-              //           // if (wide)
-              //           //   SizedBox(
-              //           //     width: 280,
-              //           //     child: TextField(
-              //           //       decoration: InputDecoration(
-              //           //         isDense: true,
-              //           //         hintText: 'Search tools...',
-              //           //         prefixIcon: const Icon(Icons.search, size: 18),
-              //           //         border: OutlineInputBorder(
-              //           //           borderRadius: BorderRadius.circular(10),
-              //           //         ),
-              //           //         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              //           //         filled: true,
-              //           //         fillColor: const Color(0xFFFAFAFA),
-              //           //       ),
-              //           //     ),
-              //           //   ),
-              //         ],
-              //       ),
-              //     ),
-              //   ),
-              // ),
-              // const SizedBox(height: 20),
-
-              // 퀵 액션
-              // const Text('Quick Actions',
-              //     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
-              // const SizedBox(height: 12),
-              // SingleChildScrollView(
-              //   scrollDirection: Axis.horizontal,
-              //   child: Row(
-              //     children: quickActions
-              //         .map(
-              //           (a) => Padding(
-              //             padding: const EdgeInsets.only(right: 10),
-              //             child: OutlinedButton.icon(
-              //               onPressed: () {},
-              //               icon: Icon(a.icon, size: 18, color: a.color),
-              //               label: Text(a.label),
-              //               style: OutlinedButton.styleFrom(
-              //                 foregroundColor: const Color(0xFF111827),
-              //                 side: const BorderSide(color: Color(0xFFE5E7EB)),
-              //               ),
-              //             ),
-              //           ),
-              //         )
-              //         .toList(),
-              //   ),
-              // ),
-              // const SizedBox(height: 28),
-
               // 그리드 헤더
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -318,7 +269,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
                       final t = tools[i];
                       return ToolCard(
                         item: t,
-                        onTap: () => Navigator.pushNamed(context, t.route),
+                        onTap: () => _onToolTap(context, t), // ▶ 여기만 변경
                       );
                     },
                   );

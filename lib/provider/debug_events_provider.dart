@@ -23,17 +23,25 @@ class EventLog {
   });
 
   factory EventLog.fromDoc(DocumentSnapshot<Map<String, dynamic>> d) {
-    final x = d.data() ?? const <String, dynamic>{};
-    return EventLog(
-      id: d.id,
-      deviceId: (x['deviceId'] ?? '') as String,
-      clickType: (x['clickType'] ?? '') as String,
-      studentId: x['studentId'] as String?,
-      slotIndex: x['slotIndex'] as String?,
-      ts: x['ts'] as Timestamp?,                // serverTimestamp
-      hubTs: (x['hubTs'] as num?)?.toInt(),     // 강제 int
-    );
+  final x = d.data() ?? const <String, dynamic>{};
+
+  String? normalizeSlot(dynamic v) {
+    if (v == null) return null;
+    final s = v.toString().trim();
+    if (s == '1' || s == '2') return s;
+    return null; // 그 외 값은 무시
   }
+
+  return EventLog(
+    id: d.id,
+    deviceId: (x['deviceId'] ?? '').toString(),
+    clickType: (x['clickType'] ?? '').toString().toLowerCase(),
+    studentId: (x['studentId'] as String?) ?? (x['studentId']?.toString()),
+    slotIndex: normalizeSlot(x['slotIndex']),        // ✅ 핵심 수정
+    ts: x['ts'] is Timestamp ? x['ts'] as Timestamp : null,
+    hubTs: (x['hubTs'] as num?)?.toInt(),
+  );
+}
 }
 
 class DebugEventsProvider extends ChangeNotifier {

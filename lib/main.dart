@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:project/pages/ai_chat/presenter_ai_char.dart';
+import 'package:project/pages/random_seat/display_random_seat.dart';
 import 'package:project/pages/random_seat/presenter_random_seat.dart';
 import 'package:project/pages/tools/groupMaking/display_group_page.dart';
 import 'package:project/pages/tools/groupMaking/presenter_group_page.dart';
@@ -216,7 +217,7 @@ class _DisplayAppState extends State<DisplayApp> {
           initialRoute: initialRoute,
           routes: {
             '/login': (_) => DisplayHomePage(),
-            '/home': (_) => DisplayHomePage(),
+            '/tools/attendance': (_) => DisplayHomePage(),
             '/tools/quiz': (_) => DisplayQuizPage(),
             '/game': (_) => DisplayGamePage(),
             '/tools': (_) => DisplayStandByPage(),
@@ -226,7 +227,7 @@ class _DisplayAppState extends State<DisplayApp> {
             '/tools/timer': (_) =>  DisplayTimerPage(),
             '/tools/voting': (_) =>  DisplayVotePage(),
             '/tools/grouping': (_) =>  GroupDisplayPage(),
-            '/tools/random_seat': (_) =>  DisplayStandByPage(),
+            '/tools/random_seat': (_) =>  DisplayRandomSeatPage(),
 
           },
         );

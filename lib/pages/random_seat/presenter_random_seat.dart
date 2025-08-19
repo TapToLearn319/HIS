@@ -47,7 +47,6 @@ class _RandomSeatPageState extends State<RandomSeatPage> {
 
     // 세션이 아직 없으면 잠깐 대기 (Tools에서 곧 설정되므로 다음 프레임에서 한 번 더 시도)
     if (sid == null) {
-      // 다음 프레임에 재시도
       WidgetsBinding.instance.addPostFrameCallback((_) => _ensureBind());
       return;
     }
@@ -68,36 +67,38 @@ class _RandomSeatPageState extends State<RandomSeatPage> {
     }
   }
 
-  // 랜덤 섞기 (Empty 제외)
+  // 랜덤 섞기 (Empty 제외, 중복 없이)
   Future<void> _randomize() async {
-  final seatMapProvider = context.read<SeatMapProvider>();
-  final seatMap = seatMapProvider.seatMap;
-  final seats = List.generate(24, (i) => _seatKey(i));
+    final seatMapProvider = context.read<SeatMapProvider>();
+    final seatMap = seatMapProvider.seatMap;
+    final seats = List.generate(24, (i) => _seatKey(i));
 
-  // 배정된 학생들만 추출 (Empty 제외)
-  final assigned = <String>[];
-  for (final s in seats) {
-    final sid = seatMap[s];
-    if (sid != null && sid.isNotEmpty) {
-      assigned.add(sid);
+    // 현재 좌석에 배정된 학생만 (중복 제거)
+    final assignedSet = <String>{};
+    final assignedSeatKeys = <String>[];
+    for (final s in seats) {
+      final sid = seatMap[s];
+      if (sid != null && sid.trim().isNotEmpty) {
+        assignedSeatKeys.add(s);           // 배정되어 있던 좌석 목록
+        assignedSet.add(sid.trim());       // 학생 ID (중복 제거)
+      }
+    }
+    final assigned = assignedSet.toList();
+    if (assigned.isEmpty) {
+      _snack('배정된 학생이 없습니다.');
+      return;
+    }
+
+    // 랜덤 셔플
+    assigned.shuffle(Random());
+
+    // 배정되어 있던 좌석들만 다시 채우되, 중복 없이
+    int idx = 0;
+    for (final seatNo in assignedSeatKeys) {
+      final newSid = (idx < assigned.length) ? assigned[idx++] : null;
+      await seatMapProvider.assignSeat(seatNo, newSid); // 리스트 소진 시 Empty로
     }
   }
-  if (assigned.isEmpty) {
-    _snack('배정된 학생이 없습니다.');
-    return;
-  }
-
-  // 랜덤 셔플
-  assigned.shuffle(Random());
-
-  // Empty 좌석은 그대로 두고, 학생이 있던 좌석만 다시 채움
-  int idx = 0;
-  for (final s in seats) {
-    if (seatMap[s] != null && seatMap[s]!.isNotEmpty) {
-      await seatMapProvider.assignSeat(s, assigned[idx++]);
-    }
-  }
-}
 
   // 저장: 현재 좌석 상태로 새 세션을 만들고, 그 세션을 현재세션으로 전환
   Future<void> _saveAsNewSession() async {
@@ -175,6 +176,26 @@ class _RandomSeatPageState extends State<RandomSeatPage> {
       ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  // 상단 Board 표시 (단독)
+  Widget _boardHeader(BuildContext context) {
+    return Container(
+      height: 42,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: const Color(0xFFCCFF88),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: const Text(
+        'Board',
+        style: TextStyle(
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF111827),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final seatMapProvider = context.watch<SeatMapProvider>();
@@ -184,59 +205,106 @@ class _RandomSeatPageState extends State<RandomSeatPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Random Seat'),
-        actions: [
-          TextButton.icon(
-            onPressed: _working ? null : _randomize,
-            icon: const Icon(Icons.shuffle),
-            label: const Text('Random'),
-          ),
-          const SizedBox(width: 6),
-          FilledButton.icon(
-            onPressed: _working ? null : _saveAsNewSession,
-            icon: const Icon(Icons.save_alt),
-            label: const Text('Save'),
-          ),
-          const SizedBox(width: 8),
-        ],
+        // actions 없음 (요청사항 반영)
       ),
       body: Stack(
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
-            child: GridView.builder(
-              itemCount: 24,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 6, // 6 columns
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 1.8, // 4 rows 총 24개
-              ),
-              itemBuilder: (context, index) {
-                final key = _seatKey(index);
-                final sid = seatMap[key];
-                final name = (sid == null || sid.isEmpty)
-                    ? 'Empty'
-                    : studentsProvider.displayName(sid);
-
-                return Container(
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF6063C6),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    name,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.black,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
+            child: Column(
+              children: [
+                _boardHeader(context),
+                const SizedBox(height: 12),
+                // 홈페이지 스타일의 좌석 그리드 (empty=점선 / 배정=실선+연파/ index + name)
+                Expanded(
+                  child: GridView.builder(
+                    itemCount: 24,
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 6, // 6 columns
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: 1.8, // 4 rows 총 24개
                     ),
+                    itemBuilder: (context, index) {
+                      final key = _seatKey(index);
+                      final sid = seatMap[key]?.trim();
+                      final hasStudent = sid != null && sid.isNotEmpty;
+                      final name = hasStudent ? studentsProvider.displayName(sid!) : null;
+
+                      final Color fillColor = hasStudent
+                          ? const Color(0xFFE6F0FF)
+                          : Colors.white;
+
+                      final Border? solidBorder = hasStudent
+                          ? Border.all(color: const Color(0xFF8DB3FF), width: 1.2)
+                          : null;
+
+                      final content = Container(
+                        decoration: BoxDecoration(
+                          color: fillColor,
+                          borderRadius: BorderRadius.circular(12),
+                          border: solidBorder,
+                        ),
+                        alignment: Alignment.center,
+                        child: hasStudent
+                            ? Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '${index + 1}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF1F2937),
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    name!,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      color: Color(0xFF0B1324),
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : const Text(
+                                'empty',
+                                style: TextStyle(
+                                  color: Color(0xFF9CA3AF),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                      );
+
+                      final showDashed = !hasStudent;
+
+                      return showDashed
+                          ? CustomPaint(
+                              foregroundPainter: _DashedBorderPainter(
+                                radius: 12,
+                                color: const Color(0xFFCBD5E1),
+                                strokeWidth: 1.4,
+                                dash: 6,
+                                gap: 5,
+                              ),
+                              child: content,
+                            )
+                          : content;
+                    },
                   ),
-                );
-              },
+                ),
+              ],
             ),
           ),
+
+          // 좌측 하단: Mix 이미지 FAB
+          _MixFabImage(onTap: _randomize),
+
+          // 우측 하단: Save 이미지 FAB
+          _SaveFabImage(onTap: _saveAsNewSession),
 
           if (_working)
             Positioned.fill(
@@ -250,5 +318,147 @@ class _RandomSeatPageState extends State<RandomSeatPage> {
         ],
       ),
     );
+  }
+}
+
+/* ---------- Mix FAB 이미지 위젯 (왼쪽 아래) ---------- */
+class _MixFabImage extends StatelessWidget {
+  final VoidCallback onTap;
+  const _MixFabImage({Key? key, required this.onTap}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      left: 20,
+      bottom: 20,
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          width: 200,
+          height: 200,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              hoverColor: Colors.black.withOpacity(0.05),
+              splashColor: Colors.black.withOpacity(0.1),
+              onTap: onTap,
+              child: Tooltip(
+                message: 'Mix seats',
+                child: Padding(
+                  padding: const EdgeInsets.all(10.0),
+                  child: Image.asset(
+                    'assets/logo_bird_mix.png', // 원하는 이미지 경로 (없으면 아이콘으로 대체)
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.shuffle,
+                      size: 64,
+                      color: Colors.teal,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/* ---------- Save FAB 이미지 위젯 (오른쪽 아래) ---------- */
+class _SaveFabImage extends StatelessWidget {
+  final VoidCallback onTap;
+  const _SaveFabImage({Key? key, required this.onTap}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      right: 20,
+      bottom: 20,
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          width: 200,
+          height: 200,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              hoverColor: Colors.black.withOpacity(0.05),
+              splashColor: Colors.black.withOpacity(0.1),
+              onTap: onTap,
+              child: Tooltip(
+                message: 'Save seat layout',
+                child: Padding(
+                  padding: const EdgeInsets.all(10.0),
+                  child: Image.asset(
+                    'assets/logo_bird_save.png',
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.save_alt,
+                      size: 64,
+                      color: Colors.indigo,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/* ---------- dashed border painter (홈과 동일) ---------- */
+class _DashedBorderPainter extends CustomPainter {
+  _DashedBorderPainter({
+    required this.radius,
+    required this.color,
+    this.strokeWidth = 1.0,
+    this.dash = 6.0,
+    this.gap = 4.0,
+  });
+
+  final double radius;
+  final double strokeWidth;
+  final double dash;
+  final double gap;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rrect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
+    );
+    final path = Path()..addRRect(rrect);
+
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..color = color;
+
+    for (final metric in path.computeMetrics()) {
+      double distance = 0.0;
+      while (distance < metric.length) {
+        final double len = distance + dash > metric.length
+            ? metric.length - distance
+            : dash;
+        final extract = metric.extractPath(distance, distance + len);
+        canvas.drawPath(extract, paint);
+        distance += dash + gap;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedBorderPainter oldDelegate) {
+    return radius != oldDelegate.radius ||
+        strokeWidth != oldDelegate.strokeWidth ||
+        dash != oldDelegate.dash ||
+        gap != oldDelegate.gap ||
+        color != oldDelegate.color;
   }
 }
