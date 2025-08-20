@@ -1,517 +1,125 @@
+
+
+// PresenterMainPage — 전체 학생 페이지 (리팩터링)
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
-import '../../sidebar_menu.dart'; // AppScaffold
+import '../../sidebar_menu.dart';
 import '../../provider/students_provider.dart';
 
-const String kHubId = 'hub-001'; // 현재 허브(교실) ID
+const String kHubId = 'hub-001';
 
 class PresenterMainPage extends StatefulWidget {
   const PresenterMainPage({super.key});
-
   @override
   State<PresenterMainPage> createState() => _PresenterMainPageState();
 }
 
 class _PresenterMainPageState extends State<PresenterMainPage> {
-  String selectedCategory = 'student';
-  final List<String> categories = ['student', 'quiz'];
+  String _tab = 'students'; // 'students' | 'groups'
+  String _query = '';
 
-  // ---- Capture(대기 등록) 상태 ----
-  bool _isCapturing = false;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _captureSub;
-  Timer? _captureTimer;
-
-  @override
-  void dispose() {
-    _captureSub?.cancel();
-    _captureTimer?.cancel();
-    super.dispose();
+  // ── helpers ─────────────────────────────────────────────
+  int _colsForWidth(double w) {
+    if (w >= 1500) return 6;
+    if (w >= 1200) return 5;
+    if (w >= 1000) return 4;
+    if (w >= 700)  return 3;
+    return 2;
   }
-
-  // ─────────── UI helpers ───────────
-
-  Color getCategoryColor(String category) {
-    switch (category) {
-      case 'student':
-        return Colors.indigo;
-      case 'quiz':
-        return Colors.orange;
-      default:
-        return Colors.blueGrey;
-    }
-  }
-
-  void _safeSnack(String msg) {
-    if (!mounted) return;
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger != null) {
-      messenger.hideCurrentSnackBar();
-      messenger.showSnackBar(SnackBar(content: Text(msg)));
-    } else {
-      debugPrint('[SNACK fallback] $msg');
-    }
-  }
-
-  Future<String?> _inputText({
-    required String title,
-    required String label,
-    String? initial,
-    String? hint,
-  }) async {
-    final c = TextEditingController(text: initial ?? '');
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: c,
-          decoration: InputDecoration(
-            labelText: label,
-            hintText: hint,
-            border: const OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx, rootNavigator: true).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(dialogCtx, rootNavigator: true).pop(true),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) {
-      final v = c.text.trim();
-      return v.isEmpty ? null : v;
-    }
-    return null;
-  }
-
-  // ─────────── Sanity (옵션) ───────────
-
-  Future<void> _sanityWrite() async {
-    try {
-      final fs = FirebaseFirestore.instance;
-      final id = DateTime.now().millisecondsSinceEpoch.toString();
-      await fs.collection('zzz_sanity').doc(id).set(<String, Object?>{
-        'ok': true,
-        'at': FieldValue.serverTimestamp(),
-      });
-      debugPrint('sanity ok');
-      _safeSnack('Sanity write OK');
-    } on FirebaseException catch (e) {
-      debugPrint('sanity FirebaseException: code=${e.code}, msg=${e.message}');
-      _safeSnack('Sanity write failed: ${e.code}');
-    } catch (e, st) {
-      debugPrint('sanity generic: $e\n$st');
-      _safeSnack('Sanity write failed (client).');
-    }
-  }
-
-  // ─────────── Device mapping helpers ───────────
-
-  String? _sanitizeDeviceId(String? raw) {
-    final id = (raw ?? '').trim();
-    if (id.isEmpty) return null;
-    const bad = ['/', '#', '?', '[', ']'];
-    if (bad.any(id.contains)) return null;
-    return id;
-  }
-
-  String _last5DigitsFromSerial(String? id) {
-    if (id == null || id.isEmpty) return '';
-    final digitsOnly = id.replaceAll(RegExp(r'\D'), '');
-    if (digitsOnly.isEmpty) return '';
-    final start = digitsOnly.length > 5 ? digitsOnly.length - 5 : 0;
-    return digitsOnly.substring(start);
-  }
-
-  Future<void> _writeDeviceMapping({
-    required FirebaseFirestore fs,
-    required String deviceId,
-    required String studentId,
-    required String slotIndex, // "1" | "2"
-  }) async {
-    final ref = fs.collection('devices').doc(deviceId);
-    final Map<String, Object?> payload = {
-      'studentId': studentId,
-      'slotIndex': slotIndex,
-      'updatedAt': FieldValue.serverTimestamp(),
-    };
-    await ref.set(payload, SetOptions(merge: true));
-  }
-
-  // ─────────── Students actions ───────────
-
-  Future<void> _addStudent() async {
-    final name = await _inputText(
-      title: 'Add student',
-      label: 'Student name',
-      hint: 'e.g., Taeyeon Kim',
-    );
-    if (name == null) return;
-
-    final fs = FirebaseFirestore.instance;
-    try {
-      final doc = fs.collection('students').doc();
-      final Map<String, Object?> payload = {
-        'name': name,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-      await doc.set(payload);
-      _safeSnack('Added student: $name');
-    } on FirebaseException catch (e) {
-      debugPrint('Firestore set error(students): code=${e.code}, message=${e.message}');
-      _safeSnack('Write failed: ${e.code}');
-    } catch (e, st) {
-      debugPrint('Generic set error(students): $e\n$st');
-      _safeSnack('Write failed (client).');
-    }
-  }
-
-  Future<void> _editStudentName({
-    required String studentId,
-    required String currentName,
-  }) async {
-    final newName = await _inputText(
-      title: 'Edit student',
-      label: 'Student name',
-      initial: currentName,
-    );
-    if (newName == null) return;
-
-    try {
-      await FirebaseFirestore.instance.collection('students').doc(studentId).set(
-        <String, Object?>{
-          'name': newName,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
-      _safeSnack('Updated: $newName');
-    } on FirebaseException catch (e) {
-      debugPrint('Firestore set error(update student): code=${e.code}, message=${e.message}');
-      _safeSnack('Update failed: ${e.code}');
-    } catch (e, st) {
-      debugPrint('Generic set error(update student): $e\n$st');
-      _safeSnack('Update failed (client).');
-    }
-  }
-
-  Future<void> _deleteStudent({required String studentId, required String name}) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text('Delete student'),
-        content: Text('Delete "$name"? This cannot be undone.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx, rootNavigator: true).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(dialogCtx, rootNavigator: true).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-
-    try {
-      await FirebaseFirestore.instance.collection('students').doc(studentId).delete();
-      _safeSnack('Deleted: $name');
-    } on FirebaseException catch (e) {
-      debugPrint('Firestore delete error(students): code=${e.code}, message=${e.message}');
-      _safeSnack('Delete failed: ${e.code}');
-    } catch (e, st) {
-      debugPrint('Generic delete error(students): $e\n$st');
-      _safeSnack('Delete failed (client).');
-    }
-  }
-
-  // ─────────── Capture(대기) 로직: 다음 들어오는 이벤트로 등록 ───────────
-
-  Future<void> _captureButtonForSlot({
-    required String studentId,
-    required String slotIndex, // "1" | "2"
-    Duration timeout = const Duration(seconds: 25),
-  }) async {
-    if (_isCapturing) {
-      _safeSnack('Already waiting for a button…');
-      return;
-    }
-
-    final fs = FirebaseFirestore.instance;
-
-    // 1) 세션 확인
-    final hub = await fs.collection('hubs').doc(kHubId).get();
-    final sid = hub.data()?['currentSessionId'] as String?;
-    if (sid == null || sid.isEmpty) {
-      _safeSnack('No active session on this hub.');
-      return;
-    }
-
-    // 2) 기준 시각 및 초기 top 이벤트 ID 확보
-    final startMs = DateTime.now().millisecondsSinceEpoch;
-    String? initialTopId;
-    try {
-      final init = await fs
-          .collection('sessions/$sid/events')
-          .orderBy('ts', descending: true)
-          .limit(1)
-          .get();
-      if (init.docs.isNotEmpty) {
-        initialTopId = init.docs.first.id;
-      }
-    } catch (_) {
-      // ignore
-    }
-
-    // 3) 대기 다이얼로그 띄우기 (취소 가능)
-    _isCapturing = true;
-
-    final dialogFut = showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogCtx) {
-        return AlertDialog(
-          title: Text('Waiting for button… (slot $slotIndex)'),
-          content: const Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SizedBox(height: 6),
-              CircularProgressIndicator(),
-              SizedBox(height: 12),
-              Text('Press any student’s Flic now.'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogCtx, rootNavigator: true).pop(false),
-              child: const Text('Cancel'),
-            ),
-          ],
-        );
-      },
-    );
-
-    bool handled = false;
-
-    // 4) 스냅샷 구독 시작: 가장 최신 한 개 문서(top 1)가 바뀌면 신규 이벤트로 간주
-    _captureSub = fs
-        .collection('sessions/$sid/events')
-        .orderBy('ts', descending: true)
-        .limit(1)
-        .snapshots()
-        .listen((snap) async {
-      if (handled || !_isCapturing) return;
-      if (snap.docs.isEmpty) return;
-
-      final doc = snap.docs.first;
-      // 초기 top 이벤트와 같으면 skip
-      if (initialTopId != null && doc.id == initialTopId) return;
-
-      final data = doc.data();
-      final ts = data['ts'] as Timestamp?;
-      final hubTs = (data['hubTs'] as num?)?.toInt();
-      final devId = _sanitizeDeviceId(data['deviceId'] as String?);
-
-      // ts/hubTs 기준 시각 이후인지 체크 (느슨한 2초 버퍼)
-      final afterStart = () {
-        final thr = startMs - 2000;
-        if (ts != null && ts.millisecondsSinceEpoch >= thr) return true;
-        if (hubTs != null && hubTs >= thr) return true;
-        return false;
-      }();
-
-      if (!afterStart || devId == null) return;
-
-      handled = true;
-
-      try {
-        await _writeDeviceMapping(
-          fs: fs,
-          deviceId: devId,
-          studentId: studentId,
-          slotIndex: slotIndex,
-        );
-
-        _safeSnack('Linked $devId (slot $slotIndex)');
-        if (mounted) {
-          Navigator.of(context, rootNavigator: true).pop(true); // 다이얼로그 닫기(성공)
-        }
-      } catch (e, st) {
-        debugPrint('Capture link write error: $e\n$st');
-        _safeSnack('Link failed.');
-        if (mounted) {
-          Navigator.of(context, rootNavigator: true).pop(false);
-        }
-      }
-    });
-
-    // 5) 타임아웃 설정
-    _captureTimer = Timer(timeout, () {
-      if (!_isCapturing || handled) return;
-      _safeSnack('Timed out. No button press.');
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop(false);
-      }
-    });
-
-    // 6) 다이얼로그 종료 이후 정리
-    final bool completed = (await dialogFut) == true;
-    _captureSub?.cancel();
-    _captureTimer?.cancel();
-    _isCapturing = false;
-
-    if (!completed) {
-      // 취소/타임아웃이면 아무것도 안 함
-      return;
-    }
-  }
-
-  // ─────────── Slot chip ───────────
-
-  Widget _slotChip(String slotIndex, String? deviceId) {
-    final has = deviceId != null && deviceId.isNotEmpty;
-    final last5 = _last5DigitsFromSerial(deviceId);
-    final labelText = (has && last5.isNotEmpty) ? last5 : 'Not set';
-
-    return Chip(
-      avatar: CircleAvatar(
-        radius: 10,
-        child: Text(slotIndex, style: const TextStyle(fontSize: 12)),
-      ),
-      label: Text(labelText, style: const TextStyle(fontFamily: 'monospace')),
-      backgroundColor: (has && last5.isNotEmpty) ? Colors.green.shade50 : Colors.grey.shade200,
-      side: BorderSide(color: (has && last5.isNotEmpty) ? Colors.green : Colors.grey.shade400),
-      visualDensity: VisualDensity.compact,
-    );
-  }
-
-  // ─────────── Build ───────────
 
   @override
   Widget build(BuildContext context) {
-    final studentsProvider = context.watch<StudentsProvider>();
-    final entries = studentsProvider.students.entries.toList()
-      ..sort((a, b) {
-        final an = (a.value['name'] as String? ?? '').toLowerCase();
-        final bn = (b.value['name'] as String? ?? '').toLowerCase();
-        return an.compareTo(bn);
-      });
+    final sp = context.watch<StudentsProvider>();
+    final width = MediaQuery.sizeOf(context).width;
+
+    // 학생 목록 정렬 + 검색 필터
+    final students = sp.students.entries
+        .map((e) => MapEntry(e.key, e.value))
+        .toList()
+      ..sort((a, b) =>
+          (a.value['name'] ?? '').toString().toLowerCase()
+              .compareTo((b.value['name'] ?? '').toString().toLowerCase()));
+
+    final filtered = (_query.trim().isEmpty)
+        ? students
+        : students.where((e) {
+            final n = (e.value['name'] ?? '').toString().toLowerCase();
+            return n.contains(_query.trim().toLowerCase());
+          }).toList();
 
     return AppScaffold(
       selectedIndex: 1,
-      body: Scaffold( // 로컬 Scaffold: SnackBar 안정화
+      body: Scaffold(
+        backgroundColor: const Color(0xFFF6FAFF),
         body: SafeArea(
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              // ── Header ─────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF6FAFF),
+                ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
-                      'Dashboard',
-                      style: TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        decoration: TextDecoration.none,
-                        color: Colors.black,
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        if (selectedCategory == 'student')
-                          OutlinedButton.icon(
-                            onPressed: _addStudent,
-                            icon: const Icon(Icons.person_add),
-                            label: const Text('Add student'),
+                    const Spacer(),
+                    SizedBox(
+                      width: 280,
+                      child: TextField(
+                        onChanged: (v) => setState(() => _query = v),
+                        decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.search, size: 18),
+                          hintText: 'Search Students',
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            borderSide: const BorderSide(color: Color(0xFFF6FAFF)),
                           ),
-                        const SizedBox(width: 8),
-                      ],
+                          filled: true,
+                          fillColor: const Color(0xFFF6FAFF),
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
 
-              // Tabs
-              SizedBox(
-                height: 48,
+              // ── Tabs ────────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                color: const Color(0xFFF6FAFF),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: categories.map((category) {
-                    final isSelected = selectedCategory == category;
-                    return GestureDetector(
-                      onTap: () => setState(() => selectedCategory = category),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Text(
-                            category,
-                            style: TextStyle(
-                              fontSize: 20,
-                              color: isSelected ? Colors.black : Colors.grey,
-                              fontWeight: FontWeight.bold,
-                              decoration: TextDecoration.none,
-                            ),
-                          ),
-                          if (isSelected)
-                            Container(
-                              margin: const EdgeInsets.only(top: 2),
-                              height: 2,
-                              width: 30,
-                              color: Colors.black,
-                            ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // Section title
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text(
-                  selectedCategory,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFF2E3A59),
-                    decoration: TextDecoration.none,
-                  ),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                child: Text(
-                  'Select an item in this category.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey,
-                    decoration: TextDecoration.none,
-                  ),
+                  children: [
+                    TabChip(
+                      label: 'Students',
+                      selected: _tab == 'students',
+                      onTap: () => setState(() => _tab = 'students'),
+                    ),
+                    const SizedBox(width: 16),
+                    TabChip(
+                      label: 'Groups',
+                      selected: _tab == 'groups',
+                      onTap: () => setState(() => _tab = 'groups'),
+                    ),
+                  ],
                 ),
               ),
 
-              // Grid
+              // ── Grid ────────────────────────────────────────
               Expanded(
-                child: selectedCategory == 'student'
-                    ? _buildStudentGrid(entries)
-                    : _buildTopicGrid(), // ✅ quiz 탭 → 토픽 카드 그리드
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: _tab == 'students'
+                      ? _StudentsGrid(
+                          cols: _colsForWidth(width),
+                          students: filtered,
+                        )
+                      : const _GroupsPlaceholder(),
+                ),
               ),
             ],
           ),
@@ -519,456 +127,213 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
       ),
     );
   }
+}
 
-  // 학생 그리드 (기존 유지)
-  Widget _buildStudentGrid(List<MapEntry<String, Map<String, dynamic>>> entries) {
-    final color = getCategoryColor('student');
-    return GridView.count(
-      padding: const EdgeInsets.all(12),
-      crossAxisCount: 5,
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 3 / 1.7,
-      children: entries.map((e) {
-        final studentId = e.key;
-        final name = (e.value['name'] as String?) ?? '(no name)';
-        return Card(
-          shape: RoundedRectangleBorder(
-            side: BorderSide(color: color, width: 1.5),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Stack(
-            children: [
-              // Settings icon (top-right)
-              Positioned(
-                top: 6,
-                right: 6,
-                child: IconButton(
-                  icon: const Icon(Icons.settings),
-                  tooltip: 'Edit / Delete',
-                  onPressed: () {
-                    showModalBottomSheet(
-                      context: context,
-                      builder: (sheetCtx) => SafeArea(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            ListTile(
-                              leading: const Icon(Icons.edit),
-                              title: const Text('Edit name'),
-                              onTap: () async {
-                                Navigator.pop(sheetCtx);
-                                await _editStudentName(
-                                  studentId: studentId,
-                                  currentName: name,
-                                );
-                              },
-                            ),
-                            ListTile(
-                              leading: const Icon(Icons.delete, color: Colors.red),
-                              title: const Text('Delete student'),
-                              onTap: () async {
-                                Navigator.pop(sheetCtx);
-                                await _deleteStudent(
-                                  studentId: studentId,
-                                  name: name,
-                                );
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
+/* ========================== Widgets ========================== */
+
+class TabChip extends StatelessWidget {
+  const TabChip({required this.label, required this.selected, required this.onTap});
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = selected ? const Color(0xFF0F172A) : const Color(0xFF9CA3AF);
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        child: Row(
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                color: c,
+                decoration: TextDecoration.none,
               ),
-
-              // Body
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // Name
-                    Expanded(
-                      child: Center(
-                        child: Text(
-                          name,
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.black87,
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    // ▼ devices/{device} 실시간 매핑 표시 (Slot 1/2)
-                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: FirebaseFirestore.instance
-                          .collection('devices')
-                          .where('studentId', isEqualTo: studentId)
-                          .snapshots(),
-                      builder: (context, snap) {
-                        String? s1;
-                        String? s2;
-                        if (snap.hasData) {
-                          for (final d in snap.data!.docs) {
-                            final si = d.data()['slotIndex']?.toString();
-                            if (si == '1') s1 = d.id;
-                            if (si == '2') s2 = d.id;
-                          }
-                        }
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                            children: [
-                              _slotChip('1', s1),
-                              _slotChip('2', s2),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-
-                    // Action buttons
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Wrap(
-                        alignment: WrapAlignment.center,
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: [
-                          _linkButton(
-                            label: 'Add 1',
-                            onTap: () => _captureButtonForSlot(
-                              studentId: studentId,
-                              slotIndex: '1',
-                            ),
-                          ),
-                          _linkButton(
-                            label: 'Add 2',
-                            onTap: () => _captureButtonForSlot(
-                              studentId: studentId,
-                              slotIndex: '2',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+            ),
+            if (selected)
+              Container(
+                margin: const EdgeInsets.only(top: 6, left: 8),
+                height: 2, width: 28, color: c,
               ),
-            ],
-          ),
-        );
-      }).toList(),
+          ],
+        ),
+      ),
     );
   }
+}
 
-  // 토픽 그리드 (quiz 탭)
-  Widget _buildTopicGrid() {
-    final color = getCategoryColor('quiz');
+class _StudentsGrid extends StatelessWidget {
+  const _StudentsGrid({required this.cols, required this.students});
+  final int cols;
+  final List<MapEntry<String, Map<String, dynamic>>> students;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      const _ClassCard(), // 첫 칸: 전체(Class) 카드
+      ...students.map((e) => _StudentCard(studentId: e.key, data: e.value)),
+    ];
+
+    return GridView.builder(
+      itemCount: items.length,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: cols,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        childAspectRatio: 1.05,
+      ),
+      itemBuilder: (_, i) => items[i],
+    );
+  }
+}
+
+class _Badge extends StatelessWidget {
+  const _Badge(this.text, {super.key});
+  final String text;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF60A5FA),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(text,
+          style: const TextStyle(
+            color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700,
+          )),
+    );
+  }
+}
+
+/// 전체(Class) 카드 — 모든 학생 points 합계를 뱃지로 표시
+class _ClassCard extends StatelessWidget {
+  const _ClassCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final fs = FirebaseFirestore.instance;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('quizTopics')
-          .orderBy('createdAt', descending: true)
-          .snapshots(),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
-          return const Center(child: CircularProgressIndicator());
+      stream: fs.collection('students').snapshots(),
+      builder: (_, snap) {
+        int total = 0;
+        if (snap.hasData) {
+          for (final d in snap.data!.docs) {
+            total += ((d.data()['points'] as num?) ?? 0).toInt();
+          }
         }
-        final topics = snap.data?.docs ?? const [];
-        if (topics.isEmpty) {
-          return const Center(child: Text('No topics yet. Create one in Presenter Quiz.'));
-        }
-        return GridView.count(
-          padding: const EdgeInsets.all(12),
-          crossAxisCount: 5,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 3 / 1.7,
-          children: topics.map((d) {
-            final x = d.data();
-            final title = (x['title'] as String?) ?? '(untitled)';
-            final status = (x['status'] as String?) ?? 'draft';
-            final statusColor = _statusColor(status);
 
-            return Card(
-              shape: RoundedRectangleBorder(
-                side: BorderSide(color: color, width: 1.5),
-                borderRadius: BorderRadius.circular(12),
+        return Material(
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            side: const BorderSide(color: Color(0xFFE5E7EB)),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () {
+              // ▷ 전체 학생 일괄 점수 부여 화면
+              Navigator.pushNamed(context, '/profile/class');
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Stack(
+                children: [
+                  // 우상단: 전체 총점
+                  Positioned(
+                    right: 0,
+                    top: 0,
+                    child: _Badge('$total'),
+                  ),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      _AvatarPlaceholder(group: true),
+                      SizedBox(height: 10),
+                      Text(
+                        'Class',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              child: InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => _TopicStatsPage(topicId: d.id)),
-                  );
-                },
-                child: Stack(
-                  children: [
-                    // status pill
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: statusColor.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: statusColor),
-                        ),
-                        child: Text(
-                          status.toUpperCase(),
-                          style: TextStyle(
-                            color: statusColor,
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                    // title
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        child: Text(
-                          title,
-                          textAlign: TextAlign.center,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                    // id bottom
-                    Positioned(
-                      left: 8,
-                      right: 8,
-                      bottom: 8,
-                      child: Text(
-                        d.id,
-                        textAlign: TextAlign.center,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// 학생 카드
+class _StudentCard extends StatelessWidget {
+  const _StudentCard({super.key, required this.studentId, required this.data});
+  final String studentId;
+  final Map<String, dynamic> data;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (data['name'] as String?) ?? '(no name)';
+
+    // points: students/{id}.points (int) 또는 0
+    final pointsStream = FirebaseFirestore.instance
+        .collection('students')
+        .doc(studentId)
+        .snapshots();
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: pointsStream,
+      builder: (_, snap) {
+        final pts = (snap.data?.data()?['points'] as num?)?.toInt() ?? 0;
+
+        return Material(
+          color: Colors.white,
+          shape: RoundedRectangleBorder(
+            side: const BorderSide(color: Color(0xFFE5E7EB)),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () {
+              // TODO: 학생 상세 (점수 부여/버튼 매핑) 페이지로 이동
+              Navigator.pushNamed(context, '/profile/student',
+                  arguments: {'id': studentId});
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Stack(
+                children: [
+                  Positioned(right: 0, top: 0, child: _Badge('$pts')),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const _AvatarPlaceholder(),
+                      const SizedBox(height: 10),
+                      Text(
+                        name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 10,
-                          color: Colors.grey,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0F172A),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          }).toList(),
-        );
-      },
-    );
-  }
-
-  Color _statusColor(String s) {
-    switch (s) {
-      case 'running':
-        return Colors.green;
-      case 'stopped':
-        return Colors.grey;
-      default:
-        return Colors.orange;
-    }
-  }
-
-  // 컴팩트 링크 버튼
-  Widget _linkButton({required String label, required VoidCallback onTap}) {
-    return OutlinedButton.icon(
-      onPressed: onTap,
-      icon: const Icon(Icons.link, size: 16),
-      label: Text(label),
-      style: OutlinedButton.styleFrom(
-        visualDensity: VisualDensity.compact,
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        minimumSize: const Size(0, 36),
-      ),
-    );
-  }
-}
-
-/// ─────────────────────────────────────────────────────────────────
-/// 토픽 통계 페이지: 퀴즈별로 선택 분포 + 정답률
-/// ─────────────────────────────────────────────────────────────────
-class _TopicStatsPage extends StatelessWidget {
-  const _TopicStatsPage({super.key, required this.topicId});
-  final String topicId;
-
-  @override
-  Widget build(BuildContext context) {
-    final fs = FirebaseFirestore.instance;
-    final topicRef = fs.doc('quizTopics/$topicId');
-    final quizzesStream =
-        fs.collection('quizTopics/$topicId/quizzes').orderBy('createdAt').snapshots();
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Quiz stats'),
-        actions: [
-          IconButton(
-            tooltip: 'Refresh',
-            onPressed: () {}, // StreamBuilder가 자동 갱신
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
-      body: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        future: topicRef.get(),
-        builder: (context, topicSnap) {
-          final topicTitle = topicSnap.hasData
-              ? (topicSnap.data!.data()?['title']?.toString() ?? '(untitled)')
-              : '(loading…)';
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: Text('Topic • $topicTitle',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-              ),
-              const Divider(height: 0),
-              Expanded(
-                child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: quizzesStream,
-                  builder: (context, snap) {
-                    if (snap.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    final quizzes = snap.data?.docs ?? const [];
-                    if (quizzes.isEmpty) {
-                      return const Center(child: Text('No quizzes in this topic.'));
-                    }
-                    return ListView.separated(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: quizzes.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (_, i) {
-                        final qDoc = quizzes[i];
-                        return _QuizStatCard(topicId: topicId, quizDoc: qDoc);
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _QuizStatCard extends StatelessWidget {
-  const _QuizStatCard({super.key, required this.topicId, required this.quizDoc});
-  final String topicId;
-  final QueryDocumentSnapshot<Map<String, dynamic>> quizDoc;
-
-  @override
-  Widget build(BuildContext context) {
-    final x = quizDoc.data();
-    final question = (x['question'] as String?) ?? '(no question)';
-    final List choices = (x['choices'] as List?) ?? const [];
-    final int? correct = (x['correctIndex'] as num?)?.toInt();
-    final List<int> correctList =
-        ((x['correctIndices'] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
-    final bool allowMultiple = correctList.isNotEmpty;
-    final List triggers = (x['triggers'] as List?) ?? const [];
-    final bool anonymous = (x['anonymous'] as bool?) ?? false;
-
-    bool _isCorrectIdx(int idx) => allowMultiple ? correctList.contains(idx) : (correct != null && idx == correct);
-
-    final fs = FirebaseFirestore.instance;
-
-    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      future: fs.doc('quizTopics/$topicId/results/${quizDoc.id}').get(),
-      builder: (context, resSnap) {
-        final res = resSnap.data?.data();
-        final List<int> counts =
-            ((res?['counts'] as List?) ?? const []).map((e) => (e as num).toInt()).toList();
-        final int total = counts.fold<int>(0, (p, c) => p + c);
-
-        // 정답률 계산
-        int correctVotes = 0;
-        if (total > 0) {
-          if (allowMultiple) {
-            for (final idx in correctList) {
-              if (idx >= 0 && idx < counts.length) correctVotes += counts[idx];
-            }
-          } else {
-            if (correct != null && correct >= 0 && correct < counts.length) {
-              correctVotes = counts[correct];
-            }
-          }
-        }
-        final double rate = total == 0 ? 0 : (correctVotes / total) * 100;
-
-        return Card(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // 제목 + 설정 뱃지
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        question,
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                    Wrap(
-                      spacing: 6,
-                      children: [
-                        if (allowMultiple)
-                          const Chip(visualDensity: VisualDensity.compact, label: Text('복수정답')),
-                        if (anonymous)
-                          const Chip(visualDensity: VisualDensity.compact, label: Text('익명')),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-
-                // 정답률 + 총 투표수
-                Row(
-                  children: [
-                    const Icon(Icons.analytics, size: 18, color: Colors.indigo),
-                    const SizedBox(width: 6),
-                    Text('정답률 ${rate.toStringAsFixed(1)}%  •  총 ${total}명',
-                        style: const TextStyle(fontWeight: FontWeight.w700)),
-                  ],
-                ),
-                const SizedBox(height: 10),
-
-                // 보기별 분포
-                for (int i = 0; i < choices.length; i++) ...[
-                  _ChoiceStatRow(
-                    label: '${String.fromCharCode(65 + i)}. ${choices[i]}',
-                    triggerKey: triggers.length > i ? (triggers[i] as String?) : null,
-                    isCorrect: _isCorrectIdx(i),
-                    count: (i < counts.length) ? counts[i] : 0,
-                    total: total,
+                    ],
                   ),
-                  if (i != choices.length - 1) const SizedBox(height: 6),
                 ],
-              ],
+              ),
             ),
           ),
         );
@@ -977,74 +342,32 @@ class _QuizStatCard extends StatelessWidget {
   }
 }
 
-class _ChoiceStatRow extends StatelessWidget {
-  const _ChoiceStatRow({
-    super.key,
-    required this.label,
-    required this.triggerKey,
-    required this.isCorrect,
-    required this.count,
-    required this.total,
-  });
-
-  final String label;
-  final String? triggerKey;
-  final bool isCorrect;
-  final int count;
-  final int total;
-
-  String get _triggerLabel {
-    switch (triggerKey) {
-      case 'S1_CLICK':
-        return 'Slot 1 • Click';
-      case 'S1_HOLD':
-        return 'Slot 1 • Hold';
-      case 'S2_CLICK':
-        return 'Slot 2 • Click';
-      case 'S2_HOLD':
-        return 'Slot 2 • Hold';
-      default:
-        return 'No trigger';
-    }
-  }
-
+/// 캐릭터 자리(이미지 교체 지점)
+class _AvatarPlaceholder extends StatelessWidget {
+  const _AvatarPlaceholder({this.group = false, super.key});
+  final bool group;
   @override
   Widget build(BuildContext context) {
-    final pct = total == 0 ? 0.0 : (count / total);
-    return Column(
-      children: [
-        Row(
-          children: [
-            Chip(
-              visualDensity: VisualDensity.compact,
-              side: BorderSide(color: triggerKey == null ? Colors.grey : Colors.indigo),
-              backgroundColor: (triggerKey == null ? Colors.grey : Colors.indigo).withOpacity(0.08),
-              label: Text(_triggerLabel, style: TextStyle(color: triggerKey == null ? Colors.grey : Colors.indigo)),
-            ),
-            const SizedBox(width: 8),
-            Icon(isCorrect ? Icons.check_circle : Icons.circle_outlined,
-                size: 18, color: isCorrect ? Colors.green : Colors.grey),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(label, overflow: TextOverflow.ellipsis),
-            ),
-            Chip(
-              visualDensity: VisualDensity.compact,
-              label: Text(' $count '),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        // 퍼센트 바
-        ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: LinearProgressIndicator(
-            value: pct.clamp(0.0, 1.0),
-            minHeight: 8,
-            backgroundColor: Colors.grey.shade200,
-          ),
-        ),
-      ],
+    return Container(
+      width: 96,
+      height: 96,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Image.asset('assets/logo_bird.png', fit: BoxFit.contain),
+    );
+  }
+}
+
+/// Groups 탭은 자리만
+class _GroupsPlaceholder extends StatelessWidget {
+  const _GroupsPlaceholder({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Text('Groups (coming soon)', style: TextStyle(color: Colors.grey)),
     );
   }
 }

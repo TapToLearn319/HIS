@@ -17,6 +17,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 
+import 'pages/profile/presenter_student_log_page.dart';
+import 'pages/profile/presenter_class.dart';
+
 import 'l10n/app_localizations.dart';
 import 'login.dart';
 import 'pages/profile/presenter_profile.dart';
@@ -157,6 +160,8 @@ class PresenterApp extends StatelessWidget {
             '/AI': (_) => PresenterAIChatPage(),
             '/setting': (_) => PresenterSettingPage(),
             '/profile': (_) => PresenterMainPage(),
+            '/profile/student': (_) => const PresenterStudentPage(),
+            '/profile/class': (_) => const PresenterClassPage(),
             '/tools/timer': (_) =>  TimerPage(),
             '/tools/grouping': (_) =>  PresenterGroupPage(),
             '/tools/voting': (_) =>  PresenterVotePage(),
@@ -228,6 +233,8 @@ class _DisplayAppState extends State<DisplayApp> {
             '/tools/voting': (_) =>  DisplayVotePage(),
             '/tools/grouping': (_) =>  GroupDisplayPage(),
             '/tools/random_seat': (_) =>  DisplayRandomSeatPage(),
+            '/profile/student': (_) => const DisplayStandByPage(),
+            '/profile/class': (_) => const DisplayStandByPage(),
 
           },
         );
