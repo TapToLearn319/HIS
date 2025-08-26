@@ -1,5 +1,6 @@
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart'; // ← 추가
 import 'grouping_controller.dart';
 
 class PresenterGroupPage extends StatefulWidget {
@@ -119,6 +120,20 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                       ],
                     ),
                     const SizedBox(height: 20),
+
+                    // ▼▼▼ 추가된 부분: MAKE 아래 결과 편집 보드 ▼▼▼
+                    ChangeNotifierProvider<GroupingController>.value(
+                      value: c,
+                      child: Consumer<GroupingController>(
+                        builder: (_, c, __) => Padding(
+                          padding: const EdgeInsets.only(top: 16.0),
+                          child: _EditableGroupBoard(
+                            controller: c,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // ▲▲▲ 여기까지 추가 ▲▲▲
                   ],
                 ),
               ),
@@ -439,6 +454,215 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
             activeColor: const Color(0xFF46A5FF),
           );
         },
+      ),
+    );
+  }
+  
+}
+class _EditableGroupBoard extends StatelessWidget {
+  const _EditableGroupBoard({required this.controller, this.teamNames});
+  final GroupingController controller;
+  final List<String>? teamNames;
+
+  @override
+  Widget build(BuildContext context) {
+    final groups = controller.currentGroups;
+    if (groups == null || groups.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    // 간단한 자동 칼럼 수
+    final width = MediaQuery.sizeOf(context).width;
+    final cols = width >= 1280 ? 4 : width >= 900 ? 3 : 2;
+
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: cols,
+        crossAxisSpacing: 16,
+        mainAxisSpacing: 16,
+        childAspectRatio: 1.2,
+      ),
+      itemCount: groups.length,
+      itemBuilder: (_, i) {
+        final name = (teamNames != null && i < teamNames!.length)
+            ? teamNames![i]
+            : 'Team ${i + 1}';
+        return _GroupCardEditable(
+          groupIndex: i,
+          title: name,
+          members: groups[i],
+          onDrop: (student) {
+            controller.moveMemberToGroup(student, i);
+          },
+        );
+      },
+    );
+  }
+}
+
+class _GroupCardEditable extends StatefulWidget {
+  const _GroupCardEditable({
+    required this.groupIndex,
+    required this.title,
+    required this.members,
+    required this.onDrop,
+  });
+
+  final int groupIndex;
+  final String title;
+  final List<String> members;
+  final ValueChanged<String> onDrop;
+
+  @override
+  State<_GroupCardEditable> createState() => _GroupCardEditableState();
+}
+
+class _GroupCardEditableState extends State<_GroupCardEditable> {
+  bool _hovering = false;
+  static const double _kFeedbackScale = 0.88; // 필요하면 0.8~0.95 사이로 조절
+
+  Widget _buildDraggableChip(BuildContext context, String name) {
+    final isDesktopLike = kIsWeb ||
+        defaultTargetPlatform == TargetPlatform.macOS ||
+        defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux;
+
+    final normal = _MemberChip(name: name);
+
+    // ✅ feedback을 Material로 감싸고 scale을 줄여서 '확대돼 보이는' 느낌 제거
+    final dragging = Transform.scale(
+      scale: _kFeedbackScale,
+      child: Material(
+        color: Colors.transparent,
+        child: _MemberChip(name: name, dragging: true),
+      ),
+    );
+
+    final childWhenDragging = Opacity(
+      opacity: 0.4,
+      child: _MemberChip(name: name),
+    );
+
+    if (isDesktopLike) {
+      return Draggable<String>(
+        data: name,
+        feedback: dragging,
+        childWhenDragging: childWhenDragging,
+        child: normal,
+        // 포인터 기준으로 따라오게 해서 크기 착시도 줄임
+        dragAnchorStrategy: pointerDragAnchorStrategy,
+        // 손가락/포인터와 겹치지 않게 살짝 위로
+        feedbackOffset: const Offset(0, -8),
+      );
+    } else {
+      return LongPressDraggable<String>(
+        data: name,
+        feedback: dragging,
+        childWhenDragging: childWhenDragging,
+        child: normal,
+        // 모바일도 포인터(터치) 위치 기준이 좀 더 자연스러움
+        dragAnchorStrategy: pointerDragAnchorStrategy,
+        feedbackOffset: const Offset(0, -8),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DragTarget<String>(
+      onWillAccept: (_) {
+        setState(() => _hovering = true);
+        return true;
+      },
+      onLeave: (_) => setState(() => _hovering = false),
+      onAccept: (data) {
+        setState(() => _hovering = false);
+        widget.onDrop(data);
+      },
+      builder: (context, candidate, rejected) {
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: _hovering ? const Color(0xFFF0F9FF) : Colors.white,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: _hovering ? const Color(0xFF38BDF8) : const Color(0xFFE5E7EB),
+              width: 1.5,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 헤더
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEEF2FF),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      widget.title,
+                      style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF111827)),
+                    ),
+                  ),
+                  const Spacer(),
+                  Text('${widget.members.length}명',
+                      style: const TextStyle(color: Color(0xFF6B7280), fontWeight: FontWeight.w700)),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // 멤버 칩(드래그 가능)
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final m in widget.members)
+                        _buildDraggableChip(context, m), // ← 요것만 호출
+                    ],
+                  ),
+                ),
+              ),
+
+              // 안내
+              const SizedBox(height: 8),
+              const Text('Drag onto another team card to move',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MemberChip extends StatelessWidget {
+  const _MemberChip({required this.name, this.dragging = false});
+  final String name;
+  final bool dragging;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: dragging ? const Color(0xFFDBEAFE) : const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFBFDBFE)),
+      ),
+      child: Text(
+        name,
+        style: TextStyle(
+          fontWeight: FontWeight.w800,
+          color: dragging ? const Color(0xFF1D4ED8) : const Color(0xFF0B1324),
+        ),
       ),
     );
   }

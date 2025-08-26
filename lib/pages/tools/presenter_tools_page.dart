@@ -27,7 +27,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'attendance',
       title: 'Attendance',
-      description: 'Smart attendance tracking',
+      description: 'Quickly record who’s present with a single click',
       icon: Icons.check_circle_outline,
       color: const Color(0xFFEF4444),
       bgColor: const Color(0xFFFEF2F2),
@@ -38,7 +38,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'grouping',
       title: 'Random Grouping',
-      description: 'Fair team distribution system',
+      description: 'Form random student groups instantly for activities',
       icon: Icons.groups_2_outlined,
       color: const Color(0xFF8B5CF6),
       bgColor: const Color(0xFFF5F3FF),
@@ -49,7 +49,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'random_seat',
       title: 'Random Seat',
-      description: 'Optimal seat arrangements',
+      description: 'Assign seats randomly for a fresh classroom setup',
       icon: Icons.location_on_outlined,
       color: const Color(0xFF6366F1),
       bgColor: const Color(0xFFEEF2FF),
@@ -60,7 +60,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'timer',
       title: 'Timer',
-      description: 'Manage class time with precision',
+      description: 'Manage class time easily with a countdown timer',
       icon: Icons.timer_outlined,
       color: const Color(0xFF3B82F6),
       bgColor: const Color(0xFFEFF6FF),
@@ -71,7 +71,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'voting',
       title: 'Voting',
-      description: 'Collect instant class feedback',
+      description: 'Gather live feedback and opinions from students',
       icon: Icons.how_to_vote_outlined,
       color: const Color(0xFF10B981),
       bgColor: const Color(0xFFECFDF5),
@@ -82,7 +82,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'quiz',
       title: 'Quiz',
-      description: 'Interactive learning assessments',
+      description: 'Make learning fun with interactive classroom quizzes',
       icon: Icons.psychology_alt_outlined,
       color: const Color(0xFFF59E0B),
       bgColor: const Color(0xFFFFFBEB),

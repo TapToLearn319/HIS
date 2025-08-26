@@ -9,8 +9,22 @@ const String kWaitingImageAsset = 'assets/logo_bird_standby.png'; // 없으면 �
 /// ✅ 컴팩트 리빌 모드: 리빌 시 하단에 추가 섹션(요약/상세 등) 전혀 표시하지 않음
 const bool kCompactReveal = true;
 
-class DisplayQuizPage extends StatelessWidget {
+class DisplayQuizPage extends StatefulWidget {
   const DisplayQuizPage({super.key});
+
+  @override
+  State<DisplayQuizPage> createState() => _DisplayQuizPageState();
+}
+
+class _DisplayQuizPageState extends State<DisplayQuizPage> {
+  /// 디스플레이가 켜진 순간 — 이 이후의 변경만 반영
+  late final DateTime _openedAt = DateTime.now();
+  static const Duration _clockSkew = Duration(seconds: 3);
+
+  bool _isFreshFrom(Timestamp? ts) {
+    if (ts == null) return false;
+    return ts.toDate().isAfter(_openedAt.subtract(_clockSkew));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,10 +53,15 @@ class DisplayQuizPage extends StatelessWidget {
             return const _WaitingScreen();
           }
 
-          // 1) running 중인 토픽 우선
-          final running = docs
-              .where((d) => (d.data()['status'] as String?) == 'running')
-              .toList()
+          // 1) running 중인 토픽 우선 (⚠️ 디스플레이 켜진 이후에 시작/갱신된 것만 반영)
+          final runningRaw = docs.where((d) => (d.data()['status'] as String?) == 'running');
+          final running = runningRaw.where((d) {
+            final x = d.data();
+            final started = x['questionStartedAt'] as Timestamp?;
+            final updated = x['updatedAt'] as Timestamp?;
+            // 시작/갱신 중 하나라도 디스플레이 오픈 후면 "신규 진행"으로 간주
+            return _isFreshFrom(started) || _isFreshFrom(updated);
+          }).toList()
             ..sort((a, b) {
               final sa = a.data()['questionStartedAt'] as Timestamp?;
               final sb = b.data()['questionStartedAt'] as Timestamp?;
@@ -68,10 +87,15 @@ class DisplayQuizPage extends StatelessWidget {
             );
           }
 
-          // 2) running이 없을 땐, 명시적으로 디스플레이에 결과를 띄우라고 요청된 경우에만 요약 보여줌
-          final showSummary = docs
-              .where((d) => (d.data()['showSummaryOnDisplay'] as bool?) == true)
-              .toList()
+          // 2) running이 없고, 명시적으로 디스플레이 요약 요청된 경우
+          //    ⚠️ updatedAt 이 디스플레이 오픈 이후인 경우에만 반영 (과거 Show Result 무시)
+          final showSummary = docs.where((d) {
+            final x = d.data();
+            final want = (x['showSummaryOnDisplay'] as bool?) == true;
+            if (!want) return false;
+            final updated = x['updatedAt'] as Timestamp?;
+            return _isFreshFrom(updated);
+          }).toList()
             ..sort((a, b) {
               final ua = a.data()['updatedAt'] as Timestamp?;
               final ub = b.data()['updatedAt'] as Timestamp?;
@@ -86,7 +110,7 @@ class DisplayQuizPage extends StatelessWidget {
             return _SummaryView(topicId: d.id, title: title);
           }
 
-          // 3) 그 외(토픽만 고르는 중 등)는 무조건 대기화면
+          // 3) 그 외는 대기화면
           return const _WaitingScreen();
         },
       ),
@@ -141,7 +165,7 @@ class _WaitingScreen extends StatelessWidget {
   }
 }
 
-/// 진행 중 화면(문제/리빌) — 깜빡임 방지를 위해 캐시 사용
+/// 진행 중 화면(문제/리빌) — (아래 클래스들은 이전 버전과 동일, 폰트/아이콘 확대 버전 유지)
 class _ActiveQuizView extends StatefulWidget {
   const _ActiveQuizView({
     required this.topicId,
@@ -160,223 +184,219 @@ class _ActiveQuizView extends StatefulWidget {
 }
 
 class _ActiveQuizViewState extends State<_ActiveQuizView> {
-  /// 최근에 화면에 그렸던 quizId (스냅샷이 바뀌는 짧은 순간에 유지용)
   String? _lastQuizIdShown;
-
-  /// quizId -> quiz data 캐시
   final Map<String, Map<String, dynamic>> _quizCache = {};
 
   @override
-Widget build(BuildContext context) {
-  final fs = FirebaseFirestore.instance;
-  final quizRef = fs.doc('quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}');
-  final resRef = fs.doc('quizTopics/${widget.topicId}/results/${widget.currentQuizId}');
+  Widget build(BuildContext context) {
+    final fs = FirebaseFirestore.instance;
+    final quizRef = fs.doc('quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}');
+    final resRef = fs.doc('quizTopics/${widget.topicId}/results/${widget.currentQuizId}');
 
-  return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-    stream: quizRef.snapshots(),
-    builder: (context, quizSnap) {
-      Map<String, dynamic>? qx = quizSnap.data?.data();
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: quizRef.snapshots(),
+      builder: (context, quizSnap) {
+        Map<String, dynamic>? qx = quizSnap.data?.data();
 
-      if (qx != null) {
-        _quizCache[widget.currentQuizId] = qx;
-        _lastQuizIdShown = widget.currentQuizId;
-      }
-      qx ??= _quizCache[widget.currentQuizId] ??
-          (_lastQuizIdShown != null ? _quizCache[_lastQuizIdShown] : null);
+        if (qx != null) {
+          _quizCache[widget.currentQuizId] = qx;
+          _lastQuizIdShown = widget.currentQuizId;
+        }
+        qx ??= _quizCache[widget.currentQuizId] ??
+            (_lastQuizIdShown != null ? _quizCache[_lastQuizIdShown] : null);
 
-      if (qx == null) {
-        return const _WaitingScreen();
-      }
+        if (qx == null) {
+          return const _WaitingScreen();
+        }
 
-      final question = (qx['question'] as String?) ?? '';
-      final List<String> choices =
-          (qx['choices'] as List?)?.map((e) => e.toString()).toList() ?? const [];
-      final List<String> triggers =
-          (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ?? const [];
-      final int? correct = (qx['correctIndex'] as num?)?.toInt();
+        final question = (qx['question'] as String?) ?? '';
+        final List<String> choices =
+            (qx['choices'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+        final List<String> triggers =
+            (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+        final int? correct = (qx['correctIndex'] as num?)?.toInt();
 
-      final header = Column(
-        children: const [
-          SizedBox(height: 28),
-        ],
-      );
-
-      // ⬇️ 공통 레이아웃: 중앙 배치 + 여백 + 폭 제한
-      Widget _centerWrapper(Widget child) {
-        return Container(
-          color: const Color(0xFFF7F9FC),
-          width: double.infinity,
-          height: double.infinity,
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 900), // 중앙 고정 폭
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 24, 24, 24), // 상하좌우 margin
-                child: child,
+        Widget _centerWrapper(Widget child) {
+          return Container(
+            color: const Color(0xFFF7F9FC),
+            width: double.infinity,
+            height: double.infinity,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1100),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(48, 32, 48, 48),
+                  child: child,
+                ),
               ),
             ),
-          ),
-        );
-      }
+          );
+        }
 
-      if (widget.phase == 'question') {
-        // 문제 단계
-        return _centerWrapper(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              header,
-              // 제목/문제도 중앙 정렬
-              Text(
-                widget.title.isEmpty ? 'Quiz' : widget.title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
+        if (widget.phase == 'question') {
+          return _centerWrapper(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  widget.title.isEmpty ? 'Quiz' : widget.title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                question,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0B1324),
+                const SizedBox(height: 10),
+                Text(
+                  question,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 34,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0B1324),
+                    height: 1.25,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 18),
-              Expanded(child: _ChoiceListPlain(choices: choices, triggers: triggers)),
-            ],
-          ),
-        );
-      } else {
-        // 리빌 단계
-        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: resRef.snapshots(),
-          builder: (context, resSnap) {
-            final counts = (resSnap.data?.data()?['counts'] as List?)
-                    ?.map((e) => (e as num).toInt())
-                    .toList() ??
-                const [];
+                const SizedBox(height: 22),
+                _ChoiceListPlain(choices: choices, triggers: triggers, shrink: true),
+              ],
+            ),
+          );
+        } else {
+          return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: resRef.snapshots(),
+            builder: (context, resSnap) {
+              final counts = (resSnap.data?.data()?['counts'] as List?)
+                      ?.map((e) => (e as num).toInt())
+                      .toList() ??
+                  const [];
 
-            return _centerWrapper(
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  header,
-                  Text(
-                    widget.title.isEmpty ? 'Quiz' : widget.title,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
+              return _centerWrapper(
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      widget.title.isEmpty ? 'Quiz' : widget.title,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 26,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    question,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0B1324),
+                    const SizedBox(height: 10),
+                    Text(
+                      question,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 34,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0B1324),
+                        height: 1.25,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 18),
-                  Expanded(
-                    child: _ChoiceListReveal(
+                    const SizedBox(height: 22),
+                    _ChoiceListReveal(
                       choices: choices,
                       triggers: triggers,
                       counts: counts,
                       correct: correct,
                       compact: kCompactReveal,
+                      shrink: true,
                     ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      }
-    },
-  );
-}
+                  ],
+                ),
+              );
+            },
+          );
+        }
+      },
+    );
+  }
 }
 
-/// 문제 단계: 선택지 + 트리거 칩
+/// 문제 단계
 class _ChoiceListPlain extends StatelessWidget {
-  const _ChoiceListPlain({required this.choices, required this.triggers});
+  const _ChoiceListPlain({
+    required this.choices,
+    required this.triggers,
+    this.shrink = false,
+  });
   final List<String> choices;
   final List<String> triggers;
+  final bool shrink;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (_, c) {
-        // 화면 크기에 따라 자동 열 수 조절 (카드 가로 최대 420)
-        return GridView.builder(
-          padding: const EdgeInsets.all(12),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 420,   // 카드 최대 가로폭
-            childAspectRatio: 1.4,     // ⬅️ 정사각형에 가깝게
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
+    return GridView.builder(
+      padding: const EdgeInsets.all(14),
+      shrinkWrap: shrink,
+      physics: shrink ? const NeverScrollableScrollPhysics() : null,
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 480,
+        childAspectRatio: 1.35,
+        crossAxisSpacing: 18,
+        mainAxisSpacing: 18,
+      ),
+      itemCount: choices.length,
+      itemBuilder: (_, i) {
+        final trig = (i < triggers.length) ? triggers[i] : null;
+        return Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            side: const BorderSide(color: Color(0xFFDAE2EE)),
+            borderRadius: BorderRadius.circular(16),
           ),
-          itemCount: choices.length,
-          itemBuilder: (_, i) {
-            final trig = (i < triggers.length) ? triggers[i] : null;
-            return Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                side: const BorderSide(color: Color(0xFFDAE2EE)),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,    // ⬅️ 세로 중앙
-                  crossAxisAlignment: CrossAxisAlignment.center,  // ⬅️ 가로 중앙
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircleAvatar(
-                          radius: 18,
-                          backgroundColor: const Color(0xFF111827),
-                          child: Text(
-                            String.fromCharCode(65 + i),
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                          ),
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: const Color(0xFF111827),
+                      child: Text(
+                        String.fromCharCode(65 + i),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 22,
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            choices[i],
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(height: 14),
-                    _TriggerBadge(triggerKey: trig),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        choices[i],
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w700,
+                          height: 1.25,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
-              ),
-            );
-          },
+                const SizedBox(height: 18),
+                _TriggerBadge(triggerKey: trig),
+              ],
+            ),
+          ),
         );
       },
     );
   }
 }
 
-/// 리빌 단계 - 정답 하이라이트 + 막대(progress) + 카운트
+/// 리빌 단계
 class _ChoiceListReveal extends StatelessWidget {
   const _ChoiceListReveal({
     required this.choices,
@@ -384,6 +404,7 @@ class _ChoiceListReveal extends StatelessWidget {
     required this.counts,
     required this.correct,
     this.compact = false,
+    this.shrink = false,
   });
 
   final List<String> choices;
@@ -391,112 +412,122 @@ class _ChoiceListReveal extends StatelessWidget {
   final List<int> counts;
   final int? correct;
   final bool compact;
+  final bool shrink;
 
   @override
   Widget build(BuildContext context) {
     final total = counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
-    return LayoutBuilder(
-      builder: (_, c) {
-        return GridView.builder(
-          padding: const EdgeInsets.all(12),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 420,   // 카드 최대 가로폭
-            childAspectRatio: 1.4,     // ⬅️ 정사각형에 가깝게
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
+    return GridView.builder(
+      padding: const EdgeInsets.all(14),
+      shrinkWrap: shrink,
+      physics: shrink ? const NeverScrollableScrollPhysics() : null,
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 480,
+        childAspectRatio: 1.35,
+        crossAxisSpacing: 18,
+        mainAxisSpacing: 18,
+      ),
+      itemCount: choices.length,
+      itemBuilder: (_, i) {
+        final v = (i < counts.length) ? counts[i] : 0;
+        final ratio = total == 0 ? 0.0 : (v / total);
+        final isCorrect = correct != null && i == correct;
+        final barColor = isCorrect ? Colors.green : const Color(0xFF64748B);
+
+        final trig = (i < triggers.length) ? triggers[i] : null;
+        final showTrig = !compact;
+
+        return Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: isCorrect ? Colors.green : const Color(0xFFDAE2EE)),
+            borderRadius: BorderRadius.circular(16),
           ),
-          itemCount: choices.length,
-          itemBuilder: (_, i) {
-            final v = (i < counts.length) ? counts[i] : 0;
-            final ratio = total == 0 ? 0.0 : (v / total);
-            final isCorrect = correct != null && i == correct;
-            final barColor = isCorrect ? Colors.green : const Color(0xFF64748B);
-
-            final trig = (i < triggers.length) ? triggers[i] : null;
-            final showTrig = !compact;
-
-            return Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                side: BorderSide(color: isCorrect ? Colors.green : const Color(0xFFDAE2EE)),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,    // ⬅️ 세로 중앙
-                  crossAxisAlignment: CrossAxisAlignment.center,  // ⬅️ 가로 중앙
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircleAvatar(
-                          radius: 18,
-                          backgroundColor: isCorrect ? Colors.green : const Color(0xFF111827),
-                          child: Text(
-                            String.fromCharCode(65 + i),
-                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                          ),
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: isCorrect ? Colors.green : const Color(0xFF111827),
+                      child: Text(
+                        String.fromCharCode(65 + i),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 22,
                         ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            choices[i],
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.w700,
-                              color: isCorrect ? Colors.green.shade800 : const Color(0xFF0B1324),
-                            ),
-                          ),
-                        ),
-                        if (isCorrect)
-                          const Padding(
-                            padding: EdgeInsets.only(left: 6),
-                            child: Icon(Icons.check_circle, color: Colors.green, size: 20),
-                          ),
-                      ],
-                    ),
-                    SizedBox(height: compact ? 10 : 14),
-                    if (showTrig) _TriggerBadge(triggerKey: trig),
-                    SizedBox(height: compact ? 10 : 16),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: LinearProgressIndicator(
-                        value: ratio.clamp(0.0, 1.0),
-                        minHeight: 12,
-                        color: barColor,
-                        backgroundColor: barColor.withOpacity(0.15),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const SizedBox(width: 4),
-                        Text('응답: $v',
-                            style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF334155))),
-                        Text(
-                          total == 0 ? '0%' : '${(ratio * 100).toStringAsFixed(0)}%',
-                          style: const TextStyle(color: Color(0xFF64748B)),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        choices[i],
+                        maxLines: 3,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w700,
+                          color: isCorrect ? Colors.green.shade800 : const Color(0xFF0B1324),
+                          height: 1.25,
                         ),
-                        const SizedBox(width: 4),
-                      ],
+                      ),
                     ),
+                    if (isCorrect)
+                      const Padding(
+                        padding: EdgeInsets.only(left: 10),
+                        child: Icon(Icons.check_circle, color: Colors.green, size: 28),
+                      ),
                   ],
                 ),
-              ),
-            );
-          },
+                SizedBox(height: compact ? 14 : 20),
+                if (showTrig) _TriggerBadge(triggerKey: trig),
+                SizedBox(height: compact ? 14 : 22),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: LinearProgressIndicator(
+                    value: ratio.clamp(0.0, 1.0),
+                    minHeight: 16,
+                    color: barColor,
+                    backgroundColor: barColor.withOpacity(0.15),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const SizedBox(width: 4),
+                    const Text(
+                      '응답:',
+                      style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF334155), fontSize: 16),
+                    ),
+                    Text(
+                      '$v명',
+                      style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF334155), fontSize: 16),
+                    ),
+                    Text(
+                      total == 0 ? '0%' : '${(ratio * 100).toStringAsFixed(0)}%',
+                      style: const TextStyle(color: Color(0xFF64748B), fontSize: 16),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
   }
 }
 
-/// 트리거 칩 UI (S1/S2 × Click/Hold)
+/// 트리거 칩 UI
 class _TriggerBadge extends StatelessWidget {
   const _TriggerBadge({required this.triggerKey});
   final String? triggerKey;
@@ -509,22 +540,22 @@ class _TriggerBadge extends StatelessWidget {
     final color = _colorFor(t);
 
     return Row(
-      mainAxisAlignment: MainAxisAlignment.center, // ⬅️ 중앙 배치
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(icon, size: 20, color: color), // ⬆️ 16 → 20
-        const SizedBox(width: 8),
+        Icon(icon, size: 24, color: color),
+        const SizedBox(width: 10),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), // ⬆️ 여백 확대
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
             color: color.withOpacity(0.12),
             border: Border.all(color: color.withOpacity(0.7)),
-            borderRadius: BorderRadius.circular(22),
+            borderRadius: BorderRadius.circular(24),
           ),
           child: Text(
             label,
             style: TextStyle(
               color: color,
-              fontSize: 14, // ⬆️ 12 → 14
+              fontSize: 16,
               fontWeight: FontWeight.w800,
               letterSpacing: 0.2,
             ),
@@ -599,77 +630,90 @@ class _SummaryView extends StatelessWidget {
         }
         return Container(
           color: const Color(0xFFF7F9FC),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 28),
-              Text(
-                title.isEmpty ? 'Quiz Results' : '$title • Results',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Expanded(
-                child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(18, 10, 18, 24),
-                  itemCount: quizzes.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (_, i) {
-                    final q = quizzes[i].data();
-                    final quizId = quizzes[i].id;
-                    final question = (q['question'] as String?) ?? '';
-                    final List<String> choices =
-                        (q['choices'] as List?)?.map((e) => e.toString()).toList() ?? const [];
-                    final int? correct = (q['correctIndex'] as num?)?.toInt();
+          width: double.infinity,
+          height: double.infinity,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1100),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(48, 32, 48, 48),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      title.isEmpty ? 'Quiz Results' : '$title • Results',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 30,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    ...List.generate(quizzes.length, (i) {
+                      final qDoc = quizzes[i];
+                      final q = qDoc.data();
+                      final quizId = qDoc.id;
+                      final question = (q['question'] as String?) ?? '';
+                      final List<String> choices =
+                          (q['choices'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+                      final int? correct = (q['correctIndex'] as num?)?.toInt();
 
-                    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                      stream: fs.doc('quizTopics/$topicId/results/$quizId').snapshots(),
-                      builder: (context, rsnap) {
-                        final counts = (rsnap.data?.data()?['counts'] as List?)
-                                ?.map((e) => (e as num).toInt())
-                                .toList() ??
-                            List<int>.filled(choices.length, 0);
-                        final total = counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 18),
+                        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                          stream: fs.doc('quizTopics/$topicId/results/$quizId').snapshots(),
+                          builder: (context, rsnap) {
+                            final counts = (rsnap.data?.data()?['counts'] as List?)
+                                    ?.map((e) => (e as num).toInt())
+                                    .toList() ??
+                                List<int>.filled(choices.length, 0);
+                            final total = counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
 
-                        return Card(
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            side: const BorderSide(color: Color(0xFFDAE2EE)),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Q${i + 1}. $question',
-                                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                            return Card(
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(
+                                side: const BorderSide(color: Color(0xFFDAE2EE)),
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Q${i + 1}. $question',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 24,
+                                        height: 1.25,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 14),
+                                    ...List.generate(choices.length, (ci) {
+                                      return Padding(
+                                        padding: const EdgeInsets.only(bottom: 12),
+                                        child: _resultRow(
+                                          label:
+                                              '${String.fromCharCode(65 + ci)}. ${choices[ci]}',
+                                          value: counts.length > ci ? counts[ci] : 0,
+                                          total: total,
+                                          isCorrect: correct != null && ci == correct,
+                                        ),
+                                      );
+                                    }),
+                                  ],
                                 ),
-                                const SizedBox(height: 8),
-                                for (int ci = 0; ci < choices.length; ci++) ...[
-                                  _resultRow(
-                                    label: '${String.fromCharCode(65 + ci)}. ${choices[ci]}',
-                                    value: counts.length > ci ? counts[ci] : 0,
-                                    total: total,
-                                    isCorrect: correct != null && ci == correct,
-                                  ),
-                                  const SizedBox(height: 8),
-                                ],
-                              ],
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    }),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         );
       },
@@ -684,6 +728,7 @@ class _SummaryView extends StatelessWidget {
   }) {
     final ratio = total == 0 ? 0.0 : (value / total);
     final barColor = isCorrect ? Colors.green : const Color(0xFF64748B);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -691,27 +736,36 @@ class _SummaryView extends StatelessWidget {
           children: [
             if (isCorrect)
               const Padding(
-                padding: EdgeInsets.only(right: 6),
-                child: Icon(Icons.check_circle, color: Colors.green, size: 18),
+                padding: EdgeInsets.only(right: 8),
+                child: Icon(Icons.check_circle, color: Colors.green, size: 26),
               ),
             Expanded(
               child: Text(
                 label,
                 style: TextStyle(
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 20,
                   color: isCorrect ? Colors.green.shade700 : const Color(0xFF0B1324),
+                  height: 1.2,
                 ),
               ),
             ),
-            Text(' ${value}명', style: const TextStyle(color: Color(0xFF64748B))),
+            Text(
+              ' ${value}명',
+              style: const TextStyle(
+                color: Color(0xFF475569),
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ],
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 10),
         ClipRRect(
-          borderRadius: BorderRadius.circular(10),
+          borderRadius: BorderRadius.circular(12),
           child: LinearProgressIndicator(
             value: ratio.clamp(0.0, 1.0),
-            minHeight: 10,
+            minHeight: 16,
             color: barColor,
             backgroundColor: barColor.withOpacity(0.15),
           ),

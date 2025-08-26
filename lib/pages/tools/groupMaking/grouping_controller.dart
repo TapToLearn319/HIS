@@ -35,6 +35,48 @@ class GroupingController extends ChangeNotifier {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _studentsSub;
   bool _firstStudentsLoad = true;
 
+  List<List<String>>? _currentGroups;
+List<List<String>>? get currentGroups => _currentGroups;
+
+/// 현재 그룹을 통째로 반영(옵션으로 디스플레이에도 즉시 반영)
+void setCurrentGroups(List<List<String>> groups, {bool broadcast = true, String title = 'Find your Team !'}) {
+  // 방어적 복사
+  _currentGroups = [for (final g in groups) List<String>.from(g)];
+  notifyListeners();
+  if (broadcast) {
+    channel.postMessage(jsonEncode({
+      'type': 'grouping_result',
+      'title': title,
+      'groups': _currentGroups,
+    }));
+  }
+}
+
+/// 한 학생을 다른 그룹으로 이동(중복 제거 포함)
+bool moveMemberToGroup(String student, int toGroupIndex, {bool broadcast = true, String title = 'Find your Team !'}) {
+  final groups = _currentGroups;
+  if (groups == null || toGroupIndex < 0 || toGroupIndex >= groups.length) return false;
+
+  // 모든 그룹에서 먼저 제거 (중복 방지)
+  for (final g in groups) {
+    final i = g.indexOf(student);
+    if (i != -1) g.removeAt(i);
+  }
+
+  // 대상 그룹에 추가(이미 제거했으므로 중복 없음)
+  groups[toGroupIndex].add(student);
+
+  notifyListeners();
+  if (broadcast) {
+    channel.postMessage(jsonEncode({
+      'type': 'grouping_result',
+      'title': title,
+      'groups': groups,
+    }));
+  }
+  return true;
+}
+
   // lifecycle
   void init() {
     _studentsSub = _fs
@@ -186,6 +228,8 @@ class GroupingController extends ChangeNotifier {
         dev.log('[Grouping] save session failed: $e', stackTrace: st);
       }
     }
+    _currentGroups = [for (final g in groups) List<String>.from(g)];
+    notifyListeners();
   }
 
   Future<List<List<String>>> _makeBestGroupsWithHistory(
