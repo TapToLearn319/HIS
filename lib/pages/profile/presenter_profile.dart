@@ -26,9 +26,47 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     if (w >= 1500) return 6;
     if (w >= 1200) return 5;
     if (w >= 1000) return 4;
-    if (w >= 700)  return 3;
+    if (w >= 700) return 3;
     return 2;
   }
+  // State 클래스 안에 함수 추가
+Future<void> _addStudentDialog() async {
+  final ctrl = TextEditingController();
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('Add student'),
+      content: TextField(
+        controller: ctrl,
+        decoration: const InputDecoration(
+          labelText: 'Student name',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Add')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+
+  final name = ctrl.text.trim();
+  if (name.isEmpty) return;
+
+  final fs = FirebaseFirestore.instance;
+  await fs.collection('students').add({
+    'name': name,
+    'createdAt': FieldValue.serverTimestamp(),
+    // 필요시 초기 필드 추가 가능: 'deviceId': null,
+  });
+
+  if (!mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text('Added: $name')),
+  );
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -36,54 +74,70 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     final width = MediaQuery.sizeOf(context).width;
 
     // 학생 목록 정렬 + 검색 필터
-    final students = sp.students.entries
-        .map((e) => MapEntry(e.key, e.value))
-        .toList()
-      ..sort((a, b) =>
-          (a.value['name'] ?? '').toString().toLowerCase()
-              .compareTo((b.value['name'] ?? '').toString().toLowerCase()));
+    final students =
+        sp.students.entries.map((e) => MapEntry(e.key, e.value)).toList()..sort(
+          (a, b) => (a.value['name'] ?? '').toString().toLowerCase().compareTo(
+            (b.value['name'] ?? '').toString().toLowerCase(),
+          ),
+        );
 
-    final filtered = (_query.trim().isEmpty)
-        ? students
-        : students.where((e) {
-            final n = (e.value['name'] ?? '').toString().toLowerCase();
-            return n.contains(_query.trim().toLowerCase());
-          }).toList();
+    final filtered =
+        (_query.trim().isEmpty)
+            ? students
+            : students.where((e) {
+              final n = (e.value['name'] ?? '').toString().toLowerCase();
+              return n.contains(_query.trim().toLowerCase());
+            }).toList();
 
     return AppScaffold(
       selectedIndex: 1,
       body: Scaffold(
+        appBar: AppBar(
+                    actions: [
+            IconButton(
+              tooltip: 'Add student',
+              icon: const Icon(Icons.person_add_alt_1),
+              onPressed: _addStudentDialog,
+            ),
+          ],
+        ),
         backgroundColor: const Color(0xFFF6FAFF),
         body: SafeArea(
           child: Column(
             children: [
               // ── Header ─────────────────────────────────────
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF6FAFF),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
                 ),
+                decoration: const BoxDecoration(color: Color(0xFFF6FAFF)),
                 child: Row(
                   children: [
                     const Spacer(),
-                    SizedBox(
-                      width: 280,
-                      child: TextField(
-                        onChanged: (v) => setState(() => _query = v),
-                        decoration: InputDecoration(
-                          prefixIcon: const Icon(Icons.search, size: 18),
-                          hintText: 'Search Students',
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(20),
-                            borderSide: const BorderSide(color: Color(0xFFF6FAFF)),
-                          ),
-                          filled: true,
-                          fillColor: const Color(0xFFF6FAFF),
-                        ),
-                      ),
-                    ),
+                    // SizedBox(
+                    //   width: 280,
+                    //   child: TextField(
+                    //     onChanged: (v) => setState(() => _query = v),
+                    //     decoration: InputDecoration(
+                    //       prefixIcon: const Icon(Icons.search, size: 18),
+                    //       hintText: 'Search Students',
+                    //       isDense: true,
+                    //       contentPadding: const EdgeInsets.symmetric(
+                    //         horizontal: 10,
+                    //         vertical: 10,
+                    //       ),
+                    //       border: OutlineInputBorder(
+                    //         borderRadius: BorderRadius.circular(20),
+                    //         borderSide: const BorderSide(
+                    //           color: Color(0xFFF6FAFF),
+                    //         ),
+                    //       ),
+                    //       filled: true,
+                    //       fillColor: const Color(0xFFF6FAFF),
+                    //     ),
+                    //   ),
+                    // ),
                   ],
                 ),
               ),
@@ -113,12 +167,13 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child: _tab == 'students'
-                      ? _StudentsGrid(
-                          cols: _colsForWidth(width),
-                          students: filtered,
-                        )
-                      : const _GroupsPlaceholder(),
+                  child:
+                      _tab == 'students'
+                          ? _StudentsGrid(
+                            cols: _colsForWidth(width),
+                            students: filtered,
+                          )
+                          : const _GroupsPlaceholder(),
                 ),
               ),
             ],
@@ -132,14 +187,21 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
 /* ========================== Widgets ========================== */
 
 class TabChip extends StatelessWidget {
-  const TabChip({required this.label, required this.selected, required this.onTap});
+  const TabChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
   final String label;
   final bool selected;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final c = selected ? const Color(0xFF0F172A) : const Color(0xFF9CA3AF);
+    // 선택 시/비선택 시 색상만 바꾸고, 폰트는 동일 스펙 유지
+    final Color color =
+        selected ? const Color(0xFF001A36) : const Color(0xFFA2A2A2);
+
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: onTap,
@@ -150,17 +212,14 @@ class TabChip extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontSize: 18,
-                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
-                color: c,
+                fontSize: 18.3, // 18.3px
+                fontWeight: FontWeight.w600, // 600
+                color: color, // #001A36(선택) / #9CA3AF(미선택)
+                height: 1.0, // line-height: normal
+                fontFamily: 'Lufga', // 등록돼 있으면 적용
                 decoration: TextDecoration.none,
               ),
             ),
-            if (selected)
-              Container(
-                margin: const EdgeInsets.only(top: 6, left: 8),
-                height: 2, width: 28, color: c,
-              ),
           ],
         ),
       ),
@@ -184,8 +243,8 @@ class _StudentsGrid extends StatelessWidget {
       itemCount: items.length,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: cols,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
+        crossAxisSpacing: 15,
+        mainAxisSpacing: 15,
         childAspectRatio: 1.05,
       ),
       itemBuilder: (_, i) => items[i],
@@ -193,26 +252,34 @@ class _StudentsGrid extends StatelessWidget {
   }
 }
 
-class _Badge extends StatelessWidget {
-  const _Badge(this.text, {super.key});
-  final String text;
+class _PointBubble extends StatelessWidget {
+  const _PointBubble(this.value, {super.key});
+  final int value;
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      width: 30, // 카드에서 쓰는 29.8px → 반올림
+      height: 20,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: const Color(0xFF60A5FA),
-        borderRadius: BorderRadius.circular(999),
+        color: const Color(0xFF44A0FF),
+        borderRadius: BorderRadius.circular(14),
       ),
-      child: Text(text,
-          style: const TextStyle(
-            color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700,
-          )),
+      child: Text(
+        '$value',
+        style: const TextStyle(
+          color: Colors.white, // #FFFFFF
+          fontSize: 18, // 18px
+          fontWeight: FontWeight.w500, // 500
+          fontFamily: 'Lufga', // pubspec에 폰트 추가시
+          height: 1.0, // line-height normal
+        ),
+      ),
     );
   }
 }
 
-/// 전체(Class) 카드 — 모든 학생 points 합계를 뱃지로 표시
 class _ClassCard extends StatelessWidget {
   const _ClassCard({super.key});
 
@@ -229,52 +296,75 @@ class _ClassCard extends StatelessWidget {
           }
         }
 
-        return Material(
-          color: Colors.white,
-          shape: RoundedRectangleBorder(
-            side: const BorderSide(color: Color(0xFFE5E7EB)),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: () {
-              // ▷ 전체 학생 일괄 점수 부여 화면
-              Navigator.pushNamed(context, '/profile/class');
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Stack(
-                children: [
-                  // 우상단: 전체 총점
-                  Positioned(
-                    right: 0,
-                    top: 0,
-                    child: _Badge('$total'),
-                  ),
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      _AvatarPlaceholder(group: true),
-                      SizedBox(height: 10),
-                      Text(
-                        'Class',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF0F172A),
+        return InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () => Navigator.pushNamed(context, '/profile/class'),
+          child: Stack(
+            children: [
+              // 카드 본체 (학생 카드와 동일)
+              Container(
+                width: double.infinity,
+                height: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFD2D2D2), width: 1),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    clipBehavior: Clip.hardEdge,
+                    children: [
+                      Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            SizedBox(
+                              width: 112,
+                              height: 103,
+                              child: Image(
+                                image: AssetImage('assets/logo_bird.png'),
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                            SizedBox(height: 10),
+                            SizedBox(
+                              width: 112, // 선택: 동일 고정폭
+                              child: Text(
+                                'Class',
+                                textAlign: TextAlign.center,
+                                style: kNameTextStyle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
+                      ),
+                      Align(
+                        alignment: Alignment.topRight,
+                        child: _PointBubble(total),
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
         );
       },
     );
   }
 }
+
+const kNameTextStyle = TextStyle(
+  color: Color(0xFF001A36),
+  fontSize: 20,
+  fontWeight: FontWeight.w500,
+  height: 1.0, // line-height: normal
+  fontFamily: 'Lufga', // pubspec에 등록되어 있으면 적용, 아니면 제외해도 OK
+);
 
 /// 학생 카드
 class _StudentCard extends StatelessWidget {
@@ -285,56 +375,85 @@ class _StudentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = (data['name'] as String?) ?? '(no name)';
-
-    // points: students/{id}.points (int) 또는 0
-    final pointsStream = FirebaseFirestore.instance
-        .collection('students')
-        .doc(studentId)
-        .snapshots();
+    final pointsStream =
+        FirebaseFirestore.instance
+            .collection('students')
+            .doc(studentId)
+            .snapshots();
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: pointsStream,
       builder: (_, snap) {
         final pts = (snap.data?.data()?['points'] as num?)?.toInt() ?? 0;
 
-        return Material(
-          color: Colors.white,
-          shape: RoundedRectangleBorder(
-            side: const BorderSide(color: Color(0xFFE5E7EB)),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(14),
-            onTap: () {
-              // TODO: 학생 상세 (점수 부여/버튼 매핑) 페이지로 이동
-              Navigator.pushNamed(context, '/profile/student',
-                  arguments: {'id': studentId});
-            },
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Stack(
-                children: [
-                  Positioned(right: 0, top: 0, child: _Badge('$pts')),
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
+        return InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap:
+              () => Navigator.pushNamed(
+                context,
+                '/profile/student',
+                arguments: {'id': studentId},
+              ),
+          child: Stack(
+            children: [
+              // 카드 본체
+              // 기존: width: 170, height: 170
+              Container(
+                width: double.infinity,
+                height: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFD2D2D2), width: 1),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    clipBehavior: Clip.hardEdge,
                     children: [
-                      const _AvatarPlaceholder(),
-                      const SizedBox(height: 10),
-                      Text(
-                        name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF0F172A),
+                      Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 112,
+                              height: 103,
+                              child: Image.asset(
+                                'assets/logo_bird.png',
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            // ⬇️ 학생 이름 추가
+                            Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                              child: SizedBox(
+                                width:
+                                    112, // Figma에서 준 레이아웃(112x26)에 맞춰 고정폭(선택)
+                                child: Text(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: kNameTextStyle,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
+                      ),
+                      Align(
+                        alignment: Alignment.topRight,
+                        child: _PointBubble(pts),
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
-            ),
+            ],
           ),
         );
       },
@@ -342,26 +461,6 @@ class _StudentCard extends StatelessWidget {
   }
 }
 
-/// 캐릭터 자리(이미지 교체 지점)
-class _AvatarPlaceholder extends StatelessWidget {
-  const _AvatarPlaceholder({this.group = false, super.key});
-  final bool group;
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 96,
-      height: 96,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: Image.asset('assets/logo_bird.png', fit: BoxFit.contain),
-    );
-  }
-}
-
-/// Groups 탭은 자리만
 class _GroupsPlaceholder extends StatelessWidget {
   const _GroupsPlaceholder({super.key});
   @override

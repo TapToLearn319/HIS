@@ -7,11 +7,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 // Providers
 import '../../provider/session_provider.dart';
-import '../../provider/seat_map_provider.dart';
-import '../../provider/students_provider.dart';
-import '../../provider/debug_events_provider.dart';
-import '../../provider/total_stats_provider.dart';
-import '../../provider/student_stats_provider.dart';
 
 const String kHubId = 'hub-001'; // your hub/classroom id
 
@@ -23,10 +18,6 @@ class PresenterHomePage extends StatefulWidget {
 class _PresenterHomePageState extends State<PresenterHomePage> {
   bool _showLogs = false;
   bool _popping = false;
-
-  // ===== Board layout (now session-configured) =====
-  int _cols = 6; // fallback defaults
-  int _rows = 4;
 
   // Busy overlay
   bool _busy = false;
@@ -93,7 +84,6 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     try {
       if (currentSid != null) {
         _log('ensureSessionOnStart: already bound to $currentSid');
-        await _loadLayoutFromSession(currentSid);              // ⬅️ cols/rows 로드
         _log('ensureSessionOnStart: clear events');
         await _clearEventsForSession(currentSid);
         return;
@@ -111,7 +101,6 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
       final sid = ids.first;
       _log('ensureSessionOnStart: auto-load recent "$sid"');
       await _switchSessionAndBind(context, sid);
-      await _loadLayoutFromSession(sid);                      // ⬅️ cols/rows 로드
 
       // touch updatedAt
       await FirebaseFirestore.instance.doc('sessions/$sid').set(
@@ -161,89 +150,19 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     final s = raw?.toString().trim().toUpperCase();
     if (s == '1' || s == 'SLOT1' || s == 'S1' || s == 'LEFT') return '1';
     if (s == '2' || s == 'SLOT2' || s == 'S2' || s == 'RIGHT') return '2';
-
     final t = triggerKey?.toString().trim().toUpperCase();
     if (t?.startsWith('S1_') == true) return '1';
     if (t?.startsWith('S2_') == true) return '2';
-
     return null;
-  }
-
-  // ===== load cols/rows from session =====
-  Future<void> _loadLayoutFromSession(String sid) async {
-    try {
-      final doc = await FirebaseFirestore.instance.doc('sessions/$sid').get();
-      final data = doc.data();
-      final cols = (data?['cols'] as num?)?.toInt();
-      final rows = (data?['rows'] as num?)?.toInt();
-      setState(() {
-        _cols = (cols != null && cols > 0) ? cols : 6;
-        _rows = (rows != null && rows > 0) ? rows : 4;
-      });
-      _log('loadLayoutFromSession: cols=$_cols rows=$_rows');
-    } catch (e) {
-      _log('loadLayoutFromSession ERROR: $e');
-      setState(() {
-        _cols = 6;
-        _rows = 4;
-      });
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     final session = context.watch<SessionProvider>();
     final sessionId = session.sessionId;
+    final fs = FirebaseFirestore.instance;
 
-    final seatMapProvider = context.watch<SeatMapProvider>();
-    final studentsProvider = context.watch<StudentsProvider>();
-    final debugProvider = context.watch<DebugEventsProvider>(); // listen → color 즉시 반영
-
-    // 최신 이벤트 기반 좌석 색상 계산 (hubTs/ts 중 큰 값 기준)
-    final Map<String, String> lastSlotByStudent = {};
-    final Map<String, int> lastScoreByStudent = {};
-    int scoreOf(ev) {
-      final a = ev.hubTs ?? 0;
-      final b = ev.ts?.millisecondsSinceEpoch ?? 0;
-      return (a > b) ? a : b;
-    }
-
-    for (final ev in debugProvider.events) {
-      final sid = ev.studentId?.toString().trim();
-      if (sid == null || sid.isEmpty) continue;
-
-      final slot = _extractSlot(ev.slotIndex);
-      if (slot != '1' && slot != '2') continue;
-
-      final s = scoreOf(ev);
-      final prev = lastScoreByStudent[sid];
-      if (prev == null || s > prev) {
-        lastScoreByStudent[sid] = s;
-        lastSlotByStudent[sid] = slot!;
-      }
-    }
-
-    // 하이라이트 컬러 (없으면 null)
-    Color? _highlightColor(String? slot) {
-      if (slot == '2') return Colors.lightGreenAccent; // slot2=초록
-      if (slot == '1') return Colors.redAccent;        // slot1=빨강
-      return null;
-    }
-
-    // ✅ Total: 좌석에 "배정된" 학생 수 (공백 제거 후 카운트)
-    final int assignedCount = seatMapProvider.seatMap.values
-        .where((v) => (v as String?)?.trim().isNotEmpty == true)
-        .length;
-
-    final seatCount = (_cols <= 0 || _rows <= 0) ? 0 : _cols * _rows;
-
-    // 프레임마다 핵심 상태 로그
-    _log('build: sid=$sessionId, seats=${seatMapProvider.seatMap.length}, '
-        'assigned=$assignedCount, events=${debugProvider.events.length}, '
-        'cols=$_cols rows=$_rows');
-
-    final double screenW = MediaQuery.sizeOf(context).width;
-
+    // Top bar & 세션 조작은 그대로 두고, 좌석/이벤트/학생 데이터는 스트림으로 직접 구독
     return Scaffold(
       body: Stack(
         children: [
@@ -285,239 +204,250 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                   ),
                   const SizedBox(height: 10),
 
-                  // ===== Board header (Total / Board / Layout label) =====
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      // Left: Total & layout label
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Total $assignedCount',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF111827),
-                              )),
-                          const SizedBox(height: 2),
-                          Text('$_cols column / $_rows row',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF6B7280),
-                              )),
-                        ],
+                  // ===== Board + Seat (스트림 체인) =====
+                  if (sessionId == null)
+                    const Expanded(
+                      child: Center(
+                        child: Text('No session. Tap "Session" to create or load.'),
                       ),
-                      const Spacer(),
-                      // Center: Board pill  ← 길이 조금 더 늘림
-                      Container(
-                        width: (screenW * 0.60).clamp(320.0, 720.0),
-                        height: 42,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFCCFF88),
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: const Text('Board',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF111827),
-                            )),
-                      ),
-                      const Spacer(),
-                      // Right: (no steppers anymore)
-                    ],
-                  ),
-                  const SizedBox(height: 18),
+                    )
+                  else
+                    Expanded(
+                      child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        stream: fs.doc('sessions/$sessionId').snapshots(),
+                        builder: (context, sessSnap) {
+                          final meta = sessSnap.data?.data();
+                          final int cols = (meta?['cols'] as num?)?.toInt() ?? 6;
+                          final int rows = (meta?['rows'] as num?)?.toInt() ?? 4;
 
-                  // ===== Seat grid =====
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        if (seatCount == 0) {
-                          return const Center(child: Text('No seat layout (cols/rows not set).'));
-                        }
+                          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                            stream: fs.collection('sessions/$sessionId/seatMap').snapshots(),
+                            builder: (context, seatSnap) {
+                              final Map<String, String?> seatMap = {};
+                              if (seatSnap.data != null) {
+                                for (final d in seatSnap.data!.docs) {
+                                  seatMap[d.id] = (d.data()['studentId'] as String?)?.trim();
+                                }
+                              }
 
-                        // 가용 영역에서 셀 비율을 역산 → 스크롤 없이 정확히 맞춤
-                        const double crossSpacing = 16.0;
-                        const double mainSpacing = 16.0;
+                              return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                                stream: fs.collection('students').snapshots(),
+                                builder: (context, stuSnap) {
+                                  final Map<String, String> nameOf = {};
+                                  if (stuSnap.data != null) {
+                                    for (final d in stuSnap.data!.docs) {
+                                      final x = d.data();
+                                      final n = (x['name'] as String?)?.trim();
+                                      if (n != null && n.isNotEmpty) {
+                                        nameOf[d.id] = n;
+                                      }
+                                    }
+                                  }
 
-                        final double gridW = constraints.maxWidth;
-                        final double gridH = constraints.maxHeight;
+                                  return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                                    stream: fs
+                                        .collection('sessions/$sessionId/events')
+                                        .orderBy('ts', descending: true)
+                                        .limit(300)
+                                        .snapshots(),
+                                    builder: (context, evSnap) {
+                                      final Map<String, String> lastSlotByStudent = {};
+                                      final Map<String, int> lastScoreByStudent = {};
 
-                        final double tileW =
-                            (gridW - crossSpacing * (_cols - 1)) / _cols;
-                        final double tileH =
-                            (gridH - mainSpacing * (_rows - 1)) / _rows;
+                                      if (evSnap.data != null) {
+                                        for (final d in evSnap.data!.docs) {
+                                          final x = d.data();
+                                          final studentId = (x['studentId'] as String?)?.trim();
+                                          if (studentId == null || studentId.isEmpty) continue;
 
-                        final double ratio = (tileW / tileH).isFinite
-                            ? tileW / tileH
-                            : 1.0;
+                                          final slot = _extractSlot(
+                                            x['slotIndex'],
+                                            triggerKey: x['triggerKey'],
+                                          );
+                                          if (slot != '1' && slot != '2') continue;
 
-                        return GridView.builder(
-                          physics: const NeverScrollableScrollPhysics(), // 스크롤 금지
-                          itemCount: seatCount,
-                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: _cols,
-                            crossAxisSpacing: crossSpacing,
-                            mainAxisSpacing: mainSpacing,
-                            childAspectRatio: ratio, // 화면에 딱 맞게
-                          ),
-                          itemBuilder: (context, index) {
-                            final key = _seatKey(index);
-                            final rawId = seatMapProvider.seatMap[key];
-                            final seatStudentId = (rawId as String?)?.trim();
-                            final displayName = seatStudentId == null || seatStudentId.isEmpty
-                                ? null
-                                : studentsProvider.displayName(seatStudentId);
-                            final slot = seatStudentId == null
-                                ? null
-                                : lastSlotByStudent[seatStudentId];
-                            final highlight = _highlightColor(slot);
+                                          final int hubTs = (x['hubTs'] as num?)?.toInt() ?? 0;
+                                          final int ts = (x['ts'] is Timestamp)
+                                              ? (x['ts'] as Timestamp).millisecondsSinceEpoch
+                                              : 0;
+                                          final score = (hubTs > ts) ? hubTs : ts;
 
-                            final Color fillColor = highlight ?? // 이벤트 하이라이트 최우선
-                                (displayName == null
-                                    ? Colors.white
-                                    : const Color(0xFFE6F0FF));
+                                          final prev = lastScoreByStudent[studentId];
+                                          if (prev == null || score > prev) {
+                                            lastScoreByStudent[studentId] = score;
+                                            lastSlotByStudent[studentId] = slot!;
+                                          }
+                                        }
+                                      }
 
-                            // 빈 칸은 점선, 지정좌석은 실선, 하이라이트는 테두리 없음
-                            final Border? solidBorder = (highlight != null)
-                                ? null
-                                : (displayName == null
-                                    ? null
-                                    : Border.all(
-                                        color: const Color(0xFF8DB3FF),
-                                        width: 1.2,
-                                      ));
+                                      // ===== 헤더 (Total / Board / Layout label) =====
+                                      final int assignedCount = seatMap.values
+                                          .where((v) => (v?.trim().isNotEmpty ?? false))
+                                          .length;
 
-                            final child = Container(
-                              decoration: BoxDecoration(
-                                color: fillColor,
-                                borderRadius: BorderRadius.circular(12),
-                                border: solidBorder,
-                              ),
-                              alignment: Alignment.center,
-                              child: _seatContent(
-                                index: index,
-                                name: displayName,
-                                hasHighlight: highlight != null,
-                              ),
-                            );
+                                      final double screenW = MediaQuery.sizeOf(context).width;
 
-                            // empty + no highlight → 점선 테두리 오버레이
-                            final bool showDashed =
-                                displayName == null && highlight == null;
+                                      return Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            crossAxisAlignment: CrossAxisAlignment.center,
+                                            children: [
+                                              // Left: Total & layout label
+                                              Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text('Total $assignedCount',
+                                                      style: const TextStyle(
+                                                        fontSize: 16,
+                                                        fontWeight: FontWeight.w700,
+                                                        color: Color(0xFF111827),
+                                                      )),
+                                                  const SizedBox(height: 2),
+                                                  Text('$cols column / $rows row',
+                                                      style: const TextStyle(
+                                                        fontSize: 12,
+                                                        color: Color(0xFF6B7280),
+                                                      )),
+                                                ],
+                                              ),
+                                              const Spacer(),
+                                              // Center: Board pill
+                                              Container(
+                                                width: (screenW * 0.60).clamp(320.0, 720.0),
+                                                height: 42,
+                                                alignment: Alignment.center,
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFCCFF88),
+                                                  borderRadius: BorderRadius.circular(18),
+                                                ),
+                                                child: const Text('Board',
+                                                    style: TextStyle(
+                                                      fontSize: 18,
+                                                      fontWeight: FontWeight.w700,
+                                                      color: Color(0xFF111827),
+                                                    )),
+                                              ),
+                                              const Spacer(),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 18),
 
-                            return InkWell(
-                              onTap: () => _openSeatPicker(seatIndex: index),
-                              child: showDashed
-                                  ? CustomPaint(
-                                      foregroundPainter: _DashedBorderPainter(
-                                        radius: 12,
-                                        color: const Color(0xFFCBD5E1),
-                                        strokeWidth: 1.4,
-                                        dash: 6,
-                                        gap: 5,
-                                      ),
-                                      child: child,
-                                    )
-                                  : child,
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 12),
+                                          // ===== Seat grid =====
+                                          Expanded(
+                                            child: _SeatGrid(
+                                              cols: cols,
+                                              rows: rows,
+                                              seatMap: seatMap,
+                                              nameOf: nameOf,
+                                              lastSlotByStudent: lastSlotByStudent,
+                                              onSeatTap: (seatIndex) =>
+                                                  _openSeatPicker(seatIndex: seatIndex),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12),
 
-                  // Logs toggle
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      TextButton.icon(
-                        onPressed: () {
-                          _log('Toggle logs -> ${!_showLogs}');
-                          setState(() => _showLogs = !_showLogs);
-                        },
-                        icon: Icon(_showLogs ? Icons.expand_more : Icons.expand_less),
-                        label: Text(_showLogs ? 'Hide logs' : 'Show logs'),
-                      ),
-                      if (_showLogs && debugProvider.hasMore)
-                        TextButton(
-                          onPressed: () {
-                            _log('Load more logs');
-                            context.read<DebugEventsProvider>().loadMore();
-                          },
-                          child: const Text('Load more'),
-                        ),
-                    ],
-                  ),
+                                          // Logs toggle
+                                          Row(
+                                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              TextButton.icon(
+                                                onPressed: () {
+                                                  _log('Toggle logs -> ${!_showLogs}');
+                                                  setState(() => _showLogs = !_showLogs);
+                                                },
+                                                icon: Icon(_showLogs
+                                                    ? Icons.expand_more
+                                                    : Icons.expand_less),
+                                                label: Text(
+                                                    _showLogs ? 'Hide logs' : 'Show logs'),
+                                              ),
+                                            ],
+                                          ),
 
-                  if (_showLogs)
-                    SizedBox(
-                      height: 200,
-                      child: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade200,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: debugProvider.events.isEmpty
-                            ? const Center(child: Text('No logs'))
-                            : ListView.builder(
-                                itemCount: debugProvider.events.length,
-                                itemBuilder: (context, index) {
-                                  final ev = debugProvider.events[index];
-                                  final name = ev.studentId == null
-                                      ? '(unknown)'
-                                      : studentsProvider.displayName(ev.studentId!);
-                                  final timeStr =
-                                      ev.ts?.toDate().toLocal().toString() ?? '-';
-                                  final slot = ev.slotIndex?.toString() ?? '-';
-                                  final tail5 = ev.deviceId.length > 5
-                                      ? ev.deviceId.substring(ev.deviceId.length - 5)
-                                      : ev.deviceId;
-                                  return ListTile(
-                                    dense: true,
-                                    title: Text('$name (slot $slot • ${ev.clickType})'),
-                                    subtitle: Text(
-                                      'dev …$tail5 • hubTs=${ev.hubTs ?? 0} • $timeStr',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
+                                          if (_showLogs)
+                                            SizedBox(
+                                              height: 200,
+                                              child: Container(
+                                                padding: const EdgeInsets.all(8),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.grey.shade200,
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: (evSnap.data == null ||
+                                                        evSnap.data!.docs.isEmpty)
+                                                    ? const Center(
+                                                        child: Text('No logs'))
+                                                    : ListView.builder(
+                                                        itemCount: evSnap
+                                                            .data!.docs.length,
+                                                        itemBuilder:
+                                                            (context, index) {
+                                                          final ev = evSnap
+                                                              .data!.docs[index]
+                                                              .data();
+                                                          final studentId =
+                                                              ev['studentId']
+                                                                  as String?;
+                                                          final name =
+                                                              (studentId == null)
+                                                                  ? '(unknown)'
+                                                                  : (nameOf[studentId] ??
+                                                                      studentId);
+                                                          final timeStr = (ev['ts']
+                                                                  is Timestamp)
+                                                              ? (ev['ts']
+                                                                      as Timestamp)
+                                                                  .toDate()
+                                                                  .toLocal()
+                                                                  .toString()
+                                                              : '-';
+                                                          final slot = ev['slotIndex']
+                                                              ?.toString();
+                                                          final dev =
+                                                              (ev['deviceId']
+                                                                      as String? ??
+                                                                  '');
+                                                          final tail5 = dev
+                                                                      .length >
+                                                                  5
+                                                              ? dev.substring(
+                                                                  dev.length - 5)
+                                                              : dev;
+                                                          final clickType =
+                                                              (ev['clickType']
+                                                                      as String? ??
+                                                                  '');
+                                                          return ListTile(
+                                                            dense: true,
+                                                            title: Text(
+                                                                '$name (slot ${slot ?? '-'} • $clickType)'),
+                                                            subtitle: Text(
+                                                              'dev …$tail5 • hubTs=${(ev['hubTs'] as num?)?.toInt() ?? 0} • $timeStr',
+                                                              style: const TextStyle(
+                                                                  fontSize: 12),
+                                                            ),
+                                                          );
+                                                        },
+                                                      ),
+                                              ),
+                                            ),
+                                        ],
+                                      );
+                                    },
                                   );
                                 },
-                              ),
+                              );
+                            },
+                          );
+                        },
                       ),
                     ),
                 ],
               ),
             ),
           ),
-
-          // Provider pagination overlay (기존)
-          if (context.watch<DebugEventsProvider>().isLoading)
-            Positioned.fill(
-              child: Container(
-                color: Colors.black.withOpacity(0.5),
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                    SizedBox(height: 16),
-                    Text(
-                      'Loading...',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
 
           // 우리 측 busy overlay (로그 초기화 등)
           if (_busy)
@@ -545,58 +475,6 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
             ),
         ],
       ),
-    );
-  }
-
-  // ====== Seat content renderer ======
-  Widget _seatContent({
-    required int index,
-    required String? name,
-    required bool hasHighlight,
-  }) {
-    if (hasHighlight) {
-      return Text(
-        name ?? '',
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          color: Colors.black,
-          fontWeight: FontWeight.w700,
-        ),
-      );
-    }
-
-    if (name == null) {
-      return const Text(
-        'empty',
-        style: TextStyle(
-          color: Color(0xFF9CA3AF),
-          fontWeight: FontWeight.w600,
-        ),
-      );
-    }
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          '${index + 1}',
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0xFF1F2937),
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          name,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 14,
-            color: Color(0xFF0B1324),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
     );
   }
 
@@ -762,8 +640,6 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
         SetOptions(merge: true),
       );
 
-      await _loadLayoutFromSession(sid); // 반영
-
       // 새 세션이어도 초기화 UX 일관성 유지 (no-op이어도 호출)
       await _clearEventsForSession(sid);
 
@@ -792,8 +668,6 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
         SetOptions(merge: true),
       );
 
-      await _loadLayoutFromSession(sid); // ⬅️ cols/rows 로드
-
       // ▶ 다른 세션 로드 시에도 초기화
       await _clearEventsForSession(sid);
 
@@ -810,34 +684,8 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     _log('switchSessionAndBind: start sid=$sid');
     final session = context.read<SessionProvider>();
 
-    SeatMapProvider? seatMap;
-    DebugEventsProvider? debug;
-    TotalStatsProvider? total;
-    StudentStatsProvider? perStudent;
-    try { seatMap = context.read<SeatMapProvider>(); } catch (_) {}
-    try { debug = context.read<DebugEventsProvider>(); } catch (_) {}
-    try { total = context.read<TotalStatsProvider>(); } catch (_) {}
-    try { perStudent = context.read<StudentStatsProvider>(); } catch (_) {}
-
     session.setSession(sid);
     _log('switchSessionAndBind: session.setSession done');
-
-    Future<void> _bindSafe(String name, FutureOr<void> Function() run) async {
-      _log('bind start: $name');
-      try {
-        await Future.sync(run);
-        _log('bind ok: $name');
-      } catch (e, st) {
-        _log('bind ERROR: $name -> $e\n$st');
-        rethrow;
-      }
-    }
-
-    await _bindSafe('seatMap', () => seatMap?.bindSession(sid));
-    await _bindSafe('debug', () => debug?.bindSession(sid));
-    await _bindSafe('total', () => total?.bindSession(sid));
-    await _bindSafe('perStudent', () => perStudent?.bindSession(sid));
-    _log('switchSessionAndBind: providers bound');
 
     // hub가 이 세션을 따라가도록
     await FirebaseFirestore.instance.doc('hubs/$kHubId').set(
@@ -920,18 +768,23 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
   }
 
   Future<void> _openSeatPicker({required int seatIndex}) async {
-    final seatMapProvider = context.read<SeatMapProvider>();
-    final studentsProvider = context.read<StudentsProvider>();
-    final seatNo = _seatKey(seatIndex);
-    String? selected = seatMapProvider.seatMap[seatNo];
+    final fs = FirebaseFirestore.instance;
+    final sid = context.read<SessionProvider>().sessionId;
+    if (sid == null) return;
 
+    final seatNo = _seatKey(seatIndex);
+
+    // 학생 목록 로드(간단 버전)
+    final stuSnap = await fs.collection('students').get();
     final items = <DropdownMenuItem<String?>>[
       const DropdownMenuItem<String?>(value: null, child: Text('— Empty —')),
-      ...studentsProvider.students.entries.map(
-        (e) => DropdownMenuItem<String?>(value: e.key, child: Text((e.value['name'] as String?) ?? e.key)),
-      ),
+      ...stuSnap.docs.map((d) {
+        final name = (d.data()['name'] as String?) ?? d.id;
+        return DropdownMenuItem<String?>(value: d.id, child: Text(name));
+      }),
     ];
 
+    String? selected;
     final ok = await showDialog<bool>(
       context: context,
       useRootNavigator: true,
@@ -966,14 +819,16 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
 
     if (ok == true) {
       try {
-        final newStudentId = selected;
-        await _assignSeatExclusive(seatNo: seatNo, studentId: newStudentId); // ⬅️ 원샷 트랜잭션
-        final name = newStudentId == null ? 'Empty' : studentsProvider.displayName(newStudentId);
+        await _assignSeatExclusive(seatNo: seatNo, studentId: selected);
+        final name = selected == null
+            ? 'Empty'
+            : ((await fs.doc('students/$selected').get()).data()?['name'] as String? ??
+                selected);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Seat $seatNo → $name')),
         );
-        _log('assignSeatExclusive OK: seat=$seatNo student=$newStudentId');
+        _log('assignSeatExclusive OK: seat=$seatNo student=$selected');
       } catch (e, st) {
         _log('assignSeatExclusive ERROR: $e\n$st');
         if (!mounted) return;
@@ -1115,6 +970,137 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
       final targetRef = col.doc(seatNo);
       tx.set(targetRef, {'studentId': studentId}, SetOptions(merge: true));
     });
+  }
+}
+
+/* ---------- Seat Grid ---------- */
+
+class _SeatGrid extends StatelessWidget {
+  const _SeatGrid({
+    required this.cols,
+    required this.rows,
+    required this.seatMap,
+    required this.nameOf,
+    required this.lastSlotByStudent,
+    required this.onSeatTap,
+  });
+
+  final int cols;
+  final int rows;
+  final Map<String, String?> seatMap;       // seatNo -> studentId?
+  final Map<String, String> nameOf;         // studentId -> name
+  final Map<String, String> lastSlotByStudent; // studentId -> '1' | '2'
+  final ValueChanged<int> onSeatTap;
+
+  String _seatKey(int index) => '${index + 1}';
+
+  Color? _highlightColor(String? slot) {
+    if (slot == '2') return Colors.lightGreenAccent; // slot2=초록
+    if (slot == '1') return Colors.redAccent;        // slot1=빨강
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final seatCount = cols * rows;
+
+    return LayoutBuilder(
+      builder: (context, c) {
+        const crossSpacing = 16.0;
+        const mainSpacing = 16.0;
+
+        final gridW = c.maxWidth;
+        final gridH = c.maxHeight;
+        final tileW = (gridW - crossSpacing * (cols - 1)) / cols;
+        final tileH = (gridH - mainSpacing * (rows - 1)) / rows;
+        final ratio = (tileW / tileH).isFinite ? tileW / tileH : 1.0;
+
+        return GridView.builder(
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: seatCount,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: cols,
+            crossAxisSpacing: crossSpacing,
+            mainAxisSpacing: mainSpacing,
+            childAspectRatio: ratio,
+          ),
+          itemBuilder: (context, index) {
+            final seatNo = _seatKey(index);
+            final seatStudentId = seatMap[seatNo]?.trim();
+            final hasStudent = seatStudentId != null && seatStudentId.isNotEmpty;
+            final name = hasStudent ? (nameOf[seatStudentId!] ?? seatStudentId) : null;
+
+            final slot = hasStudent ? lastSlotByStudent[seatStudentId!] : null;
+            final highlight = _highlightColor(slot);
+
+            final fillColor = highlight ?? (hasStudent ? const Color(0xFFE6F0FF) : Colors.white);
+            final Border? solidBorder = (highlight != null)
+                ? null
+                : (hasStudent
+                    ? Border.all(color: const Color(0xFF8DB3FF), width: 1.2)
+                    : null);
+
+            final child = Container(
+              decoration: BoxDecoration(
+                color: fillColor,
+                borderRadius: BorderRadius.circular(12),
+                border: solidBorder,
+              ),
+              alignment: Alignment.center,
+              child: hasStudent
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          seatNo,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF1F2937),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          name!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF0B1324),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    )
+                  : const Text(
+                      'empty',
+                      style: TextStyle(
+                        color: Color(0xFF9CA3AF),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+            );
+
+            final bool showDashed = !hasStudent && highlight == null;
+
+            return InkWell(
+              onTap: () => onSeatTap(index),
+              child: showDashed
+                  ? CustomPaint(
+                      foregroundPainter: _DashedBorderPainter(
+                        radius: 12,
+                        color: const Color(0xFFCBD5E1),
+                        strokeWidth: 1.4,
+                        dash: 6,
+                        gap: 5,
+                      ),
+                      child: child,
+                    )
+                  : child,
+            );
+          },
+        );
+      },
+    );
   }
 }
 

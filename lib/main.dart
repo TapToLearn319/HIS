@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:project/pages/ai_chat/presenter_ai_char.dart';
+import 'package:project/pages/profile/class_score_detail.dart';
+import 'package:project/pages/profile/student_score_detail.dart';
 import 'package:project/pages/random_seat/display_random_seat.dart';
 import 'package:project/pages/random_seat/presenter_random_seat.dart';
 import 'package:project/pages/tools/groupMaking/display_group_page.dart';
@@ -167,6 +169,8 @@ class PresenterApp extends StatelessWidget {
             '/tools/voting': (_) =>  PresenterVotePage(),
             '/tools/attendance': (_) =>  PresenterHomePage(),
             '/tools/random_seat': (_) =>  RandomSeatPage(),
+            '/profile/student/details': (_) => const StudentScoreDetailsPage(),
+            '/profile/class/details': (_) => const ClassScoreDetailsPage(),
           },
         );
       },

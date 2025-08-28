@@ -1,11 +1,14 @@
-
-
 // lib/pages/profile/presenter_student_page.dart
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+import '../../sidebar_menu.dart';
+
 const String kHubId = 'hub-001';
+
+const double _avatarW = 290;
+const double _avatarH = 268;
 
 class ScoreType {
   final String id; // 내부용 키
@@ -90,7 +93,7 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
     _toast(value >= 0 ? '+$value applied' : '$value applied');
   }
 
-  // ─── 버튼 매핑(기존 로직 요약 버전)
+  // ─── 버튼 매핑(개선 버전)
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _capSub;
   Timer? _capTimer;
   bool _capturing = false;
@@ -100,90 +103,197 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
     _capturing = true;
 
     final fs = FirebaseFirestore.instance;
-    // 현재 허브의 세션
-    final hub = await fs.doc('hubs/$kHubId').get();
-    final sid = hub.data()?['currentSessionId'] as String?;
-    if (sid == null) {
-      _toast('No active session.');
+
+    // 1) 허브의 현재 세션
+    final hubDoc = await fs.doc('hubs/$kHubId').get();
+    final sid = (hubDoc.data()?['currentSessionId'] as String?)?.trim();
+    if (sid == null || sid.isEmpty) {
       _capturing = false;
+      _toast('No active session.');
       return;
     }
 
+    // 2) 기준(이전 이벤트 무시)
     final startMs = DateTime.now().millisecondsSinceEpoch;
-    String? initTop;
+    String? latestIdBefore;
     try {
-      final init =
-          await fs
-              .collection('sessions/$sid/events')
-              .orderBy('ts', descending: true)
-              .limit(1)
-              .get();
-      if (init.docs.isNotEmpty) initTop = init.docs.first.id;
+      final prev = await fs
+          .collection('sessions/$sid/events')
+          .orderBy('ts', descending: true)
+          .limit(1)
+          .get();
+      if (prev.docs.isNotEmpty) latestIdBefore = prev.docs.first.id;
     } catch (_) {}
 
-    final ok = await showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder:
-          (_) => AlertDialog(
-            title: Text('Waiting for button… (slot $slotIndex)'),
-            content: const Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(height: 8),
-                CircularProgressIndicator(),
-                SizedBox(height: 12),
-                Text('Press the Flic now.'),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-            ],
-          ),
-    );
-
-    if (ok == false) {
-      _capturing = false;
-      return;
-    }
-
     bool handled = false;
+    bool dialogOpen = true;
+
+    // 3) 새 이벤트 대기 (최신 1개 스트림)
     _capSub = fs
         .collection('sessions/$sid/events')
         .orderBy('ts', descending: true)
         .limit(1)
         .snapshots()
         .listen((snap) async {
-          if (handled || snap.docs.isEmpty) return;
-          final d = snap.docs.first;
-          if (initTop != null && d.id == initTop) return;
+      if (handled || snap.docs.isEmpty) return;
 
-          final data = d.data();
-          final devId = (data['deviceId'] as String?)?.trim();
-          final ts = (data['ts'] as Timestamp?)?.millisecondsSinceEpoch ?? 0;
+      final d = snap.docs.first;
+      if (latestIdBefore != null && d.id == latestIdBefore) return;
 
-          if (devId == null || devId.isEmpty) return;
-          if (ts < startMs - 2000) return; // 약간의 버퍼
+      final x = d.data();
+      final devId = (x['deviceId'] as String?)?.trim();
+      final ts = (x['ts'] is Timestamp)
+          ? (x['ts'] as Timestamp).millisecondsSinceEpoch
+          : 0;
 
-          handled = true;
-          await fs.doc('devices/$devId').set({
-            'studentId': studentId,
-            'slotIndex': slotIndex,
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+      if (devId == null || devId.isEmpty) return;
+      if (ts < startMs - 1500) return;
 
-          if (mounted) Navigator.of(context, rootNavigator: true).pop(true);
-          _toast('Linked $devId (slot $slotIndex)');
-        });
+      handled = true;
 
-    _capTimer = Timer(const Duration(seconds: 25), () {
-      if (!_capturing || handled) return;
-      _toast('Timed out.');
-      if (mounted) Navigator.of(context, rootNavigator: true).pop(false);
+      try {
+        // 4) 매핑
+        await fs.doc('devices/$devId').set({
+          'studentId': studentId,
+          'slotIndex': slotIndex,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        if (mounted) _toast('Linked $devId (slot $slotIndex)');
+      } catch (e) {
+        if (mounted) _toast('Register failed: $e');
+      } finally {
+        _capSub?.cancel();
+        _capSub = null;
+        _capTimer?.cancel();
+        _capTimer = null;
+        _capturing = false;
+
+        if (mounted && dialogOpen) {
+          try {
+            Navigator.of(context, rootNavigator: true).pop(true);
+          } catch (_) {}
+        }
+      }
+    }, onError: (e, st) {
+      if (mounted) _toast('Pairing stream error: $e');
     });
+
+    // 4) 대기 다이얼로그
+    final waitFuture = showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: Text('Waiting for button… (slot $slotIndex)'),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(height: 8),
+            CircularProgressIndicator(),
+            SizedBox(height: 12),
+            Text('Press the Flic now.'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+
+    // 5) 타임아웃
+    _capTimer = Timer(const Duration(seconds: 25), () {
+      if (handled) return;
+      if (mounted && dialogOpen) {
+        try {
+          Navigator.of(context, rootNavigator: true).pop(false);
+        } catch (_) {}
+      }
+    });
+
+    final res = await waitFuture;
+    dialogOpen = false;
+
+    if (!handled) {
+      // 취소/타임아웃
+      _capSub?.cancel();
+      _capTimer?.cancel();
+      _capSub = null;
+      _capTimer = null;
+      _capturing = false;
+
+      if (res == false && mounted) {
+        _toast('Canceled.');
+      } else if (mounted) {
+        _toast('Timed out.');
+      }
+    }
+  }
+
+  // ─── 학생 삭제
+  Future<void> _deleteStudent() async {
+    final fs = FirebaseFirestore.instance;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete this student?'),
+        content: const Text(
+          'All points and logs will be removed, and paired devices will be unlinked. '
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    // 로딩
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+      useRootNavigator: true,
+    );
+
+    try {
+      // 1) devices 언링크
+      final devSnap = await fs.collection('devices')
+          .where('studentId', isEqualTo: studentId)
+          .get();
+      final batch1 = fs.batch();
+      for (final d in devSnap.docs) {
+        batch1.set(d.reference, {
+          'studentId': null,
+          'slotIndex': null,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+      await batch1.commit();
+
+      // 2) pointLogs 삭제
+      await _deleteCollection(fs, 'students/$studentId/pointLogs', 300);
+
+      // 3) student 문서 삭제
+      await fs.doc('students/$studentId').delete();
+
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop(); // 로딩 닫기
+      _toast('Student deleted.');
+      Navigator.maybePop(context);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop(); // 로딩 닫기
+      _toast('Delete failed: $e');
+    }
   }
 
   @override
@@ -198,140 +308,167 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
     final fs = FirebaseFirestore.instance;
     final stuStream = fs.doc('students/$studentId').snapshots();
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF7FAFF),
-      body: SafeArea(
-        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: stuStream,
-          builder: (_, snap) {
-            final name = (snap.data?.data()?['name'] as String?) ?? '(no name)';
-            final pts = (snap.data?.data()?['points'] as num?)?.toInt() ?? 0;
+    return AppScaffold(
+      // ← 사이드바 포함 레이아웃
+      selectedIndex: 1, // 사이드바에서 활성 탭 인덱스
+      body: Scaffold(
+        backgroundColor: const Color(0xFFF7FAFF),
+        body: SafeArea(
+          child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: stuStream,
+            builder: (_, snap) {
+              final name =
+                  (snap.data?.data()?['name'] as String?) ?? '(no name)';
+              final pts = (snap.data?.data()?['points'] as num?)?.toInt() ?? 0;
 
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-              child: Column(
-                children: [
-                  // Header
-                  // Header
-                  Row(
-                    children: [
-                      IconButton(
-                        tooltip: 'Back',
-                        icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                        onPressed: () {
-                          Navigator.maybePop(context).then((popped) {
-                            if (popped == false) {
-                              Navigator.pushReplacementNamed(
-                                context,
-                                '/profile',
-                              );
-                            }
-                          });
-                        },
-                      ),
-                      const SizedBox(width: 8),
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                child: Column(
+                  children: [
+                    // ── Header
+                    Row(children: [const Spacer()]),
+                    const SizedBox(height: 24),
 
-                      const Spacer(),
-                      SizedBox(
-                        width: 280,
-                        child: TextField(
-                          decoration: InputDecoration(
-                            isDense: true,
-                            prefixIcon: const Icon(Icons.search, size: 18),
-                            hintText: 'Search Tools',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 10,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-
-                  // Main
-                  Expanded(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Left: Avatar + name + mapping
-                        Expanded(
-                          flex: 5,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // avatar block
-                              Stack(
-                                children: [
-                                  Container(
-                                    width: 360,
-                                    height: 360,
-                                    decoration: BoxDecoration(
-                                      color: Color(0xFFF6FAFF),
+                    // ── Main (좌: 아바타/버튼매핑, 우: 점수 카드)
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 좌측 영역
+                          Expanded(
+                            flex: 5,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Stack(
+                                  children: [
+                                    SizedBox(
+                                      width: _avatarW,
+                                      height: _avatarH,
+                                      child: const DecoratedBox(
+                                        decoration: BoxDecoration(
+                                          color: Color(0xFFF6FAFF),
+                                          image: DecorationImage(
+                                            image: AssetImage(
+                                              'assets/logo_bird.png',
+                                            ),
+                                            fit: BoxFit.contain,
+                                            alignment: Alignment.center,
+                                          ),
+                                        ),
+                                      ),
                                     ),
-                                    alignment: Alignment.center,
-                                    child: Image.asset(
-                                      'assets/logo_bird.png', // 자리 이미지
-                                      width: 1200,
-                                      fit: BoxFit.contain,
+                                    Positioned(
+                                      right: 12,
+                                      top: 12,
+                                      child: _PointBadge(value: pts),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 18),
+                                SizedBox(
+                                  width: 218,
+                                  child: Text(
+                                    name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: Color(0xFF001A36),
+                                      fontSize: 39,
+                                      fontWeight: FontWeight.w500,
+                                      height: 1.0,
                                     ),
                                   ),
-                                  Positioned(
-                                    right: 12,
-                                    top: 12,
-                                    child: _PointBadge(value: pts),
+                                ),
+                                const SizedBox(height: 8),
+                                TextButton(
+                                  onPressed: () {
+                                    Navigator.pushNamed(
+                                      context,
+                                      '/profile/student/details',
+                                      arguments: {'id': studentId},
+                                    );
+                                  },
+                                  child: const Text(
+                                    'View score details',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      color: Color(0xFF868C98),
+                                      fontSize: 23,
+                                      fontWeight: FontWeight.w500,
+                                      decoration: TextDecoration.underline,
+                                      decorationStyle: TextDecorationStyle.solid,
+                                      decorationColor: Color(0xFF868C98),
+                                      height: 1.0,
+                                    ),
                                   ),
-                                ],
-                              ),
-                              const SizedBox(height: 18),
-                              Text(
-                                name,
-                                style: const TextStyle(
-                                  fontSize: 40,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF0F172A),
                                 ),
-                              ),
-                              const SizedBox(height: 18),
 
-                              // device mapping row
-                              _DeviceMappingRow(
-                                studentId: studentId,
-                                onLink1: () => _captureToSlot('1'),
-                                onLink2: () => _captureToSlot('2'),
-                              ),
-                            ],
-                          ),
-                        ),
+                                const SizedBox(height: 66),
 
-                        const SizedBox(width: 24),
-
-                        // Right: Score Management
-                        Expanded(
-                          flex: 5,
-                          child: _ScoreManagementCard(
-                            onPick:
-                                (typeId, typeName, value) => _applyScore(
-                                  typeId: typeId,
-                                  typeName: typeName,
-                                  value: value,
+                                // 버튼 연결 UI
+                                _DeviceMappingRow(
+                                  studentId: studentId,
+                                  onLink1: () => _captureToSlot('1'),
+                                  onLink2: () => _captureToSlot('2'),
                                 ),
+
+                                const SizedBox(height: 16),
+
+                                // ⬇️ 학생 삭제 버튼 (가운데, 빨간 휴지통)
+                                Center(
+                                  child: IconButton(
+                                    tooltip: 'Delete student',
+                                    onPressed: _deleteStudent,
+                                    icon: const Icon(Icons.delete, color: Colors.red, size: 32),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 24),
+                          // 우측 영역
+                          Expanded(
+                            flex: 5,
+                            child: _ScoreManagementCard(
+                              onPick: (id, label, v) => _applyScore(
+                                typeId: id,
+                                typeName: label,
+                                value: v,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            );
-          },
+                  ],
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
+  }
+
+  // 공용: 서브컬렉션 배치 삭제
+  Future<void> _deleteCollection(
+    FirebaseFirestore fs,
+    String path,
+    int batchSize,
+  ) async {
+    Query q = fs.collection(path).limit(batchSize);
+    while (true) {
+      final snap = await q.get();
+      if (snap.docs.isEmpty) break;
+      final batch = fs.batch();
+      for (final d in snap.docs) {
+        batch.delete(d.reference);
+      }
+      await batch.commit();
+      if (snap.docs.length < batchSize) break;
+    }
   }
 }
 
@@ -340,19 +477,22 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
 class _PointBadge extends StatelessWidget {
   const _PointBadge({required this.value});
   final int value;
+
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF60A5FA),
-        borderRadius: BorderRadius.circular(999),
+      width: 44,
+      height: 44,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        color: Color(0xFF44A0FF), // #44A0FF
+        shape: BoxShape.circle,
       ),
       child: Text(
         '$value',
         style: const TextStyle(
           color: Colors.white,
-          fontSize: 16,
+          fontSize: 20,
           fontWeight: FontWeight.w800,
         ),
       ),
@@ -382,11 +522,7 @@ class _DeviceMappingRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream:
-          fs
-              .collection('devices')
-              .where('studentId', isEqualTo: studentId)
-              .snapshots(),
+      stream: fs.collection('devices').where('studentId', isEqualTo: studentId).snapshots(),
       builder: (_, snap) {
         String? s1, s2;
         if (snap.hasData) {
@@ -397,32 +533,47 @@ class _DeviceMappingRow extends StatelessWidget {
           }
         }
 
-        Chip _chip(String label, String? id, VoidCallback onLink) {
+        Widget _chip(String? id, VoidCallback onLink) {
           final has = id != null && id.isNotEmpty;
-          final last = _last5(id);
-          return Chip(
-            avatar: const Icon(Icons.link, size: 16),
-            label: Text(has ? last : label),
-            side: BorderSide(color: has ? Colors.black : Colors.black26),
-            backgroundColor: Colors.white,
+
+          return SizedBox(
+            width: 121,
+            height: 46,
+            child: OutlinedButton.icon(
+              onPressed: onLink,
+              icon: Icon(
+                Icons.link,
+                size: 18,
+                color: has ? const Color(0xFF6B7280) : const Color(0xFF9CA3AF),
+              ),
+              label: Text(
+                has ? _last5(id) : 'Add',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xFF868C98),
+                  fontSize: 25,
+                  fontWeight: FontWeight.w400,
+                  height: 1.0,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                backgroundColor: Colors.white,
+                side: const BorderSide(color: Color(0xFFD2D2D2), width: 1),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                minimumSize: const Size(121, 46),
+                maximumSize: const Size(121, 46),
+              ),
+            ),
           );
         }
 
         return Wrap(
           spacing: 12,
           runSpacing: 8,
-          children: [
-            ActionChip(
-              avatar: const Icon(Icons.link, size: 16),
-              label: Text(s1 == null ? 'Link Slot 1' : 'S1 • ${_last5(s1)}'),
-              onPressed: onLink1,
-            ),
-            ActionChip(
-              avatar: const Icon(Icons.link, size: 16),
-              label: Text(s2 == null ? 'Link Slot 2' : 'S2 • ${_last5(s2)}'),
-              onPressed: onLink2,
-            ),
-          ],
+          children: [_chip(s1, onLink1), _chip(s2, onLink2)],
         );
       },
     );
@@ -433,67 +584,57 @@ class _ScoreManagementCard extends StatelessWidget {
   const _ScoreManagementCard({required this.onPick});
   final void Function(String typeId, String typeName, int value) onPick;
 
+  static const double _tileW = 142;
+  static const double _tileH = 140;
+  static const double _gap = 20;
+
+  int _columnsFor(double w) {
+    final cols = ((w + _gap) / (_tileW + _gap)).floor();
+    return cols.clamp(2, 4);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Score Management',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF0B1B33),
-          ),
-        ),
-        const SizedBox(height: 12),
+    return LayoutBuilder(
+      builder: (context, box) {
+        final cols = _columnsFor(box.maxWidth);
 
-        // 카드 컨테이너
-        Expanded(
-          child: Material(
-            color: Colors.white,
-            shape: RoundedRectangleBorder(
-              side: const BorderSide(color: Color(0xFFE5E7EB)),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: LayoutBuilder(
-                builder: (context, box) {
-                  // 반응형 컬럼 수 계산
-                  final w = box.maxWidth;
-                  int cols = (w / 240).floor(); // 타일 가로폭 기준치 (~240px)
-                  cols = cols.clamp(2, 4);
-
-                  return SingleChildScrollView(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const _SectionTitle('Attitude Score'),
-                        const SizedBox(height: 8),
-                        _ScoreSectionGrid(
-                          columns: cols,
-                          types: kAttitudeTypes,
-                          onPick: onPick,
-                        ),
-                        const SizedBox(height: 20),
-
-                        const _SectionTitle('Activity Score'),
-                        const SizedBox(height: 8),
-                        _ScoreSectionGrid(
-                          columns: cols,
-                          types: kActivityTypes,
-                          onPick: onPick,
-                        ),
-                      ],
-                    ),
-                  );
-                },
+        return SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: const [
+                  _SectionTitle('Attitude Score'),
+                  Spacer(),
+                  _BackButton(),
+                ],
               ),
-            ),
+              SizedBox(height: 12),
+              _ScoreSectionGrid(
+                columns: cols,
+                types: kAttitudeTypes,
+                onPick: onPick,
+                tileW: _tileW,
+                tileH: _tileH,
+                gap: _gap,
+              ),
+              const SizedBox(height: 28),
+              const _SectionTitle('Activity Score'),
+              const SizedBox(height: 12),
+              _ScoreSectionGrid(
+                columns: cols,
+                types: kActivityTypes,
+                onPick: onPick,
+                tileW: _tileW,
+                tileH: _tileH,
+                gap: _gap,
+              ),
+            ],
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 }
@@ -514,20 +655,60 @@ class _SectionTitle extends StatelessWidget {
   }
 }
 
+class _BackButton extends StatelessWidget {
+  const _BackButton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: () {
+        Navigator.maybePop(context).then((popped) {
+          if (popped == false) {
+            Navigator.pushReplacementNamed(context, '/profile');
+          }
+        });
+      },
+      icon: const Icon(
+        Icons.arrow_back_ios_new_rounded,
+        size: 14,
+        color: Colors.white,
+      ),
+      label: const Text(
+        'Back',
+        style: TextStyle(
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          color: Colors.white,
+        ),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFF44A0FF),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        minimumSize: const Size(92, 32),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        elevation: 0,
+      ),
+    );
+  }
+}
+
 class _ScoreSectionGrid extends StatelessWidget {
   const _ScoreSectionGrid({
     required this.columns,
     required this.types,
     required this.onPick,
+    required this.tileW,
+    required this.tileH,
+    required this.gap,
   });
 
   final int columns;
   final List<ScoreType> types;
   final void Function(String id, String name, int value) onPick;
+  final double tileW, tileH, gap;
 
   @override
   Widget build(BuildContext context) {
-    // 마지막에 “Add Skill” 타일 하나 추가
     final items = [
       ...types,
       const ScoreType(id: '_add', label: 'Add Skill', emoji: '+', value: 0),
@@ -539,20 +720,14 @@ class _ScoreSectionGrid extends StatelessWidget {
       itemCount: items.length,
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: columns,
-        crossAxisSpacing: 12,
-        mainAxisSpacing: 12,
-        childAspectRatio: 1, // 정사각 느낌
+        crossAxisSpacing: gap,
+        mainAxisSpacing: gap,
+        childAspectRatio: tileW / tileH,
       ),
       itemBuilder: (_, i) {
         final t = items[i];
         if (t.id == '_add') {
-          return _AddSkillTile(
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('스킬 추가는 곧 제공됩니다 😊')),
-              );
-            },
-          );
+          return _AddSkillTile(width: tileW, height: tileH);
         }
         return _ScoreTileMini(
           emoji: t.emoji,
@@ -586,51 +761,40 @@ class _ScoreTileMini extends StatelessWidget {
         // 카드 본문
         Container(
           decoration: BoxDecoration(
-            color: const Color(0xFFF7FAFF),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFE5E7EB)),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFD2D2D2)),
           ),
-          padding: const EdgeInsets.fromLTRB(16, 14, 14, 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const SizedBox(height: 6),
-              Text(emoji, style: const TextStyle(fontSize: 32)),
-              const SizedBox(height: 10),
-              Text(
-                label,
-                maxLines: 2,
-                textAlign: TextAlign.center,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF1F2A44),
-                ),
-              ),
-              const Spacer(),
-              Align(
-                alignment: Alignment.bottomRight,
-                child: IconButton(
-                  tooltip: '-1',
-                  onPressed: onMinus,
-                  icon: const Icon(Icons.remove_circle_outline),
-                  visualDensity: const VisualDensity(
-                    horizontal: -4,
-                    vertical: -4,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 28,
+                  height: 28,
+                  child: Center(
+                    child: Text(emoji, style: const TextStyle(fontSize: 24)),
                   ),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints.tightFor(
-                    width: 32,
-                    height: 32,
-                  ),
-                  iconSize: 20,
                 ),
-              ),
-            ],
+                const SizedBox(height: 12),
+                Text(
+                  label,
+                  maxLines: 2,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1F2A44),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        // +1 배지 (우상단 고정)
+
+        // +1 배지 (우상단)
         Positioned(
           right: 10,
           top: 10,
@@ -653,45 +817,62 @@ class _ScoreTileMini extends StatelessWidget {
             ),
           ),
         ),
+
+        // -1 버튼 (우하단)
+        Positioned(
+          right: 10,
+          bottom: 10,
+          child: IconButton(
+            tooltip: '-1',
+            onPressed: onMinus,
+            icon: const Icon(Icons.remove_circle_outline),
+            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+            padding: EdgeInsets.zero,
+            iconSize: 24,
+            color: const Color(0xFF374151),
+          ),
+        ),
       ],
     );
   }
 }
 
 class _AddSkillTile extends StatelessWidget {
-  const _AddSkillTile({required this.onTap});
-  final VoidCallback onTap;
+  const _AddSkillTile({required this.width, required this.height, super.key});
+  final double width, height;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(20),
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFFF6F8FC),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xE0E3EAF5)),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              Icon(
-                Icons.add_circle_outline,
-                size: 42,
-                color: Color(0xFF6C58F6),
-              ),
-              SizedBox(height: 8),
-              Text(
-                '스킬 추가',
-                style: TextStyle(
-                  fontSize: 16,
-                  color: Color(0xFF6C58F6),
-                  fontWeight: FontWeight.w700,
+    return ConstrainedBox(
+      constraints: BoxConstraints.tightFor(width: width, height: height),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: () {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(const SnackBar(content: Text('스킬 추가는 곧 제공됩니다 😊')));
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: const Color(0xFFD2D2D2), width: 1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: const [
+                Icon(Icons.add, size: 32, color: Color(0xFF9CA3AF)),
+                SizedBox(height: 8),
+                Text(
+                  'Add Skill',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF9CA3AF),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
