@@ -1,5 +1,4 @@
 
-
 // PresenterMainPage — 전체 학생 페이지 (리팩터링)
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -29,44 +28,51 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     if (w >= 700) return 3;
     return 2;
   }
+
   // State 클래스 안에 함수 추가
-Future<void> _addStudentDialog() async {
-  final ctrl = TextEditingController();
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (_) => AlertDialog(
-      title: const Text('Add student'),
-      content: TextField(
-        controller: ctrl,
-        decoration: const InputDecoration(
-          labelText: 'Student name',
-          border: OutlineInputBorder(),
-        ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Add')),
-      ],
-    ),
-  );
-  if (ok != true) return;
+  Future<void> _addStudentDialog() async {
+    final ctrl = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Add student'),
+            content: TextField(
+              controller: ctrl,
+              decoration: const InputDecoration(
+                labelText: 'Student name',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Add'),
+              ),
+            ],
+          ),
+    );
+    if (ok != true) return;
 
-  final name = ctrl.text.trim();
-  if (name.isEmpty) return;
+    final name = ctrl.text.trim();
+    if (name.isEmpty) return;
 
-  final fs = FirebaseFirestore.instance;
-  await fs.collection('students').add({
-    'name': name,
-    'createdAt': FieldValue.serverTimestamp(),
-    // 필요시 초기 필드 추가 가능: 'deviceId': null,
-  });
+    final fs = FirebaseFirestore.instance;
+    await fs.collection('students').add({
+      'name': name,
+      'createdAt': FieldValue.serverTimestamp(),
+      // 필요시 초기 필드 추가 가능: 'deviceId': null,
+    });
 
-  if (!mounted) return;
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text('Added: $name')),
-  );
-}
-
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Added: $name')));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -93,11 +99,37 @@ Future<void> _addStudentDialog() async {
       selectedIndex: 1,
       body: Scaffold(
         appBar: AppBar(
-                    actions: [
-            IconButton(
-              tooltip: 'Add student',
-              icon: const Icon(Icons.person_add_alt_1),
-              onPressed: _addStudentDialog,
+          backgroundColor: Colors.white,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: ElevatedButton.icon(
+                onPressed: _addStudentDialog,
+                icon: const Icon(
+                  Icons.person_add_alt_1,
+                  size: 18,
+                  color: Colors.white,
+                ),
+                label: const Text(
+                  'Add Student',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF44A0FF),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  elevation: 0,
+                ),
+              ),
             ),
           ],
         ),

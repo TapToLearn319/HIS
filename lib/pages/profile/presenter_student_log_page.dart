@@ -874,7 +874,7 @@ class _AddSkillTile extends StatelessWidget {
               ],
             ),
           ),
-        ),
+        ), 
       ),
     );
   }
