@@ -10,36 +10,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 0) 리포 체크아웃
+      # 0) 리포지토리 체크아웃
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 1) (선택) Java: 일부 플러터/플러그인에서 필요할 수 있음
+      # 1) Java 설치 (일부 Flutter 플러그인에서 필요)
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Remove preinstalled Flutter
-        run: sudo rm -rf /opt/hostedtoolcache/flutter
-
-
-      # 2) Flutter 설치 (Dart 3.7.2 포함 버전으로 고정) + 캐시 비활성화
-      - name: Set up Flutter (stable 3.27.2)
+      # 2) Flutter 설치 (최신 stable, 캐시 비활성화)
+      - name: Set up Flutter (latest stable)
         uses: subosito/flutter-action@v2
         with:
-          channel: "stable"
-          flutter-version: "3.30.0"
+          channel: stable
           cache: false
 
-      # 3) (중요) 실제 설치된 Flutter/Dart 버전 확인
+      # 3) 실제 설치된 버전 확인 (Flutter/Dart 출력)
       - name: Show Flutter & Dart versions
         run: |
           flutter --version
           dart --version
 
-      # 4) 웹 타깃 프리캐시 (웹 빌드 시 권장)
+      # 4) 웹 타깃 프리캐시
       - name: Precache web artifacts
         run: flutter precache --web
 
@@ -51,7 +46,7 @@ jobs:
       - name: Clean build
         run: flutter clean
 
-      # 7) Flutter 웹 빌드 (산출물: build/web)
+      # 7) Flutter 웹 빌드
       - name: Build Flutter web (release)
         run: flutter build web --release
 
