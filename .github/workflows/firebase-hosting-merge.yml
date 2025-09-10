@@ -28,7 +28,8 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.27.1" # 프로젝트 버전에 맞게 변경
+          flutter-version: "3.27.1"
+          channel: "stable" # 프로젝트 버전에 맞게 변경
 
       # 4. 의존성 설치
       - name: Install dependencies
