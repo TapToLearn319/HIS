@@ -2,16 +2,45 @@
 # https://github.com/firebase/firebase-tools
 
 name: Deploy to Firebase Hosting on merge
+
 on:
   push:
     branches:
       - main
+
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: FirebaseExtended/action-hosting-deploy@v0
+      # 1. Checkout 코드
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Java 환경 (Flutter toolchain 필요)
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # 3. Flutter 설치
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.22.0" # 프로젝트 버전에 맞게 변경
+
+      # 4. 의존성 설치
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 5. Flutter Web 빌드
+      - name: Build Flutter web
+        run: flutter build web --release
+
+      # 6. Firebase Hosting 배포
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FLIC_D579D }}
