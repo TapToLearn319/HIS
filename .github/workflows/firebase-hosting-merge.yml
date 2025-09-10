@@ -30,7 +30,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: "stable"
-          flutter-version: "3.27.2"
+          flutter-version: "3.30.0"
           cache: false
 
       # 3) (중요) 실제 설치된 Flutter/Dart 버전 확인
