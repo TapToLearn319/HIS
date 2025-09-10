@@ -21,6 +21,10 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Remove preinstalled Flutter
+        run: sudo rm -rf /opt/hostedtoolcache/flutter
+
+
       # 2) Flutter 설치 (Dart 3.7.2 포함 버전으로 고정) + 캐시 비활성화
       - name: Set up Flutter (stable 3.27.2)
         uses: subosito/flutter-action@v2
