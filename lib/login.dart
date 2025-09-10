@@ -1,5 +1,7 @@
 
 
+
+
 // lib/login_page.dart
 import 'dart:html' as html;
 import 'package:flutter/foundation.dart';
@@ -158,11 +160,11 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ),
 
-              Align(alignment: Alignment.center, child: _underlineField('Full Name')),
-          const SizedBox(height: 24),
-          Align(alignment: Alignment.center, child: _underlineField('Email')),
-          const SizedBox(height: 24),
-          Align(alignment: Alignment.center, child: _underlineField('Password', obscure: true)),
+          //     Align(alignment: Alignment.center, child: _underlineField('Full Name')),
+          // const SizedBox(height: 24),
+          // Align(alignment: Alignment.center, child: _underlineField('Email')),
+          // const SizedBox(height: 24),
+          // Align(alignment: Alignment.center, child: _underlineField('Password', obscure: true)),
 
               // SizedBox(
               //   width: 542,

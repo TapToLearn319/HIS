@@ -1,3 +1,4 @@
+
 import 'dart:convert';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
@@ -17,6 +18,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:project/firebase_options.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'provider/app_settings_provider.dart';
 
 
 import 'pages/profile/presenter_student_log_page.dart';
@@ -122,6 +125,9 @@ Future<void> main() async {
         create: (_) =>
             StudentsProvider(FirebaseFirestore.instance)..listenAll(),
       ),
+      ChangeNotifierProvider(
+        create: (_) =>
+            AppSettingsProvider()),
       ],
       child: isDisplay ? DisplayApp() : PresenterApp(),
     ),
@@ -134,45 +140,56 @@ class PresenterApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<Locale?>(
-      valueListenable: _localeNotifier,
-      builder: (context, locale, _) {
-        return MaterialApp(
-          title: 'Presenter',
-          debugShowCheckedModeBanner: false,
-          locale: locale,
-          localizationsDelegates: const [
-            AppLocalizations.delegate,
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          supportedLocales: const [
-            Locale('en'),
-            Locale('ko'),
-          ],
-          initialRoute: initialRoute,
-          navigatorObservers: [_observer],
-          routes: {
-            '/login': (_) => LoginPage(),
-            '/home': (_) => PresenterHomePage(),
-            '/tools/quiz': (_) => PresenterQuizPage(),
-            '/game': (_) => PresenterGamePage(),
-            '/tools': (_) => PresenterToolsPage(),
-            '/AI': (_) => PresenterAIChatPage(),
-            '/setting': (_) => PresenterSettingPage(),
-            '/profile': (_) => PresenterMainPage(),
-            '/profile/student': (_) => const PresenterStudentPage(),
-            '/profile/class': (_) => const PresenterClassPage(),
-            '/tools/timer': (_) =>  TimerPage(),
-            '/tools/grouping': (_) =>  PresenterGroupPage(),
-            '/tools/voting': (_) =>  PresenterVotePage(),
-            '/tools/attendance': (_) =>  PresenterHomePage(),
-            '/tools/random_seat': (_) =>  RandomSeatPage(),
-            '/profile/student/details': (_) => const StudentScoreDetailsPage(),
-            '/profile/class/details': (_) => const ClassScoreDetailsPage(),
-          },
-        );
+    final settings = context.watch<AppSettingsProvider>(); // <- 추가
+
+    return MaterialApp(
+      title: 'Presenter',
+      debugShowCheckedModeBanner: false,
+
+      theme: ThemeData(
+        useMaterial3: true,
+        textTheme: GoogleFonts.kanitTextTheme(),
+        scaffoldBackgroundColor: const Color(0xFFF6FAFF),
+      ),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        textTheme: GoogleFonts.kanitTextTheme(ThemeData.dark().textTheme),
+      ),
+      themeMode: settings.themeMode,
+
+      // ▼ l10n 적용
+      locale: settings.locale,                     // <- Provider에서 읽음
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('en'),
+        Locale('ko'),
+      ],
+
+      initialRoute: initialRoute,
+      navigatorObservers: [_observer],
+      routes: {
+        '/login': (_) => LoginPage(),
+        '/home': (_) => PresenterHomePage(),
+        '/tools/quiz': (_) => PresenterQuizPage(),
+        '/game': (_) => PresenterGamePage(),
+        '/tools': (_) => PresenterToolsPage(),
+        '/AI': (_) => PresenterAIChatPage(),
+        '/setting': (_) => PresenterSettingPage(),
+        '/profile': (_) => PresenterMainPage(),
+        '/profile/student': (_) => const PresenterStudentPage(),
+        '/profile/class': (_) => const PresenterClassPage(),
+        '/tools/timer': (_) =>  TimerPage(),
+        '/tools/grouping': (_) =>  PresenterGroupPage(),
+        '/tools/voting': (_) =>  PresenterVotePage(),
+        '/tools/attendance': (_) =>  PresenterHomePage(),
+        '/tools/random_seat': (_) =>  RandomSeatPage(),
+        '/profile/student/details': (_) => const StudentScoreDetailsPage(),
+        '/profile/class/details': (_) => const ClassScoreDetailsPage(),
       },
     );
   }
@@ -204,45 +221,56 @@ class _DisplayAppState extends State<DisplayApp> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<Locale?>(
-      valueListenable: _localeNotifier,
-      builder: (context, locale, _) {
-        return MaterialApp(
-          title: 'Display',
-          debugShowCheckedModeBanner: false,
-          navigatorKey: navigatorKey,
-          locale: locale,
-          localizationsDelegates: const [
-            AppLocalizations.delegate,
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          supportedLocales: const [
-            Locale('en'),
-            Locale('ko'),
-          ],
-          initialRoute: initialRoute,
-          routes: {
-            '/login': (_) => DisplayHomePage(),
-            '/tools/attendance': (_) => DisplayHomePage(),
-            '/tools/quiz': (_) => DisplayQuizPage(),
-            '/game': (_) => DisplayGamePage(),
-            '/tools': (_) => DisplayStandByPage(),
-            '/AI': (_) => AIPage(),
-            '/setting': (_) => DisplayStandByPage(),
-            '/profile': (_) => DisplayStandByPage(),
-            '/tools/timer': (_) =>  DisplayTimerPage(),
-            '/tools/voting': (_) =>  DisplayVotePage(),
-            '/tools/grouping': (_) =>  GroupDisplayPage(),
-            '/tools/random_seat': (_) =>  DisplayRandomSeatPage(),
-            '/profile/student': (_) => const DisplayStandByPage(),
-            '/profile/class': (_) => const DisplayStandByPage(),
+Widget build(BuildContext context) {
+  final settings = context.watch<AppSettingsProvider>(); // <- 추가
 
-          },
-        );
-      },
-    );
-  }
+  return MaterialApp(
+    title: 'Display',
+    debugShowCheckedModeBanner: false,
+    navigatorKey: navigatorKey,
+
+    // ▼ 테마
+    theme: ThemeData(
+        useMaterial3: true,
+        textTheme: GoogleFonts.kanitTextTheme(),
+        scaffoldBackgroundColor: const Color(0xFFF6FAFF),
+      ),
+      darkTheme: ThemeData(
+        useMaterial3: true,
+        textTheme: GoogleFonts.kanitTextTheme(ThemeData.dark().textTheme),
+      ),
+      themeMode: settings.themeMode,
+
+    // ▼ l10n
+    locale: settings.locale,
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
+    supportedLocales: const [
+      Locale('en'),
+      Locale('ko'),
+    ],
+
+    initialRoute: initialRoute,
+    routes: {
+      '/login': (_) => DisplayHomePage(),
+      '/tools/attendance': (_) => DisplayHomePage(),
+      '/tools/quiz': (_) => DisplayQuizPage(),
+      '/game': (_) => DisplayGamePage(),
+      '/tools': (_) => DisplayStandByPage(),
+      '/AI': (_) => AIPage(),
+      '/setting': (_) => DisplayStandByPage(),
+      '/profile': (_) => DisplayStandByPage(),
+      '/tools/timer': (_) =>  DisplayTimerPage(),
+      '/tools/voting': (_) =>  DisplayVotePage(),
+      '/tools/grouping': (_) =>  GroupDisplayPage(),
+      '/tools/random_seat': (_) =>  DisplayRandomSeatPage(),
+      '/profile/student': (_) => const DisplayStandByPage(),
+      '/profile/class': (_) => const DisplayStandByPage(),
+    },
+  );
+}
 }

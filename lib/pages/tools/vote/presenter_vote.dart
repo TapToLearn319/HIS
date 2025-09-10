@@ -1,5 +1,7 @@
 
 
+
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -451,7 +453,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
                             hintText: 'Did you understand today’s lesson?',
                             hintStyle: const TextStyle(
                               color: Color(0xFF001A36),
-                              // fontFamily: 'FONTSPRING DEMO - Lufga Medium',
                               fontSize: 24,
                               fontWeight: FontWeight.w500,
                             ),
@@ -478,7 +479,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
                           ),
                           style: const TextStyle(
                             color: Color(0xFF001A36),
-                            // fontFamily: 'FONTSPRING DEMO - Lufga Medium',
                             fontSize: 24,
                             fontWeight: FontWeight.w500,
                           ),
@@ -505,7 +505,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
                                 color: Color(0xFF001A36),
                                 fontSize: 24,
                                 fontWeight: FontWeight.w500,
-                                // fontFamily: 'Lufga',
                               ),
                             ),
                             SizedBox(height: 4),
@@ -515,7 +514,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
                                 color: Color(0xFF001A36),
                                 fontSize: 15,
                                 fontWeight: FontWeight.w400,
-                                // fontFamily: 'Pretendard',
                               ),
                             ),
                           ],
@@ -758,7 +756,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
             color: Color(0xFF001A36),
             fontSize: 24,
             fontWeight: FontWeight.w500,
-            // fontFamily: 'Lufga',
           ),
         ),
       ),

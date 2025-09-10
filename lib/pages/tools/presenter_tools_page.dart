@@ -1,3 +1,4 @@
+
 // lib/pages/tools/presenter_tools_page.dart
 import 'package:flutter/material.dart';
 
@@ -335,83 +336,132 @@ class ToolCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              Row(
+        child: LayoutBuilder(
+          builder: (context, cc) {
+            // ▶ 기준(디자인) 크기 설정: 카드 가로 360, 세로 220 가정
+            const baseW = 360.0;
+            const baseH = 220.0;
+
+            // 현재 타일 크기 대비 스케일
+            final sx = cc.maxWidth / baseW;
+            final sy = cc.maxHeight / baseH;
+            final s = (sx < sy ? sx : sy).clamp(0.85, 1.8);
+
+            // 스케일 적용한 사이즈들
+            final pad = 16.0 * s;
+            final iconBox = 48.0 * s;
+            final iconSize = 26.0 * s;
+            final titleFs = 16.0 * s;
+            final descFs  = 13.0 * s;
+            final usageFs = 12.0 * s;
+            final gapLg   = 14.0 * s;
+            final gapSm   = 6.0 * s;
+            final btnPadH = 10.0 * s;
+            final btnPadV = 6.0 * s;
+            final trendIcon = 14.0 * s;
+            final chipPadH  = 8.0 * s;
+            final chipPadV  = 4.0 * s;
+            final chipFs    = 11.0 * s;
+
+            return Padding(
+              padding: EdgeInsets.all(pad),
+              child: Column(
                 children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: item.bgColor,
-                      borderRadius: BorderRadius.circular(12),
+                  Row(
+                    children: [
+                      Container(
+                        width: iconBox,
+                        height: iconBox,
+                        decoration: BoxDecoration(
+                          color: item.bgColor,
+                          borderRadius: BorderRadius.circular(12 * s),
+                        ),
+                        child: Icon(item.icon, color: item.color, size: iconSize),
+                      ),
+                      const Spacer(),
+                      if (item.trending)
+                        Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: chipPadH, vertical: chipPadV),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFD1FAE5),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.trending_up,
+                                  size: trendIcon, color: const Color(0xFF047857)),
+                              SizedBox(width: 4 * s),
+                              Text(
+                                'Trending',
+                                style: TextStyle(
+                                  color: const Color(0xFF047857),
+                                  fontSize: chipFs,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                  SizedBox(height: gapLg),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      item.title,
+                      style: TextStyle(
+                        fontSize: titleFs,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF111827),
+                      ),
                     ),
-                    child: Icon(item.icon, color: item.color, size: 26),
+                  ),
+                  SizedBox(height: gapSm),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      item.description,
+                      style: TextStyle(
+                        fontSize: descFs,
+                        height: 1.4,
+                        color: const Color(0xFF6B7280),
+                      ),
+                    ),
                   ),
                   const Spacer(),
-                  if (item.trending)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFD1FAE5),
-                        borderRadius: BorderRadius.circular(999),
+                  Row(
+                    children: [
+                      Text(
+                        item.usage,
+                        style: TextStyle(fontSize: usageFs, color: const Color(0xFF6B7280)),
                       ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.trending_up, size: 14, color: Color(0xFF047857)),
-                          SizedBox(width: 4),
-                          Text('Trending',
-                              style: TextStyle(
-                                color: Color(0xFF047857),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              )),
-                        ],
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: onTap,
+                        icon: Icon(Icons.arrow_forward,
+                            size: 16 * s, color: const Color(0xFF374151)),
+                        label: Text('Open',
+                            style: TextStyle(
+                              fontSize: 13 * s,
+                              color: const Color(0xFF374151),
+                            )),
+                        style: TextButton.styleFrom(
+                          backgroundColor: const Color.fromARGB(255, 246, 250, 255),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: btnPadH, vertical: btnPadV),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8 * s),
+                          ),
+                        ),
                       ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  item.title,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF111827),
+                    ],
                   ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  item.description,
-                  style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280), height: 1.4),
-                ),
-              ),
-              const Spacer(),
-              Row(
-                children: [
-                  Text(item.usage, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: onTap,
-                    icon: const Icon(Icons.arrow_forward, size: 16, color: Color(0xFF374151)),
-                    label: const Text('Open', style: TextStyle(color: Color(0xFF374151))),
-                    style: TextButton.styleFrom(
-                      backgroundColor: const Color.fromARGB(255, 246, 250, 255),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    ),
-                  )
                 ],
-              )
-            ],
-          ),
+              ),
+            );
+          },
         ),
       ),
     );

@@ -1,4 +1,6 @@
 
+
+
 // PresenterMainPage — 전체 학생 페이지 (리팩터링)
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -248,7 +250,6 @@ class TabChip extends StatelessWidget {
                 fontWeight: FontWeight.w600, // 600
                 color: color, // #001A36(선택) / #9CA3AF(미선택)
                 height: 1.0, // line-height: normal
-                fontFamily: 'Lufga', // 등록돼 있으면 적용
                 decoration: TextDecoration.none,
               ),
             ),
@@ -304,7 +305,6 @@ class _PointBubble extends StatelessWidget {
           color: Colors.white, // #FFFFFF
           fontSize: 18, // 18px
           fontWeight: FontWeight.w500, // 500
-          fontFamily: 'Lufga', // pubspec에 폰트 추가시
           height: 1.0, // line-height normal
         ),
       ),
@@ -395,7 +395,6 @@ const kNameTextStyle = TextStyle(
   fontSize: 20,
   fontWeight: FontWeight.w500,
   height: 1.0, // line-height: normal
-  fontFamily: 'Lufga', // pubspec에 등록되어 있으면 적용, 아니면 제외해도 OK
 );
 
 /// 학생 카드

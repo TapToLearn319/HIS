@@ -1,5 +1,6 @@
 
 
+
 // lib/pages/home/presenter_home_page.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -36,7 +37,6 @@ const _dateNumFont = 'Pretendard Variable';
 
 const _weekdayTextStyle = TextStyle(
   color: Colors.black,
-  fontFamily: _weekdayFont,
   fontSize: _kDateFontSize,
   fontWeight: FontWeight.w400,
   height: _kDateLineHeight,
@@ -44,7 +44,6 @@ const _weekdayTextStyle = TextStyle(
 
 const _dateNumTextStyle = TextStyle(
   color: Colors.black,
-  fontFamily: _dateNumFont,
   fontSize: _kDateFontSize,
   fontWeight: FontWeight.w400,
   height: _kDateLineHeight,
@@ -654,8 +653,6 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                                                                           textAlign:
                                                                               TextAlign.right,
                                                                           style: const TextStyle(
-                                                                            fontFamily:
-                                                                                'Pretendard Variable',
                                                                             fontSize:
                                                                                 25.26,
                                                                             fontWeight:
