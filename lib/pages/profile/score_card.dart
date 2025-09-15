@@ -126,11 +126,11 @@ class _ScoreManagementCardState extends State<ScoreCard> {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: tiles.length,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: cross,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 1.2,
+            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 260,
+              crossAxisSpacing: 20,
+              mainAxisSpacing: 20,
+              childAspectRatio: 0.9,
             ),
             itemBuilder: (_, i) => tiles[i],
           );

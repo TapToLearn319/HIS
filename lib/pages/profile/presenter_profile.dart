@@ -246,7 +246,7 @@ class TabChip extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontSize: 18.3, // 18.3px
+                fontSize: 25.0, // 18.3px
                 fontWeight: FontWeight.w600, // 600
                 color: color, // #001A36(선택) / #9CA3AF(미선택)
                 height: 1.0, // line-height: normal
@@ -392,7 +392,7 @@ class _ClassCard extends StatelessWidget {
 
 const kNameTextStyle = TextStyle(
   color: Color(0xFF001A36),
-  fontSize: 20,
+  fontSize: 25,
   fontWeight: FontWeight.w500,
   height: 1.0, // line-height: normal
 );

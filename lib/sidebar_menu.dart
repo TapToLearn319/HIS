@@ -201,7 +201,7 @@ class AppScaffold extends StatelessWidget {
               index: 0, icon: Icons.home, title: AppLocalizations.of(context)!.home,
               routeName: '/tools', selectedIndex: selectedIndex),
             _buildDrawerItem(context,
-              index: 1, icon: Icons.dashboard, title: AppLocalizations.of(context)!.presenterMain,
+              index: 1, icon: Icons.person, title: AppLocalizations.of(context)!.presenterMain,
               routeName: '/profile', selectedIndex: selectedIndex),
             // _buildDrawerItem(context,
             //   index: 2, icon: Icons.sports_esports, title: AppLocalizations.of(context)!.classContents,

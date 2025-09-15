@@ -10,35 +10,40 @@ const String kHubId = 'hub-001';
 const double _avatarW = 290;
 const double _avatarH = 268;
 
+const double _imgSize  = 180;
+const double _gap      = 12;
+const double _emojiSz  = 40;
+const double _labelSz  = 24;
+
 class ScoreType {
   final String id; // 내부용 키
   final String label; // 표시 이름
   final String emoji; // 이모지
   final int value; // +1, -1 같은 기본값 (양/음수는 onTapMinus에서 바꿔줌)
+  final String? asset;
+
   const ScoreType({
     required this.id,
     required this.label,
     required this.emoji,
     required this.value,
+    this.asset,
   });
 }
 
 const List<ScoreType> kAttitudeTypes = [
-  ScoreType(id: 'focused', label: 'Focused', emoji: '❗️', value: 1),
-  ScoreType(id: 'questioning', label: 'Questioning', emoji: '💬', value: 1),
-  ScoreType(id: 'presentation', label: 'Presentation', emoji: '✋', value: 1),
-  ScoreType(id: 'cooperate', label: 'Cooperate', emoji: '👥', value: 1),
-  ScoreType(id: 'perseverance', label: 'Perseverance', emoji: '🚶', value: 1),
-  ScoreType(id: 'positive', label: 'Positive energy', emoji: '🙂', value: 1),
+  ScoreType(id: 'focused', label: 'Focused', emoji: '❗️', value: 1, asset: 'assets/score/logo_bird_focused.png'),
+  ScoreType(id: 'questioning', label: 'Questioning', emoji: '💬', value: 1, asset: 'assets/score/logo_bird_questioning.png'),
+  ScoreType(id: 'presentation', label: 'Presentation', emoji: '✋', value: 1, asset: 'assets/score/logo_bird_presentation.png'),
+  ScoreType(id: 'cooperate', label: 'Cooperate', emoji: '👥', value: 1, asset: 'assets/score/logo_bird_cooperate.png'),
+  ScoreType(id: 'perseverance', label: 'Perseverance', emoji: '🚶', value: 1, asset: 'assets/score/logo_bird_perseverance.png'),
+  ScoreType(id: 'positive', label: 'Positive energy', emoji: '🙂', value: 1, asset: 'assets/score/logo_bird_positive-energy.png'),
 ];
 
 const List<ScoreType> kActivityTypes = [
-  ScoreType(id: 'focused2', label: 'Focused', emoji: '❗️', value: 1),
-  ScoreType(id: 'questioning2', label: 'Questioning', emoji: '💬', value: 1),
-  ScoreType(id: 'presentation2', label: 'Presentation', emoji: '✋', value: 1),
-  ScoreType(id: 'cooperate2', label: 'Cooperate', emoji: '👥', value: 1),
-  ScoreType(id: 'perseverance2', label: 'Perseverance', emoji: '🚶', value: 1),
-  ScoreType(id: 'positive2', label: 'Positive energy', emoji: '🙂', value: 1),
+  ScoreType(id: 'quiz', label: 'Quiz', emoji: '👥', value: 3, asset: 'assets/score/logo_bird_quiz.png'),
+  ScoreType(id: 'voting', label: 'Voting', emoji: '🚶', value: 4, asset: 'assets/score/logo_bird_voting.png'),
+  ScoreType(id: 'team', label: 'Team Activities', emoji: '🙂', value: 5, asset: 'assets/score/logo_bird_team-activites.png'),
 ];
 
 class PresenterStudentPage extends StatefulWidget {
@@ -647,9 +652,10 @@ class _SectionTitle extends StatelessWidget {
     return Text(
       text,
       style: const TextStyle(
-        fontSize: 20,
-        fontWeight: FontWeight.w800,
-        color: Color(0xFF0B1B33),
+        color: Color(0xFF001A36),
+        fontSize: 24,
+        fontWeight: FontWeight.w500,
+        height: 1.0,
       ),
     );
   }
@@ -729,9 +735,15 @@ class _ScoreSectionGrid extends StatelessWidget {
         if (t.id == '_add') {
           return _AddSkillTile(width: tileW, height: tileH);
         }
+
+        final isVoting = t.id == 'voting';
+        final badge = isVoting ? '+N' : '+${t.value.abs()}';
+
         return _ScoreTileMini(
           emoji: t.emoji,
           label: t.label,
+          asset: t.asset,
+          badgeText: badge,
           onPlus: () => onPick(t.id, t.label, t.value.abs()),
           onMinus: () => onPick(t.id, t.label, -t.value.abs()),
         );
@@ -746,11 +758,15 @@ class _ScoreTileMini extends StatelessWidget {
     required this.label,
     required this.onPlus,
     required this.onMinus,
+    this.asset,
+    this.badgeText = '+1',
     super.key,
   });
 
   final String emoji;
   final String label;
+  final String? asset;
+  final String badgeText;
   final VoidCallback onPlus;
   final VoidCallback onMinus;
 
@@ -771,23 +787,24 @@ class _ScoreTileMini extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 SizedBox(
-                  width: 28,
-                  height: 28,
-                  child: Center(
-                    child: Text(emoji, style: const TextStyle(fontSize: 24)),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  label,
-                  maxLines: 2,
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1F2A44),
-                  ),
+  width: _imgSize,
+  height: _imgSize,
+  child: asset != null
+      ? Image.asset(asset!, fit: BoxFit.contain)
+      : Center(child: Text(emoji, style: const TextStyle(fontSize: _emojiSz))),
+),
+const SizedBox(height: _gap),
+Text(
+  label,
+  maxLines: 2,
+  textAlign: TextAlign.center,
+  overflow: TextOverflow.ellipsis,
+  style: const TextStyle(
+    fontSize: _labelSz,
+    fontWeight: FontWeight.w700,
+    color: Color(0xFF1F2A44),
+    height: 1.2, // 살짝 키움
+  ),
                 ),
               ],
             ),
@@ -807,8 +824,8 @@ class _ScoreTileMini extends StatelessWidget {
                 color: const Color(0xFFE9F8ED),
                 borderRadius: BorderRadius.circular(999),
               ),
-              child: const Text(
-                '+1',
+              child: Text(
+                badgeText,
                 style: TextStyle(
                   color: Color(0xFF128C4A),
                   fontWeight: FontWeight.w800,

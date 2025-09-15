@@ -45,3 +45,14 @@ flutter:
     - assets/logo_bird_save.png
     - assets/logo_bird_create.png
     - assets/logo_bird_main.png
+    - assets/logo_bird_make.png
+
+    - assets/score/logo_bird_focused.png
+    - assets/score/logo_bird_questioning.png
+    - assets/score/logo_bird_presentation.png
+    - assets/score/logo_bird_cooperate.png
+    - assets/score/logo_bird_perseverance.png
+    - assets/score/logo_bird_positive-energy.png
+    - assets/score/logo_bird_quiz.png
+    - assets/score/logo_bird_voting.png
+    - assets/score/logo_bird_team-activites.png

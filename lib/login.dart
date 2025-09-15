@@ -1,7 +1,3 @@
-
-
-
-
 // lib/login_page.dart
 import 'dart:html' as html;
 import 'package:flutter/foundation.dart';
@@ -18,14 +14,9 @@ class _LoginPageState extends State<LoginPage> {
   void _continueAsGuest() {
     if (kIsWeb) {
       final origin = html.window.location.origin;
-      final path   = html.window.location.pathname;
-      final displayUrl =
-          '$origin$path?view=display&route=/tools';
-      html.window.open(
-        displayUrl,
-        'displayWindow',
-        'width=1024,height=768',
-      );
+      final path = html.window.location.pathname;
+      final displayUrl = '$origin$path?view=display&route=/tools';
+      html.window.open(displayUrl, 'displayWindow', 'width=1024,height=768');
     }
     Navigator.pushReplacementNamed(context, '/tools');
   }
@@ -57,10 +48,7 @@ class _LoginPageState extends State<LoginPage> {
               ),
             ),
           ),
-          TextField(
-            obscureText: obscure,
-            decoration: _dec(label),
-          ),
+          TextField(obscureText: obscure, decoration: _dec(label)),
         ],
       ),
     );
@@ -69,55 +57,20 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color.fromARGB(255, 246, 250, 255),
-      body: LayoutBuilder(
-        builder: (context, constraints) {
-          double screenWidth = constraints.maxWidth;
-          double screenHeight = constraints.maxHeight;
-
-          // 화면이 충분히 크면 → 비율 확대 (현재 옵션 2 방식)
-          if (screenWidth >= 1440 && screenHeight >= 720) {
-            double targetAspectRatio = 1440 / 720;
-            double containerWidth;
-            double containerHeight;
-
-            if (screenWidth / screenHeight > targetAspectRatio) {
-              containerHeight = screenHeight;
-              containerWidth = screenHeight * targetAspectRatio;
-            } else {
-              containerWidth = screenWidth;
-              containerHeight = screenWidth / targetAspectRatio;
-            }
-
-            return Center(
-              child: SizedBox(
-                width: containerWidth,
-                height: containerHeight,
-                child: _buildFixedUI(),
-              ),
-            );
-          }
-
-          // 화면이 작으면 → 1440×720 고정 + 스크롤
-          return SingleChildScrollView(
-            scrollDirection: Axis.vertical,
-            child: Center(
-              child: SizedBox(
-                width: 1440,
-                height: 720,
-                child: _buildFixedUI(),
-              ),
-            ),
-          );
-        },
+      backgroundColor: const Color(0xFFFFFFFF),
+      body: SizedBox.expand(
+        child: FittedBox(
+          fit: BoxFit.cover,
+          child: SizedBox(width: 1440, height: 720, child: _buildFixedUI()),
+        ),
       ),
     );
   }
 
+  // 원 도형
   Widget _buildFixedUI() {
     return Stack(
       children: [
-        /// ✅ 배경 원
         Positioned(
           left: -98,
           top: 175,
@@ -125,7 +78,7 @@ class _LoginPageState extends State<LoginPage> {
             width: 563,
             height: 563,
             decoration: const BoxDecoration(
-              color: Color.fromARGB(255, 223, 253, 126),
+              color: Color(0XFFDCFE83),
               shape: BoxShape.circle,
             ),
           ),
@@ -143,132 +96,95 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
 
-        /// ✅ 메인 콘텐츠
-        SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            children: <Widget>[
-              // const SizedBox(height: 50),
+        Align(
+          alignment: Alignment.center,
+          child: LayoutBuilder(
+            builder: (context, c) {
+              final w = c.maxWidth, h = c.maxHeight;
+              final scale =
+                  (w / 1440.0 < h / 720.0) ? (w / 1440.0) : (h / 720.0);
 
-              Center(
-            child: Column(
-              children: [
-                
-                const SizedBox(height: 8),
-                Image.asset('assets/logo_bird_main.png', width: 501, height: 344),
-              ],
-            ),
-          ),
+              final logoW = 647 * scale;
+              final logoH = 509 * scale;
+              final gap = 12 * scale;
+              final btnW = 320 * scale;
+              final btnH = 54 * scale;
+              final radius = 28 * scale;
+              final fontZ = 18 * scale;
 
-          //     Align(alignment: Alignment.center, child: _underlineField('Full Name')),
-          // const SizedBox(height: 24),
-          // Align(alignment: Alignment.center, child: _underlineField('Email')),
-          // const SizedBox(height: 24),
-          // Align(alignment: Alignment.center, child: _underlineField('Password', obscure: true)),
-
-              // SizedBox(
-              //   width: 542,
-              //   height: 1.5,
-              //   child: const TextField(
-              //     decoration: InputDecoration(
-              //       labelText: "Full Name",
-              //       labelStyle: TextStyle(fontWeight: FontWeight.w500),
-              //       enabledBorder: UnderlineInputBorder(
-              //         borderSide: BorderSide(color: Color(0xFF354070)),
-              //       ),
-              //     ),
-              //   ),
-              // ),
-             
-              const SizedBox(height: 16),
-
-              // Align(
-              //   alignment: Alignment.center,
-              //   child: SizedBox(
-              //     width: 542,
-              //     child: const TextField(
-              //       decoration: InputDecoration(
-              //         labelText: "Email",
-              //         labelStyle: TextStyle(fontWeight: FontWeight.w900),
-              //         enabledBorder: UnderlineInputBorder(
-              //           borderSide: BorderSide(color: Colors.black),
-              //         ),
-              //       ),
-              //     ),
-              //   ),
-              // ),
-              // const SizedBox(height: 16),
-
-              // Align(
-              //   alignment: Alignment.center,
-              //   child: SizedBox(
-              //     width: 542,
-              //     child: const TextField(
-              //       obscureText: true,
-              //       decoration: InputDecoration(
-              //         labelText: "Password",
-              //         labelStyle: TextStyle(fontWeight: FontWeight.w900),
-              //         enabledBorder: UnderlineInputBorder(
-              //           borderSide: BorderSide(color: Colors.black),
-              //         ),
-              //       ),
-              //     ),
-              //   ),
-              // ),
-
-              // const SizedBox(height: 32),
-
-              Align(
-            alignment: Alignment.center,
-            child: SizedBox(
-              width: 281, height: 47,
-              child: ElevatedButton(
-                onPressed: _continueAsGuest,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF9370F7), // 원하던 색
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                  elevation: 0,
-                ),
-                child: const Text("Let's begin", style: TextStyle(fontSize: 18)),
-              ),
-            ),
-          ),
-
-              const SizedBox(height: 16),
-
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12.0),
-                child: Center(
-                  child: Text(
-                    "© 2025 Team MyButton. All rights reserved.",
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey.shade600,
-                      fontWeight: FontWeight.w400,
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // 로고
+                  ClipRect(
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      heightFactor: 0.80,
+                      child: Image.asset(
+                        'assets/logo_bird_main.png',
+                        width: logoW,
+                        height: logoH,
+                        fit: BoxFit.contain,
+                      ),
                     ),
                   ),
-                )
-              )
+                  SizedBox(height: gap),
 
-              // Center(
-              //   child: RichText(
-              //     text: const TextSpan(
-              //       text: "Already have an account? ",
-              //       style: TextStyle(color: Colors.black, fontSize: 14),
-              //       children: [
-              //         TextSpan(
-              //           text: "Login",
-              //           style: TextStyle(
-              //             color: Color.fromARGB(255, 251, 211, 103),
-              //             fontWeight: FontWeight.bold,
-              //           ),
-              //         ),
-              //       ],
-              //     ),
-              //   ),
-              // ),
-            ],
+                  // 시작 버튼
+                  SizedBox(
+                    width: btnW,
+                    height: btnH,
+                    child: ElevatedButton(
+                      onPressed: _continueAsGuest,
+                      style: ButtonStyle(
+                        backgroundColor: const WidgetStatePropertyAll(
+                          Color(0xFF9370F7),
+                        ),
+                        foregroundColor: const WidgetStatePropertyAll(
+                          Colors.white,
+                        ),
+                        shadowColor: const WidgetStatePropertyAll(
+                          Colors.transparent,
+                        ),
+                        overlayColor: WidgetStatePropertyAll(
+                          Colors.white.withOpacity(0.08),
+                        ),
+                        elevation: const WidgetStatePropertyAll(0),
+
+                        shape: WidgetStatePropertyAll(
+                          RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(radius),
+                          ),
+                        ),
+                        side: const WidgetStatePropertyAll(BorderSide.none),
+                      ),
+                      child: Text(
+                        "Let's begin",
+                        style: TextStyle(
+                          fontSize: fontZ,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  SizedBox(height: 10 * scale),
+
+                  // 하단 저작권
+                  Opacity(
+                    opacity: 0.85,
+                    child: Text(
+                      "© 2025 Team MyButton. All rights reserved.",
+                      style: TextStyle(
+                        fontSize: 12 * scale,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ],

@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart'; // ← 추가
+import 'package:provider/provider.dart';
 import 'grouping_controller.dart';
+
+import '../../../sidebar_menu.dart';
 
 class PresenterGroupPage extends StatefulWidget {
   const PresenterGroupPage({super.key});
@@ -36,7 +38,6 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
 
   @override
   Widget build(BuildContext context) {
-    // 간단히 setState로만 그려도 되지만, 필요하면 AnimatedBuilder/ValueListenableBuilder로 감싸도 됨
     return AnimatedBuilder(
       animation: c,
       builder: (_, __) {
@@ -45,184 +46,185 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
         final groupsPreview = List.generate(9, (i) => i + 2);
         final sizePreview = List.generate(9, (i) => i + 2);
 
-        return Scaffold(
-          appBar: AppBar(
-            elevation: 0,
-            backgroundColor: Color(0xFFF6FAFF),
-            leading: IconButton(
-              tooltip: 'Back',
-              icon: const Icon(Icons.arrow_back),
-              onPressed: () => Navigator.maybePop(context),
-            ),
-          ),
-          backgroundColor: const Color(0xFFF6FAFF),
-          body: Stack(
-            children: [
-              SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 120),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 왼쪽 카드
-                        Expanded(
-                          flex: 5,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Padding(
-                                padding: EdgeInsets.symmetric(
-                                    horizontal: 8.0, vertical: 6),
-                                child: Text(
-                                  'Choose List',
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.normal,
-                                    color: Color(0xFF001A36),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              _chooseListCard(filtered),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 24),
-                        // 오른쪽 카드
-                        Expanded(
-                          flex: 5,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Padding(
-                                padding: EdgeInsets.symmetric(
-                                    horizontal: 8.0, vertical: 6),
-                                child: Text(
-                                  'How to',
-                                  style: TextStyle(
-                                    fontSize: 24,
-                                    fontWeight: FontWeight.normal,
-                                    color: Color(0xFF001A36),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              _howToCard(
-                                totalSelected: totalSelected,
-                                groupsPreview: groupsPreview,
-                                sizePreview: sizePreview,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final w = constraints.maxWidth;
+            final h = constraints.maxHeight;
 
-                    // ▼▼▼ 추가된 부분: MAKE 아래 결과 편집 보드 ▼▼▼
-                    ChangeNotifierProvider<GroupingController>.value(
-                      value: c,
-                      child: Consumer<GroupingController>(
-                        builder: (_, c, __) => Padding(
-                          padding: const EdgeInsets.only(top: 16.0),
-                          child: _EditableGroupBoard(
-                            controller: c,
-                          ),
-                        ),
-                      ),
-                    ),
-                    // ▲▲▲ 여기까지 추가 ▲▲▲
-                  ],
+            final scale = (w / 1440.0 < h / 720.0) ? (w / 1440.0) : (h / 720.0);
+
+            return AppScaffold(
+              selectedIndex: 1,
+              body: Scaffold(
+              appBar: AppBar(
+                elevation: 0,
+                backgroundColor: const Color(0xFFF6FAFF),
+                leading: IconButton(
+                  tooltip: 'Back',
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => Navigator.maybePop(context),
                 ),
               ),
-
-              // MAKE 버튼
-              Positioned(
-                right: 24,
-                bottom: 60,
-                child: MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    onTap: c.makeGroups,
-                    child: Stack(
-                      alignment: Alignment.center,
+              backgroundColor: const Color(0xFFF6FAFF),
+              body: Stack(
+                children: [
+                  SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 120),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Image.asset('assets/logo_bird.png', height: 160),
-                        const Positioned(
-                          left: 50,
-                          bottom: 50,
-                          child: Text(
-                            'MAKE',
-                            style: TextStyle(
-                              fontSize: 25,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 1.2,
-                              color: Colors.black,
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // 왼쪽 카드
+                            Expanded(
+                              flex: 5,
+                              child: Center(
+                                child: SizedBox(
+                                  width: 449 * scale,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Choose List',
+                                        style: TextStyle(
+                                          fontSize: 24 * scale,
+                                          fontWeight: FontWeight.w500,
+                                          color: const Color(0xFF001A36),
+                                        ),
+                                      ),
+                                      SizedBox(height: 8 * scale),
+                                      _chooseListCard(
+                                        filtered,
+                                        scale: scale,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
+
+                            // 오른쪽 카드
+                            Expanded(
+                              flex: 5,
+                              child: Center(
+                                child: SizedBox(
+                                  width: 449 * scale,
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'How to',
+                                        style: TextStyle(
+                                          fontSize: 24 * scale,
+                                          fontWeight: FontWeight.w500,
+                                          color: const Color(0xFF001A36),
+                                        ),
+                                      ),
+                                      SizedBox(height: 8 * scale),
+                                      _howToCard(
+                                        scale: scale,
+                                        totalSelected: totalSelected,
+                                        groupsPreview: groupsPreview,
+                                        sizePreview: sizePreview,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+
+                        ChangeNotifierProvider<GroupingController>.value(
+                          value: c,
+                          child: Consumer<GroupingController>(
+                            builder:
+                                (_, c, __) => Padding(
+                                  padding: EdgeInsets.only(top: 16.0),
+                                  child: _EditableGroupBoard(controller: c),
+                                ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ),
+
+                  Positioned(
+                    right: 24,
+                    bottom: (60 * scale).clamp(40, 80),
+                    child: _MakeButton(
+                      scale: scale,
+                      onTap: c.makeGroups,
+                      imageAsset: 'assets/logo_bird_make.png',
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+              ),
+            );
+          },
         );
       },
     );
   }
 
-  // ----- 왼쪽 카드 UI -----
-  Widget _chooseListCard(List<String> filtered) {
-    return Card(
-      color: Colors.white,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: const BorderSide(color: Color(0xFFD2D2D2)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-        child: SizedBox(
-          height: 520,
+  Widget _chooseListCard(List<String> filtered, {required double scale}) {
+  const baseW = 449.0;
+  const baseH = 486.0;
+
+  final selectedAll =
+      c.selected.length == c.allStudents.length && c.allStudents.isNotEmpty;
+
+  return Center(
+    child: SizedBox(
+      width: baseW * scale,
+      height: baseH * scale,
+      child: Card(
+        color: Colors.white,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10 * scale),
+          side: const BorderSide(color: Color(0xFFD2D2D2), width: 1),
+        ),
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(20 * scale, 18 * scale, 20 * scale, 20 * scale),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 헤더
               Row(
                 children: [
                   Text(
                     'TOTAL ${c.selected.length}',
-                    style: const TextStyle(
-                      fontWeight: FontWeight.normal,
-                      fontSize: 19,
-                      color: Color(0xFF000000),
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 19 * scale,
+                      color: const Color(0xFF000000),
                     ),
                   ),
                   const Spacer(),
                   SizedBox(
-                    width: 260,
+                    width: 260 * scale,
                     child: TextField(
                       onChanged: c.setQuery,
                       decoration: InputDecoration(
                         hintText: 'Search name',
                         isDense: true,
-                        prefixIcon: const Icon(Icons.search, size: 18),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
+                        prefixIcon: Icon(Icons.search, size: 18 * scale),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 10 * scale),
                         border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22),
+                          borderRadius: BorderRadius.circular(22 * scale),
                           borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22),
+                          borderRadius: BorderRadius.circular(22 * scale),
                           borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
                         ),
                         focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22),
+                          borderRadius: BorderRadius.circular(22 * scale),
                           borderSide: const BorderSide(color: Color(0xFF46A5FF)),
                         ),
                         fillColor: const Color(0xFFF9FAFB),
@@ -232,70 +234,70 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              SizedBox(height: 10 * scale),
 
               Row(
                 children: [
-                  Row(
-                    children: [
-                      Checkbox(
-                        value: c.selected.length == c.allStudents.length &&
-                            c.allStudents.isNotEmpty,
-                        onChanged: (v) {
-                          if (v == true) {
-                            c.selected
-                              ..clear()
-                              ..addAll(c.allStudents);
-                          } else {
-                            c.selected.clear();
-                          }
-                          c.notifyListeners();
-                        },
-                      ),
-                      const Text(
-                        'Select All',
-                        style: TextStyle(color: Color(0xFF868C98)),
-                      ),
-                    ],
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      if (!selectedAll) {
+                        c.selected..clear()..addAll(c.allStudents);
+                      } else {
+                        c.selected.clear();
+                      }
+                      c.notifyListeners();
+                    },
+                    child: Row(
+                      children: [
+                        _RadioDot(selected: selectedAll, size: 18 * scale),
+                        SizedBox(width: 10 * scale),
+                        Text(
+                          'Select All',
+                          style: TextStyle(
+                            color: const Color(0xFF868C98),
+                            fontSize: 14 * scale,
+                            fontWeight: FontWeight.w400,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                   const Spacer(),
                   SizedBox(
-                    width: 260,
+                    width: 260 * scale,
                     child: TextField(
                       onSubmitted: c.addName,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         hintText: 'Add name',
                         isDense: true,
-                        border: UnderlineInputBorder(),
-                        enabledBorder: UnderlineInputBorder(
+                        border: const UnderlineInputBorder(),
+                        enabledBorder: const UnderlineInputBorder(
                           borderSide: BorderSide(color: Color(0xFFE5E7EB)),
                         ),
-                        focusedBorder: UnderlineInputBorder(
+                        focusedBorder: const UnderlineInputBorder(
                           borderSide: BorderSide(color: Color(0xFF46A5FF)),
                         ),
-                        contentPadding:
-                            EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                        suffixIcon: Icon(Icons.add),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 6 * scale),
+                        suffixIcon: Icon(Icons.add, size: 20 * scale),
                       ),
                     ),
                   ),
                 ],
               ),
 
-              const SizedBox(height: 12),
+              SizedBox(height: 12 * scale),
               const Divider(height: 16),
 
-              // list
               Expanded(
                 child: Scrollbar(
                   child: GridView.builder(
                     itemCount: filtered.length,
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 2,
-                      childAspectRatio: 6,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 2,
+                      childAspectRatio: (6 / scale).clamp(3.5, 8.0).toDouble(),
+                      crossAxisSpacing: 12 * scale,
+                      mainAxisSpacing: 2 * scale,
                     ),
                     itemBuilder: (_, i) {
                       final name = filtered[i];
@@ -304,29 +306,21 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                         onTap: () => c.toggleName(name),
                         child: Row(
                           children: [
-                            Icon(
-                              selected
-                                  ? Icons.radio_button_checked
-                                  : Icons.radio_button_unchecked,
-                              color: selected
-                                  ? const Color(0xFF46A5FF)
-                                  : const Color(0xFF9AA6B2),
-                              size: 18,
-                            ),
-                            const SizedBox(width: 10),
+                            _RadioDot(selected: selected, size: 18 * scale),
+                            SizedBox(width: 10 * scale),
                             Expanded(
                               child: Text(
                                 name,
                                 overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(fontSize: 18),
+                                style: TextStyle(fontSize: 18 * scale),
                               ),
                             ),
                             if (selected)
-                              const Padding(
-                                padding: EdgeInsets.only(right: 6),
+                              Padding(
+                                padding: EdgeInsets.only(right: 6 * scale),
                                 child: CircleAvatar(
-                                  radius: 5,
-                                  backgroundColor: Color(0xFF46A5FF),
+                                  radius: 5 * scale,
+                                  backgroundColor: _kBlue,
                                 ),
                               ),
                           ],
@@ -340,84 +334,98 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
-  // ----- 오른쪽 카드 UI -----
   Widget _howToCard({
+    required double scale,
     required int totalSelected,
     required List<int> groupsPreview,
     required List<int> sizePreview,
   }) {
-    return Card(
-      color: Colors.white,
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(10),
-        side: const BorderSide(color: Color(0xFFD2D2D2)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-        child: SizedBox(
-          height: 520,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                decoration: const BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(color: Color(0xFFD9D9D9), width: 1),
-                  ),
-                ),
-                child: TabBar(
-                  controller: _tab,
-                  isScrollable: true,
-                  tabAlignment: TabAlignment.start,
-                  labelPadding: const EdgeInsets.only(right: 16),
-                  indicator: const UnderlineTabIndicator(
-                    borderSide: BorderSide(width: 3, color: Colors.black),
-                    insets: EdgeInsets.fromLTRB(0, 0, 0, -1),
-                  ),
-                  dividerColor: Colors.transparent,
-                  labelColor: const Color(0xFF111827),
-                  unselectedLabelColor: const Color(0xFF9AA6B2),
-                  labelStyle: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  unselectedLabelStyle: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  tabs: const [
-                    Tab(text: 'Number of groups'),
-                    Tab(text: 'Participants per group'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: TabBarView(
-                  controller: _tab,
-                  children: [
-                    _radioList(
-                      items: groupsPreview,
-                      isGroupsMode: true,
-                      totalSelected: totalSelected,
-                      value: c.groupsCount,
-                      onChange: c.setGroupsCount,
+    const baseW = 449.0;
+    const baseH = 486.0;
+
+    return Center(
+      child: SizedBox(
+        width: baseW * scale,
+        height: baseH * scale,
+        child: Card(
+          color: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10 * scale),
+            side: const BorderSide(color: Color(0xFFD2D2D2), width: 1),
+          ),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              20 * scale,
+              18 * scale,
+              20 * scale,
+              20 * scale,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(color: Color(0xFFD9D9D9), width: 1),
                     ),
-                    _radioList(
-                      items: sizePreview,
-                      isGroupsMode: false,
-                      totalSelected: totalSelected,
-                      value: c.sizePerGroup,
-                      onChange: c.setSizePerGroup,
+                  ),
+                  child: TabBar(
+                    controller: _tab,
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
+                    labelPadding: EdgeInsets.only(right: 16 * scale),
+                    indicator: const UnderlineTabIndicator(
+                      borderSide: BorderSide(width: 3, color: Colors.black),
+                      insets: EdgeInsets.fromLTRB(0, 0, 0, -1),
                     ),
-                  ],
+                    dividerColor: Colors.transparent,
+                    labelColor: const Color(0xFF111827),
+                    unselectedLabelColor: const Color(0xFF9AA6B2),
+                    labelStyle: TextStyle(
+                      fontSize: 18 * scale,
+                      fontWeight: FontWeight.w700,
+                    ),
+                    unselectedLabelStyle: TextStyle(
+                      fontSize: 18 * scale,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    tabs: const [
+                      Tab(text: 'Number of groups'),
+                      Tab(text: 'Participants per group'),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                SizedBox(height: 8 * scale),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tab,
+                    children: [
+                      _radioList(
+                        items: groupsPreview,
+                        isGroupsMode: true,
+                        totalSelected: totalSelected,
+                        value: c.groupsCount,
+                        onChange: c.setGroupsCount,
+                        scale: scale,
+                      ),
+                      _radioList(
+                        items: sizePreview,
+                        isGroupsMode: false,
+                        totalSelected: totalSelected,
+                        value: c.sizePerGroup,
+                        onChange: c.setSizePerGroup,
+                        scale: scale,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -430,26 +438,31 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
     required int totalSelected,
     required int value,
     required ValueChanged<int> onChange,
+    required double scale,
   }) {
-    const TextStyle optionTextStyle =
-        TextStyle(fontSize: 18, fontWeight: FontWeight.normal, color: Colors.black);
+    final optionTextStyle = TextStyle(
+      fontSize: 18 * scale,
+      fontWeight: FontWeight.normal,
+      color: Colors.black,
+    );
 
     return Scrollbar(
       child: ListView.separated(
         itemCount: items.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 4),
+        separatorBuilder: (_, __) => SizedBox(height: 4 * scale),
         itemBuilder: (_, i) {
           final n = items[i];
-          final label = isGroupsMode
-              ? '$n groups - ${(totalSelected == 0 ? 0 : (totalSelected / n).ceil())} participants'
-              : '$n participants - ${(n == 0 ? 0 : (totalSelected / n).ceil())} groups';
+          final label =
+              isGroupsMode
+                  ? '$n groups - ${(totalSelected == 0 ? 0 : (totalSelected / n).ceil())} participants'
+                  : '$n participants - ${(n == 0 ? 0 : (totalSelected / n).ceil())} groups';
 
           return RadioListTile<int>(
             value: n,
             groupValue: value,
             onChanged: (v) => onChange(v ?? value),
             dense: true,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+            contentPadding: EdgeInsets.symmetric(horizontal: 4 * scale),
             title: Text(label, style: optionTextStyle),
             activeColor: const Color(0xFF46A5FF),
           );
@@ -457,8 +470,105 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
       ),
     );
   }
-  
 }
+
+class _MakeButton extends StatefulWidget {
+  const _MakeButton({
+    required this.scale,
+    required this.onTap,
+    required this.imageAsset,
+  });
+
+  final double scale;
+  final VoidCallback onTap;
+  final String imageAsset;
+
+  @override
+  State<_MakeButton> createState() => _MakeButtonState();
+}
+
+class _MakeButtonState extends State<_MakeButton> {
+  bool _hover = false;
+  bool _down = false;
+
+  static const _baseW = 195.0;
+  static const _baseH = 172.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = _baseW * widget.scale;
+    final h = _baseH * widget.scale;
+    final scaleAnim = _down ? 0.98 : (_hover ? 1.03 : 1.0);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _down = true),
+        onTapCancel: () => setState(() => _down = false),
+        onTapUp: (_) => setState(() => _down = false),
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 120),
+          scale: scaleAnim,
+          child: SizedBox(
+            width: w,
+            height: h,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.12),
+                        blurRadius: 14 * widget.scale,
+                        offset: Offset(0, 6 * widget.scale),
+                      ),
+                    ],
+                  ),
+                  child: Image.asset(
+                    widget.imageAsset,
+                    fit: BoxFit.contain,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+const _kBlue = Color(0xFF6ED3FF);
+const _kGrey = Color(0xFFA2A2A2);
+
+class _RadioDot extends StatelessWidget {
+  const _RadioDot({required this.selected, required this.size});
+
+  final bool selected;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      checked: selected,
+      container: true,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: selected ? _kBlue : Colors.white,
+          border: Border.all(color: selected ? _kBlue : _kGrey, width: 2),
+        ),
+      ),
+    );
+  }
+}
+
 class _EditableGroupBoard extends StatelessWidget {
   const _EditableGroupBoard({required this.controller, this.teamNames});
   final GroupingController controller;
@@ -471,9 +581,13 @@ class _EditableGroupBoard extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    // 간단한 자동 칼럼 수
     final width = MediaQuery.sizeOf(context).width;
-    final cols = width >= 1280 ? 4 : width >= 900 ? 3 : 2;
+    final cols =
+        width >= 1280
+            ? 4
+            : width >= 900
+            ? 3
+            : 2;
 
     return GridView.builder(
       shrinkWrap: true,
@@ -486,9 +600,10 @@ class _EditableGroupBoard extends StatelessWidget {
       ),
       itemCount: groups.length,
       itemBuilder: (_, i) {
-        final name = (teamNames != null && i < teamNames!.length)
-            ? teamNames![i]
-            : 'Team ${i + 1}';
+        final name =
+            (teamNames != null && i < teamNames!.length)
+                ? teamNames![i]
+                : 'Team ${i + 1}';
         return _GroupCardEditable(
           groupIndex: i,
           title: name,
@@ -521,17 +636,17 @@ class _GroupCardEditable extends StatefulWidget {
 
 class _GroupCardEditableState extends State<_GroupCardEditable> {
   bool _hovering = false;
-  static const double _kFeedbackScale = 0.88; // 필요하면 0.8~0.95 사이로 조절
+  static const double _kFeedbackScale = 0.88;
 
   Widget _buildDraggableChip(BuildContext context, String name) {
-    final isDesktopLike = kIsWeb ||
+    final isDesktopLike =
+        kIsWeb ||
         defaultTargetPlatform == TargetPlatform.macOS ||
         defaultTargetPlatform == TargetPlatform.windows ||
         defaultTargetPlatform == TargetPlatform.linux;
 
     final normal = _MemberChip(name: name);
 
-    // ✅ feedback을 Material로 감싸고 scale을 줄여서 '확대돼 보이는' 느낌 제거
     final dragging = Transform.scale(
       scale: _kFeedbackScale,
       child: Material(
@@ -551,9 +666,7 @@ class _GroupCardEditableState extends State<_GroupCardEditable> {
         feedback: dragging,
         childWhenDragging: childWhenDragging,
         child: normal,
-        // 포인터 기준으로 따라오게 해서 크기 착시도 줄임
         dragAnchorStrategy: pointerDragAnchorStrategy,
-        // 손가락/포인터와 겹치지 않게 살짝 위로
         feedbackOffset: const Offset(0, -8),
       );
     } else {
@@ -562,7 +675,6 @@ class _GroupCardEditableState extends State<_GroupCardEditable> {
         feedback: dragging,
         childWhenDragging: childWhenDragging,
         child: normal,
-        // 모바일도 포인터(터치) 위치 기준이 좀 더 자연스러움
         dragAnchorStrategy: pointerDragAnchorStrategy,
         feedbackOffset: const Offset(0, -8),
       );
@@ -589,35 +701,45 @@ class _GroupCardEditableState extends State<_GroupCardEditable> {
             color: _hovering ? const Color(0xFFF0F9FF) : Colors.white,
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
-              color: _hovering ? const Color(0xFF38BDF8) : const Color(0xFFE5E7EB),
+              color:
+                  _hovering ? const Color(0xFF38BDF8) : const Color(0xFFE5E7EB),
               width: 1.5,
             ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 헤더
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFEEF2FF),
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Text(
                       widget.title,
-                      style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF111827)),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF111827),
+                      ),
                     ),
                   ),
                   const Spacer(),
-                  Text('${widget.members.length}명',
-                      style: const TextStyle(color: Color(0xFF6B7280), fontWeight: FontWeight.w700)),
+                  Text(
+                    '${widget.members.length}명',
+                    style: const TextStyle(
+                      color: Color(0xFF6B7280),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
 
-              // 멤버 칩(드래그 가능)
               Expanded(
                 child: SingleChildScrollView(
                   child: Wrap(
@@ -625,16 +747,17 @@ class _GroupCardEditableState extends State<_GroupCardEditable> {
                     runSpacing: 8,
                     children: [
                       for (final m in widget.members)
-                        _buildDraggableChip(context, m), // ← 요것만 호출
+                        _buildDraggableChip(context, m),
                     ],
                   ),
                 ),
               ),
 
-              // 안내
               const SizedBox(height: 8),
-              const Text('Drag onto another team card to move',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
+              const Text(
+                'Drag onto another team card to move',
+                style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+              ),
             ],
           ),
         );

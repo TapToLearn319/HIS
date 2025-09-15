@@ -28,10 +28,10 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'attendance',
       title: 'Attendance',
-      description: 'Quickly record who’s present with a single click',
-      icon: Icons.check_circle_outline,
-      color: const Color(0xFFEF4444),
-      bgColor: const Color(0xFFFEF2F2),
+      description: 'Manage attendance easily',
+      icon: Icons.front_hand_outlined,
+      color: const Color(0xFFFF9A6E),
+      bgColor: const Color(0x33FF9A6E),
       usage: '',
       trending: false,
       route: '/tools/attendance',
@@ -40,20 +40,20 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       id: 'grouping',
       title: 'Random Grouping',
       description: 'Form random student groups instantly for activities',
-      icon: Icons.groups_2_outlined,
-      color: const Color(0xFF8B5CF6),
-      bgColor: const Color(0xFFF5F3FF),
+      icon: Icons.groups_outlined,
+      color: const Color(0xFF6ED3FF),
+      bgColor: const Color(0x336ED3FF),
       usage: '',
       trending: false,
       route: '/tools/grouping',
     ),
     ToolItem(
       id: 'random_seat',
-      title: 'Random Seat',
+      title: 'Seating Chart',
       description: 'Assign seats randomly for a fresh classroom setup',
       icon: Icons.location_on_outlined,
-      color: const Color(0xFF6366F1),
-      bgColor: const Color(0xFFEEF2FF),
+      color: const Color(0xFFFF96F1),
+      bgColor: const Color(0x33FF96F1),
       usage: '',
       trending: false,
       route: '/tools/random_seat',
@@ -61,10 +61,10 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'timer',
       title: 'Timer',
-      description: 'Manage class time easily with a countdown timer',
-      icon: Icons.timer_outlined,
-      color: const Color(0xFF3B82F6),
-      bgColor: const Color(0xFFEFF6FF),
+      description: 'Manage class time effeciantly',
+      icon: Icons.alarm_outlined,
+      color: const Color(0xFF9A6EFF),
+      bgColor: const Color(0x339A6EFF),
       usage: '',
       trending: false,
       route: '/tools/timer',
@@ -73,7 +73,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       id: 'voting',
       title: 'Voting',
       description: 'Gather live feedback and opinions from students',
-      icon: Icons.how_to_vote_outlined,
+      icon: Icons.check_box_outlined,
       color: const Color(0xFF10B981),
       bgColor: const Color(0xFFECFDF5),
       usage: '',
@@ -84,7 +84,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       id: 'quiz',
       title: 'Quiz',
       description: 'Make learning fun with interactive classroom quizzes',
-      icon: Icons.psychology_alt_outlined,
+      icon: Icons.stars,
       color: const Color(0xFFF59E0B),
       bgColor: const Color(0xFFFFFBEB),
       usage: "",
@@ -338,35 +338,31 @@ class ToolCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         child: LayoutBuilder(
           builder: (context, cc) {
-            // ▶ 기준(디자인) 크기 설정: 카드 가로 360, 세로 220 가정
             const baseW = 360.0;
             const baseH = 220.0;
-
-            // 현재 타일 크기 대비 스케일
             final sx = cc.maxWidth / baseW;
             final sy = cc.maxHeight / baseH;
             final s = (sx < sy ? sx : sy).clamp(0.85, 1.8);
 
-            // 스케일 적용한 사이즈들
             final pad = 16.0 * s;
             final iconBox = 48.0 * s;
             final iconSize = 26.0 * s;
-            final titleFs = 16.0 * s;
-            final descFs  = 13.0 * s;
+            final titleFs = 21.0 * s;
+            final descFs  = 17.0 * s;
             final usageFs = 12.0 * s;
             final gapLg   = 14.0 * s;
             final gapSm   = 6.0 * s;
-            final btnPadH = 10.0 * s;
-            final btnPadV = 6.0 * s;
-            final trendIcon = 14.0 * s;
             final chipPadH  = 8.0 * s;
             final chipPadV  = 4.0 * s;
             final chipFs    = 11.0 * s;
+            final topGap    = 8.0 * s;
 
             return Padding(
               padding: EdgeInsets.all(pad),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // ── 상단: 아이콘 · (spacer) · trending · Open ────────────────
                   Row(
                     children: [
                       Container(
@@ -379,7 +375,7 @@ class ToolCard extends StatelessWidget {
                         child: Icon(item.icon, color: item.color, size: iconSize),
                       ),
                       const Spacer(),
-                      if (item.trending)
+                      if (item.trending) ...[
                         Container(
                           padding: EdgeInsets.symmetric(
                             horizontal: chipPadH, vertical: chipPadV),
@@ -391,7 +387,7 @@ class ToolCard extends StatelessWidget {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(Icons.trending_up,
-                                  size: trendIcon, color: const Color(0xFF047857)),
+                                  size: 14.0 * s, color: const Color(0xFF047857)),
                               SizedBox(width: 4 * s),
                               Text(
                                 'Trending',
@@ -404,64 +400,81 @@ class ToolCard extends StatelessWidget {
                             ],
                           ),
                         ),
+                        SizedBox(width: 8 * s),
+                      ],
+                      _OpenButton(scale: s, onTap: onTap), // ▲ 상단 우측 버튼
                     ],
                   ),
-                  SizedBox(height: gapLg),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      item.title,
-                      style: TextStyle(
-                        fontSize: titleFs,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF111827),
-                      ),
+                  SizedBox(height: topGap),
+
+                  // 제목 / 설명
+                  Text(
+                    item.title,
+                    style: TextStyle(
+                      fontSize: titleFs,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF111827),
                     ),
                   ),
                   SizedBox(height: gapSm),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      item.description,
-                      style: TextStyle(
-                        fontSize: descFs,
-                        height: 1.4,
-                        color: const Color(0xFF6B7280),
-                      ),
+                  Text(
+                    item.description,
+                    style: TextStyle(
+                      fontSize: descFs,
+                      height: 1.4,
+                      color: const Color(0xFF6B7280),
                     ),
                   ),
+
                   const Spacer(),
-                  Row(
-                    children: [
-                      Text(
-                        item.usage,
-                        style: TextStyle(fontSize: usageFs, color: const Color(0xFF6B7280)),
-                      ),
-                      const Spacer(),
-                      TextButton.icon(
-                        onPressed: onTap,
-                        icon: Icon(Icons.arrow_forward,
-                            size: 16 * s, color: const Color(0xFF374151)),
-                        label: Text('Open',
-                            style: TextStyle(
-                              fontSize: 13 * s,
-                              color: const Color(0xFF374151),
-                            )),
-                        style: TextButton.styleFrom(
-                          backgroundColor: const Color.fromARGB(255, 246, 250, 255),
-                          padding: EdgeInsets.symmetric(
-                            horizontal: btnPadH, vertical: btnPadV),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8 * s),
-                          ),
-                        ),
-                      ),
-                    ],
+
+                  // 하단: usage만 (버튼은 제거됨)
+                  Text(
+                    item.usage,
+                    style: TextStyle(
+                      fontSize: usageFs,
+                      color: const Color(0xFF6B7280),
+                    ),
                   ),
                 ],
               ),
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _OpenButton extends StatelessWidget {
+  final double scale;
+  final VoidCallback onTap;
+  const _OpenButton({required this.scale, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = 13.0 * scale;
+    final hPad = 12.0 * scale;
+    final vPad = 5.0 * scale;
+
+    return TextButton(
+      onPressed: onTap,
+      style: TextButton.styleFrom(
+        backgroundColor: const Color(0xFF44A0FF),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(radius),
+        ),
+        padding: EdgeInsets.zero,
+        minimumSize: Size(60 * scale, 30 * scale),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: Text(
+        'Open >',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 11 * scale,
+          fontWeight: FontWeight.w500,
+          height: 1.0,
         ),
       ),
     );
