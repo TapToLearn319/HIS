@@ -549,23 +549,41 @@ class _QuizCardTileState extends State<_QuizCardTile> {
                           _snack(context, '현재 진행 중인 퀴즈는 삭제할 수 없습니다. Next/Finish 후 삭제하세요.');
                           return;
                         }
+
                         final ok = await showDialog<bool>(
                           context: context,
                           builder: (_) => AlertDialog(
                             title: const Text('Delete quiz'),
                             content: const Text('이 퀴즈와 해당 결과가 삭제됩니다. 계속할까요?'),
                             actions: [
-                              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-                              ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+                              TextButton(
+                                onPressed: () => Navigator.pop(context, false),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => Navigator.pop(context, true),
+                                child: const Text('Delete'),
+                              ),
                             ],
                           ),
                         );
+
                         if (ok == true) {
-                          final batch = widget.fs.batch();
-                          batch.delete(widget.fs.doc('quizTopics/${widget.topicId}/quizzes/${d.id}'));
-                          batch.delete(widget.fs.doc('quizTopics/${widget.topicId}/results/${d.id}'));
-                          await batch.commit();
-                          _snack(context, 'Quiz deleted.');
+                          try {
+                            final batch = widget.fs.batch();
+                            final quizRef = widget.fs.doc('quizTopics/${widget.topicId}/quizzes/${d.id}');
+                            final resRef  = widget.fs.doc('quizTopics/${widget.topicId}/results/${d.id}');
+                            batch.delete(quizRef);
+                            batch.delete(resRef); // 존재 안 해도 delete는 안전합니다.
+                            await batch.commit();
+
+                            // ⚠️ 여기서 위젯이 이미 dispose 되었을 수 있음 → mounted 확인!
+                            if (!mounted) return;
+                            _snack(context, 'Quiz deleted.');
+                          } catch (e) {
+                            if (!mounted) return;
+                            _snack(context, 'Delete failed: $e');
+                          }
                         }
                       },
                     ),
@@ -1382,58 +1400,64 @@ class _CreateQuizPageState extends State<_CreateQuizPage> {
   }
 
   Future<void> _save() async {
-    final q = _qCtrl.text.trim();
-    final choices = _choiceCtrls.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
-    if (q.isEmpty || choices.length < 2) {
-      _snack(context, '문제와 최소 2개의 선택지를 입력하세요.');
-      return;
-    }
-    if (_triggerKeys.length != choices.length || _triggerKeys.any((k) => k == null)) {
-      _snack(context, '모든 선택지에 트리거를 지정하세요.');
-      return;
-    }
-    final used = <String>{};
-    for (final k in _triggerKeys.whereType<String>()) {
-      if (!used.add(k)) {
-        _snack(context, '트리거가 중복되었습니다: $k');
-        return;
-      }
-    }
-
-    List<int> correctIndices;
-    int? correctIndex;
-    if (_allowMultiple) {
-      correctIndices = _correctSet.where((i) => i >= 0 && i < choices.length).toList()..sort();
-      if (correctIndices.isEmpty) {
-        _snack(context, '복수정답 모드에서는 최소 1개 이상 정답을 선택하세요.');
-        return;
-      }
-      correctIndex = correctIndices.first;
-    } else {
-      if (_correctIndex < 0 || _correctIndex >= choices.length) {
-        _snack(context, '정답 인덱스가 올바르지 않습니다.');
-        return;
-      }
-      correctIndices = const [];
-      correctIndex = _correctIndex;
-    }
-
-    await widget.fs.collection('quizTopics/${widget.topicId}/quizzes').add({
-      'question': q,
-      'choices': choices,
-      'triggers': _triggerKeys.whereType<String>().toList(),
-      'anonymous': _anonymous,
-      'allowMultiple': _allowMultiple,
-      'showMode': _showMode, // 'realtime' | 'after'
-      'correctIndex': correctIndex,
-      if (_allowMultiple) 'correctIndices': correctIndices,
-      if (!_allowMultiple) 'correctIndices': FieldValue.delete(),
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-
-    if (mounted) Navigator.pop(context, true);
+  final q = _qCtrl.text.trim();
+  final choices = _choiceCtrls.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
+  if (q.isEmpty || choices.length < 2) {
+    _snack(context, '문제와 최소 2개의 선택지를 입력하세요.');
+    return;
   }
+  if (_triggerKeys.length != choices.length || _triggerKeys.any((k) => k == null)) {
+    _snack(context, '모든 선택지에 트리거를 지정하세요.');
+    return;
+  }
+  final used = <String>{};
+  for (final k in _triggerKeys.whereType<String>()) {
+    if (!used.add(k)) {
+      _snack(context, '트리거가 중복되었습니다: $k');
+      return;
+    }
+  }
+
+  List<int> correctIndices = const [];
+  int? correctIndex;
+
+  if (_allowMultiple) {
+    correctIndices = _correctSet.where((i) => i >= 0 && i < choices.length).toList()..sort();
+    if (correctIndices.isEmpty) {
+      _snack(context, '복수정답 모드에서는 최소 1개 이상 정답을 선택하세요.');
+      return;
+    }
+    correctIndex = correctIndices.first; // 보기용 대표 인덱스
+  } else {
+    if (_correctIndex < 0 || _correctIndex >= choices.length) {
+      _snack(context, '정답 인덱스가 올바르지 않습니다.');
+      return;
+    }
+    correctIndex = _correctIndex;
+  }
+
+  // ✅ add()에서는 FieldValue.delete() 쓰지 말 것!
+  final data = <String, dynamic>{
+    'question': q,
+    'choices': choices,
+    'triggers': _triggerKeys.whereType<String>().toList(),
+    'anonymous': _anonymous,
+    'allowMultiple': _allowMultiple,
+    'showMode': _showMode, // 'realtime' | 'after'
+    'correctIndex': correctIndex,
+    'createdAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  };
+  if (_allowMultiple) {
+    data['correctIndices'] = correctIndices;
+  }
+  // 단일정답일 땐 correctIndices를 아예 넣지 않음
+
+  await widget.fs.collection('quizTopics/${widget.topicId}/quizzes').add(data);
+
+  if (mounted) Navigator.pop(context, true);
+}
+
 
   @override
   Widget build(BuildContext context) {

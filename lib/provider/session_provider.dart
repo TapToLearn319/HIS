@@ -15,4 +15,10 @@ class SessionProvider extends ChangeNotifier {
     _sessionId = null;
     notifyListeners();
   }
+  void clear() {
+    if (_sessionId != null) {
+      _sessionId = null;
+      notifyListeners();
+    }
+  }
 }

@@ -71,6 +71,24 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
   bool _showLogs = false;
   bool _popping = false;
 
+  // ✅ 세션 문서 + 모든 서브컬렉션 완전 삭제
+Future<void> _deleteSessionFully(String sid) async {
+  final fs = FirebaseFirestore.instance;
+
+  // 1) 서브컬렉션 전부 삭제
+  await _deleteCollection(fs, 'sessions/$sid/events', 500);
+  await _deleteCollection(fs, 'sessions/$sid/seatMap', 500);
+  await _deleteCollection(fs, 'sessions/$sid/studentStats', 500);
+  await _deleteCollection(fs, 'sessions/$sid/stats', 500);
+
+  // 2) 세션 문서 자체 삭제
+  final docRef = fs.doc('sessions/$sid');
+  final doc = await docRef.get();
+  if (doc.exists) {
+    await docRef.delete();
+  }
+}
+
   // Busy overlay
   bool _busy = false;
   String? _busyMsg;
@@ -1260,77 +1278,90 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
 
   // ====== Admin purge ======
   Future<void> _purgeCurrentSession(BuildContext context) async {
-    final sid = context.read<SessionProvider>().sessionId;
-    _log('purge: start (sid=$sid)');
-    if (sid == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No session is set.')));
-      return;
-    }
-
-    final ok = await showDialog<bool>(
-      context: context,
-      useRootNavigator: true,
-      builder:
-          (_) => AlertDialog(
-            title: const Text('Delete current session data'),
-            content: Text(
-              'This will delete events, studentStats, and stats/summary under '
-              'sessions/$sid. This cannot be undone.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => _safeRootPop(false),
-                child: const Text('Cancel'),
-              ),
-              ElevatedButton(
-                onPressed: () => _safeRootPop(true),
-                child: const Text('Delete'),
-              ),
-            ],
-          ),
-    );
-    _log('purge: confirm result=$ok');
-    if (ok != true) return;
-
-    _log('purge: show overlay(dialog)');
-    showDialog(
-      barrierDismissible: false,
-      context: context,
-      builder: (_) => const Center(child: CircularProgressIndicator()),
-      useRootNavigator: true,
-    );
-
-    final fs = FirebaseFirestore.instance;
-    try {
-      _log('purge: delete events');
-      await _deleteCollection(fs, 'sessions/$sid/events', 300);
-      _log('purge: delete studentStats');
-      await _deleteCollection(fs, 'sessions/$sid/studentStats', 300);
-
-      final statsDoc = fs.doc('sessions/$sid/stats/summary');
-      final exists = await statsDoc.get();
-      if (exists.exists) {
-        _log('purge: delete stats/summary');
-        await statsDoc.delete();
-      }
-
-      if (!mounted) return;
-      _log('purge: close overlay + snackbar OK');
-      Navigator.of(context, rootNavigator: true).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Current session data deleted.')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      _log('purge: close overlay + snackbar ERROR: $e');
-      Navigator.of(context, rootNavigator: true).pop();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
-    }
+  final sid = context.read<SessionProvider>().sessionId;
+  _log('purge: start (sid=$sid)');
+  if (sid == null) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('No session is set.')));
+    return;
   }
+
+  final ok = await showDialog<bool>(
+    context: context,
+    useRootNavigator: true,
+    builder: (_) => AlertDialog(
+      title: const Text('Delete current session'),
+      content: Text(
+        'This will remove the entire session (document + all subcollections):\n'
+        'events, seatMap, studentStats, stats.\n\n'
+        'sessions/$sid\n\n'
+        'This cannot be undone.',
+      ),
+      actions: [
+        TextButton(onPressed: () => _safeRootPop(false), child: const Text('Cancel')),
+        ElevatedButton(onPressed: () => _safeRootPop(true), child: const Text('Delete')),
+      ],
+    ),
+  );
+  _log('purge: confirm result=$ok');
+  if (ok != true) return;
+
+  // 로딩 오버레이
+  showDialog(
+    barrierDismissible: false,
+    context: context,
+    builder: (_) => const Center(child: CircularProgressIndicator()),
+    useRootNavigator: true,
+  );
+
+  try {
+    // 1) 세션 완전 삭제
+    await _deleteSessionFully(sid);
+
+    // 2) 가장 최근 세션 자동 선택(있으면)
+    final remain = await _listRecentSessionIds(limit: 50);
+    if (remain.isNotEmpty) {
+      final nextSid = remain.first;
+      _log('purge: switch to next recent session "$nextSid"');
+      await _switchSessionAndBind(context, nextSid);
+
+      // 기존 UX와 맞추려면 로드 직후 이벤트도 정리
+      await _clearEventsForSession(nextSid);
+
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop(); // 로딩 닫기
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Session "$sid" deleted. Switched to "$nextSid".')),
+        );
+      }
+    } else {
+      // 3) 남은 세션이 없으면 언바인드
+      final session = context.read<SessionProvider>();
+      // SessionProvider가 nullable이면 아래 한 줄이 동작합니다.
+      session.clear();
+
+      await FirebaseFirestore.instance.doc('hubs/$kHubId').set({
+        'currentSessionId': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop(); // 로딩 닫기
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Session deleted. No sessions left.')),
+        );
+      }
+    }
+  } catch (e, st) {
+    _log('purge ERROR: $e\n$st');
+    if (!mounted) return;
+    Navigator.of(context, rootNavigator: true).pop(); // 로딩 닫기
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Delete failed: $e')),
+    );
+  }
+}
+
 
   Future<void> _deleteCollection(
     FirebaseFirestore fs,
