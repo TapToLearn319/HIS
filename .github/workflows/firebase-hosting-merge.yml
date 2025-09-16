@@ -1,0 +1,60 @@
+name: Deploy to Firebase Hosting on merge
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build_and_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 0) 리포지토리 체크아웃
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 1) Java 설치 (일부 Flutter 플러그인에서 필요)
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # 2) Flutter 설치 (최신 stable, 캐시 비활성화)
+      - name: Set up Flutter (latest stable)
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: false
+
+      # 3) 실제 설치된 버전 확인 (Flutter/Dart 출력)
+      - name: Show Flutter & Dart versions
+        run: |
+          flutter --version
+          dart --version
+
+      # 4) 웹 타깃 프리캐시
+      - name: Precache web artifacts
+        run: flutter precache --web
+
+      # 5) 의존성 설치
+      - name: Flutter pub get
+        run: flutter pub get
+
+      # 6) 깨끗한 빌드
+      - name: Clean build
+        run: flutter clean
+
+      # 7) Flutter 웹 빌드
+      - name: Build Flutter web (release)
+        run: flutter build web --release
+
+      # 8) Firebase Hosting 배포
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_FLIC_D579D }}
+          channelId: live
+          projectId: flic-d579d
