@@ -126,6 +126,117 @@ class _CreateTopicFab extends StatelessWidget {
   }
 }
 
+Future<void> _renameTopicDialog(
+  BuildContext context,
+  FirebaseFirestore fs, {
+  required String topicId,
+  required String initialTitle,
+}) async {
+  final c = TextEditingController(text: initialTitle);
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('Edit topic'),
+      content: TextField(
+        controller: c,
+        autofocus: true,
+        decoration: const InputDecoration(
+          labelText: 'Topic title',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+      ],
+    ),
+  );
+  if (ok == true) {
+    final title = c.text.trim();
+    if (title.isEmpty) return;
+    await fs.doc('quizTopics/$topicId').set({
+      'title': title,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    _snack(context, 'Topic updated.');
+  }
+  c.dispose();
+}
+
+Future<void> _deleteTopicWithSubcollections(
+  BuildContext context,
+  FirebaseFirestore fs, {
+  required String topicId,
+  String? status,
+}) async {
+  final running = (status == 'running');
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (_) => AlertDialog(
+      title: const Text('Delete topic'),
+      content: Text(
+        running
+          ? '이 토픽은 현재 진행 중입니다.\n삭제하면 진행이 중단되고, 모든 퀴즈/결과가 함께 삭제됩니다. 계속할까요?'
+          : '토픽과 그 안의 모든 퀴즈/결과가 삭제됩니다. 계속할까요?',
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+
+  // 진행 중이면 안전하게 종료 처리
+  if (running) {
+    await fs.doc('quizTopics/$topicId').set({
+      'status': 'stopped',
+      'phase': 'finished',
+      'currentIndex': null,
+      'currentQuizId': null,
+      'endedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'showSummaryOnDisplay': false,
+    }, SetOptions(merge: true));
+  }
+
+  // 로딩 오버레이
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const Center(child: CircularProgressIndicator()),
+    useRootNavigator: true,
+  );
+
+  try {
+    await _deleteCollection(fs, 'quizTopics/$topicId/quizzes', 300);
+    await _deleteCollection(fs, 'quizTopics/$topicId/results', 300);
+    await fs.doc('quizTopics/$topicId').delete();
+
+    Navigator.of(context, rootNavigator: true).pop();
+    _snack(context, 'Topic deleted.');
+  } catch (e) {
+    Navigator.of(context, rootNavigator: true).pop();
+    _snack(context, 'Delete failed: $e');
+  }
+}
+
+Future<void> _deleteCollection(
+  FirebaseFirestore fs,
+  String path,
+  int batchSize,
+) async {
+  while (true) {
+    final snap = await fs.collection(path).limit(batchSize).get();
+    if (snap.docs.isEmpty) break;
+    final batch = fs.batch();
+    for (final d in snap.docs) {
+      batch.delete(d.reference);
+    }
+    await batch.commit();
+    if (snap.docs.length < batchSize) break;
+  }
+}
 
 
 class _TopicList extends StatelessWidget {
@@ -151,6 +262,7 @@ class _TopicList extends StatelessWidget {
       final qs = await fs.collection('quizTopics/$topicId/quizzes').get();
       return qs.size;
     }
+    
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: stream,
@@ -205,18 +317,60 @@ class _TopicList extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           // 제목
-                          Text(
-                            title,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 20, // ✅ 폰트 크기 키움
-                              color: Color(0xFF0B1324),
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 6),
-                          const Divider(color: Colors.black, thickness: 1), // ✅ 검은색 디바이더
+                          Row(
+  children: [
+    Expanded(
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontWeight: FontWeight.w800,
+          fontSize: 20,
+          color: Color(0xFF0B1324),
+        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+    ),
+    PopupMenuButton<String>(
+      tooltip: 'Topic actions',
+      onSelected: (v) async {
+        if (v == 'edit') {
+          await _renameTopicDialog(
+            context,
+            fs,
+            topicId: d.id,
+            initialTitle: title,
+          );
+        } else if (v == 'delete') {
+          await _deleteTopicWithSubcollections(
+            context,
+            fs,
+            topicId: d.id,
+            status: (x['status'] as String?),
+          );
+        }
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(
+          value: 'edit',
+          child: ListTile(
+            leading: Icon(Icons.edit),
+            title: Text('Edit topic'),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'delete',
+          child: ListTile(
+            leading: Icon(Icons.delete, color: Colors.red),
+            title: Text('Delete topic'),
+          ),
+        ),
+      ],
+    ),
+  ],
+),
+const SizedBox(height: 6),
+const Divider(color: Colors.black, thickness: 1), // ✅ 검은색 디바이더
 
                           const SizedBox(height: 12),
                           // 퀴즈 개수
@@ -672,10 +826,10 @@ class _QuizCardTileState extends State<_QuizCardTile> {
 // ------------------- 공용 트리거칩/에딧 다이얼로그 등 -------------------
 
 const _kTriggerLabel = <String, String>{
-  'S1_CLICK': 'Slot 1 • Click',
-  'S1_HOLD': 'Slot 1 • Hold',
-  'S2_CLICK': 'Slot 2 • Click',
-  'S2_HOLD': 'Slot 2 • Hold',
+  'S1_CLICK': 'Button 1 • Click',
+  'S1_HOLD': 'Button 1 • Hold',
+  'S2_CLICK': 'Button 2 • Click',
+  'S2_HOLD': 'Button 2 • Hold',
 };
 
 Widget _triggerChip(String? key) {
@@ -889,7 +1043,6 @@ Future<void> _editQuizDialog(
     c.dispose();
   }
 }
-
 // ------------------- 진행 컨트롤 바 (토글 리빌 + 동시 디스플레이 결과 보기) -------------------
 
 class _RunBar extends StatefulWidget {

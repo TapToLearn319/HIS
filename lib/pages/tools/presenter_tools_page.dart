@@ -1,4 +1,3 @@
-
 // lib/pages/tools/presenter_tools_page.dart
 import 'package:flutter/material.dart';
 
@@ -28,7 +27,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'attendance',
       title: 'Attendance',
-      description: 'Manage attendance easily',
+      description: 'Track and record student presence easily',
       icon: Icons.front_hand_outlined,
       color: const Color(0xFFFF9A6E),
       bgColor: const Color(0x33FF9A6E),
@@ -39,7 +38,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'grouping',
       title: 'Random Grouping',
-      description: 'Form random student groups instantly for activities',
+      description: 'Create fair, balanced student groups',
       icon: Icons.groups_outlined,
       color: const Color(0xFF6ED3FF),
       bgColor: const Color(0x336ED3FF),
@@ -50,7 +49,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'random_seat',
       title: 'Seating Chart',
-      description: 'Assign seats randomly for a fresh classroom setup',
+      description: 'Organize and visualize classroom seating',
       icon: Icons.location_on_outlined,
       color: const Color(0xFFFF96F1),
       bgColor: const Color(0x33FF96F1),
@@ -72,10 +71,10 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'voting',
       title: 'Voting',
-      description: 'Gather live feedback and opinions from students',
+      description: 'Gather quick student opinions and decisions',
       icon: Icons.check_box_outlined,
-      color: const Color(0xFF10B981),
-      bgColor: const Color(0xFFECFDF5),
+      color: const Color(0xFFFBD367),
+      bgColor: const Color(0x33FBD367),
       usage: '',
       trending: false,
       route: '/tools/voting',
@@ -83,10 +82,10 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'quiz',
       title: 'Quiz',
-      description: 'Make learning fun with interactive classroom quizzes',
+      description: 'Engage students with interactive questions',
       icon: Icons.stars,
-      color: const Color(0xFFF59E0B),
-      bgColor: const Color(0xFFFFFBEB),
+      color: const Color(0xFFA9E817),
+      bgColor: const Color(0x33A9E817),
       usage: "",
       trending: false,
       route: '/tools/quiz',
@@ -95,7 +94,11 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
 
   final List<QuickAction> quickActions = const [
     QuickAction('Start Timer', Icons.timer_outlined, Color(0xFF3B82F6)),
-    QuickAction('Take Attendance', Icons.check_circle_outline, Color(0xFFEF4444)),
+    QuickAction(
+      'Take Attendance',
+      Icons.check_circle_outline,
+      Color(0xFFEF4444),
+    ),
     QuickAction('Create Poll', Icons.how_to_vote_outlined, Color(0xFF10B981)),
     QuickAction('New Quiz', Icons.psychology_alt_outlined, Color(0xFFF59E0B)),
   ];
@@ -167,10 +170,10 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       await seatMap.bindSession(sid); // ← 여기에서 seatMap이 바로 실시간 구독 시작
     } catch (_) {}
 
-    await fs.doc('hubs/$kHubId').set(
-      {'currentSessionId': sid, 'updatedAt': FieldValue.serverTimestamp()},
-      SetOptions(merge: true),
-    );
+    await fs.doc('hubs/$kHubId').set({
+      'currentSessionId': sid,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   String _defaultSessionId() {
@@ -187,7 +190,11 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       // 세션 바인딩이 아직 없으면 실제로 세션 존재 여부까지 확인
       if (session.sessionId == null) {
         try {
-          final snap = await FirebaseFirestore.instance.collection('sessions').limit(1).get();
+          final snap =
+              await FirebaseFirestore.instance
+                  .collection('sessions')
+                  .limit(1)
+                  .get();
           final hasAnySession = snap.docs.isNotEmpty;
           if (!hasAnySession) {
             await _showNeedSessionDialog(context);
@@ -208,16 +215,111 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
   Future<void> _showNeedSessionDialog(BuildContext context) async {
     await showDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('세션이 필요해요'),
-        content: const Text('랜덤 좌석 기능을 사용하려면 먼저 세션을 생성하세요.\n상단의 Session 버튼에서 새 세션을 만들 수 있어요.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('확인')),
-        ],
+      builder:
+          (_) => AlertDialog(
+            title: const Text('세션이 필요해요'),
+            content: const Text(
+              '랜덤 좌석 기능을 사용하려면 먼저 세션을 생성하세요.\n상단의 Session 버튼에서 새 세션을 만들 수 있어요.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('확인'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  Widget _beforeClassSection(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, c) {
+        const gap = 14.0;
+        final maxW = c.maxWidth;
+        final twoCols = maxW >= 420;
+
+        if (twoCols) {
+          final btnW = (maxW - gap) / 2;
+          return Row(
+            children: [
+              _bcButton(
+                width: btnW,
+                label: 'Button Test',
+                icon: Icons.radio_button_checked,
+                iconColor: const Color(0xFF5F5F5F),
+                onTap: () {
+                  Navigator.pushNamed(context, '/tools/button_test');
+                },
+              ),
+              const SizedBox(width: gap),
+              _bcButton(
+                width: btnW,
+                label: 'Warm-up',
+                icon: Icons.mood,
+                iconColor: const Color(0xFF44A0FF),
+                onTap: () {}, // TODO
+              ),
+            ],
+          );
+        } else {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _bcButton(
+                width: maxW,
+                label: 'Button Test',
+                icon: Icons.radio_button_checked,
+                iconColor: const Color(0xFF5F5F5F),
+                onTap: () {
+                  Navigator.pushNamed(context, '/tools/button_test');
+                },
+              ),
+              const SizedBox(height: gap),
+              _bcButton(
+                width: maxW,
+                label: 'Warm-up',
+                icon: Icons.mood,
+                iconColor: const Color(0xFF44A0FF),
+                onTap: () {}, // TODO
+              ),
+            ],
+          );
+        }
+      },
+    );
+  }
+
+  Widget _bcButton({
+    required double width,
+    required String label,
+    required IconData icon,
+    required Color iconColor,
+    required VoidCallback onTap,
+  }) {
+    final w = width.clamp(170.0, 600.0);
+    return SizedBox(
+      width: w,
+      height: 130,
+      child: OutlinedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, color: iconColor, size: 50),
+        label: Text(
+          label,
+          style: const TextStyle(
+            color: Color(0xFF001A36),
+            fontSize: 30,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: Color(0xFFD2D2D2), width: 1),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          padding: EdgeInsets.zero,
+        ),
       ),
     );
   }
-  // --------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
@@ -227,22 +329,36 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     return AppScaffold(
       selectedIndex: 0,
       body: Scaffold(
-        backgroundColor: const Color.fromARGB(255, 246, 250, 255),
+        backgroundColor: const Color(0xFFF6FAFF),
         body: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 77),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 그리드 헤더
+              // Before Class
+              const Text(
+                'Before Class',
+                style: TextStyle(
+                  fontSize: 48,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF001A36),
+                ),
+              ),
+              const SizedBox(height: 12),
+              _beforeClassSection(context),
+              const SizedBox(height: 32),
+
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: const [
-                  Text('Classroom Tools',
-                      style: TextStyle(
-                        fontSize: 48,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF111827),
-                      )),
+                  Text(
+                    'Classroom Tools',
+                    style: TextStyle(
+                      fontSize: 48,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -348,14 +464,14 @@ class ToolCard extends StatelessWidget {
             final iconBox = 48.0 * s;
             final iconSize = 26.0 * s;
             final titleFs = 21.0 * s;
-            final descFs  = 17.0 * s;
+            final descFs = 17.0 * s;
             final usageFs = 12.0 * s;
-            final gapLg   = 14.0 * s;
-            final gapSm   = 6.0 * s;
-            final chipPadH  = 8.0 * s;
-            final chipPadV  = 4.0 * s;
-            final chipFs    = 11.0 * s;
-            final topGap    = 8.0 * s;
+            final gapLg = 14.0 * s;
+            final gapSm = 6.0 * s;
+            final chipPadH = 8.0 * s;
+            final chipPadV = 4.0 * s;
+            final chipFs = 11.0 * s;
+            final topGap = 8.0 * s;
 
             return Padding(
               padding: EdgeInsets.all(pad),
@@ -372,13 +488,19 @@ class ToolCard extends StatelessWidget {
                           color: item.bgColor,
                           borderRadius: BorderRadius.circular(12 * s),
                         ),
-                        child: Icon(item.icon, color: item.color, size: iconSize),
+                        child: Icon(
+                          item.icon,
+                          color: item.color,
+                          size: iconSize,
+                        ),
                       ),
                       const Spacer(),
                       if (item.trending) ...[
                         Container(
                           padding: EdgeInsets.symmetric(
-                            horizontal: chipPadH, vertical: chipPadV),
+                            horizontal: chipPadH,
+                            vertical: chipPadV,
+                          ),
                           decoration: BoxDecoration(
                             color: const Color(0xFFD1FAE5),
                             borderRadius: BorderRadius.circular(999),
@@ -386,8 +508,11 @@ class ToolCard extends StatelessWidget {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.trending_up,
-                                  size: 14.0 * s, color: const Color(0xFF047857)),
+                              Icon(
+                                Icons.trending_up,
+                                size: 14.0 * s,
+                                color: const Color(0xFF047857),
+                              ),
                               SizedBox(width: 4 * s),
                               Text(
                                 'Trending',

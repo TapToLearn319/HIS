@@ -56,3 +56,6 @@ flutter:
     - assets/score/logo_bird_quiz.png
     - assets/score/logo_bird_voting.png
     - assets/score/logo_bird_team-activites.png
+
+    - assets/test/logo_bird_next.png
+    - assets/test/logo_bird_done.png

@@ -568,13 +568,13 @@ class _TriggerBadge extends StatelessWidget {
   static String _labelFor(String k) {
     switch (k) {
       case 'S1_CLICK':
-        return 'Slot 1 · Click';
+        return 'Button 1 · Click';
       case 'S1_HOLD':
-        return 'Slot 1 · Hold';
+        return 'Button 1 · Hold';
       case 'S2_CLICK':
-        return 'Slot 2 · Click';
+        return 'Button 2 · Click';
       case 'S2_HOLD':
-        return 'Slot 2 · Hold';
+        return 'Button 2 · Hold';
       default:
         return 'No trigger';
     }
@@ -584,10 +584,10 @@ class _TriggerBadge extends StatelessWidget {
     switch (k) {
       case 'S1_CLICK':
       case 'S2_CLICK':
-        return Icons.touch_app;
+        return Icons.pan_tool_alt;
       case 'S1_HOLD':
       case 'S2_HOLD':
-        return Icons.pan_tool_alt;
+        return Icons.touch_app;
       default:
         return Icons.help_outline;
     }

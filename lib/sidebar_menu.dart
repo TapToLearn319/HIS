@@ -45,7 +45,9 @@ class SlideMenuDrawerState extends State<SlideMenuDrawer> {
     final width = MediaQuery.of(context).size.width;
     final opened = widget.drawerOpenedWidth ?? _defaultOpenedWidth;
     final closed = widget.drawerClosedWidth ?? _defaultClosedWidth;
-    final animTime = widget.animationDuration ?? Duration(milliseconds: _defaultAnimationTime);
+    final animTime =
+        widget.animationDuration ??
+        Duration(milliseconds: _defaultAnimationTime);
 
     double? dLeft, dRight, bLeft, bRight;
     final dWidth = opened;
@@ -122,19 +124,21 @@ class AppScaffold extends StatelessWidget {
         // 1) 사이드바 닫기
         _drawerKey.currentState?.toggleDrawer();
         // 2) Presenter→Display 동기화 메시지 전송
-        channel.postMessage(jsonEncode({
-          'type': 'route',
-          'route': routeName,
-          'slide': slideIndex.value,
-        }));
+        channel.postMessage(
+          jsonEncode({
+            'type': 'route',
+            'route': routeName,
+            'slide': slideIndex.value,
+          }),
+        );
         // 3) Presenter 네비게이션
         Navigator.pushReplacementNamed(context, routeName);
       },
       child: Container(
         decoration: BoxDecoration(
-        color: isSelected ? Colors.white : Colors.transparent,
-        borderRadius: BorderRadius.circular(12), // ✅ 둥근 모서리
-      ),
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(12), // ✅ 둥근 모서리
+        ),
         margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
         child: Row(
@@ -147,7 +151,10 @@ class AppScaffold extends StatelessWidget {
                   title,
                   textAlign: TextAlign.right,
                   style: TextStyle(
-                    color: isSelected ? highlightColor : const Color.fromARGB(255, 255, 255, 255),
+                    color:
+                        isSelected
+                            ? highlightColor
+                            : const Color.fromARGB(255, 255, 255, 255),
                     fontSize: 16,
                   ),
                 ),
@@ -157,7 +164,10 @@ class AppScaffold extends StatelessWidget {
             Icon(
               icon,
               size: 36,
-              color: isSelected ? highlightColor : const Color.fromARGB(255, 255, 255, 255),
+              color:
+                  isSelected
+                      ? highlightColor
+                      : const Color.fromARGB(255, 255, 255, 255),
             ),
           ],
         ),
@@ -168,61 +178,75 @@ class AppScaffold extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SlideMenuDrawer(
-  key: _drawerKey,
-  drawerScrollDirection: DrawerScrollDirection.leftToRight,
-  drawerOpenedWidth: 192, // ✅ 열렸을 때 너비
-  drawerClosedWidth: 60,  // ✅ 닫혔을 때 너비
-  header: null,
-  drawer: Material(
-  color: const Color.fromARGB(255, 206, 230, 255),
-  child: Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [                  
-      // ✅ Drawer 상단 메뉴 아이콘
-      Container(
-  width: double.infinity,
-  color: Color.fromARGB(255, 206, 230, 255), // 상단 배경 강조
-  padding: const EdgeInsets.only(right: 8.0, top: 16.0, bottom: 8.0),
-  child: Align(
-    alignment: Alignment.centerRight, // ✅ 오른쪽 정렬
-    child: IconButton(
-      icon: const Icon(Icons.menu, size: 30, color: Colors.black),
-      onPressed: () => _drawerKey.currentState?.toggleDrawer(),
-    ),
-  ),
-),
-      const SizedBox(height: 16),
-      // 🔹 기존 메뉴들
-      Expanded(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.end,
-          children: [
-            _buildDrawerItem(context,
-              index: 0, icon: Icons.home, title: AppLocalizations.of(context)!.home,
-              routeName: '/tools', selectedIndex: selectedIndex),
-            _buildDrawerItem(context,
-              index: 1, icon: Icons.person, title: AppLocalizations.of(context)!.presenterMain,
-              routeName: '/profile', selectedIndex: selectedIndex),
-            // _buildDrawerItem(context,
-            //   index: 2, icon: Icons.sports_esports, title: AppLocalizations.of(context)!.classContents,
-            //   routeName: '/game', selectedIndex: selectedIndex),
-            // _buildDrawerItem(context,
-            //   index: 3, icon: Icons.timer, title: AppLocalizations.of(context)!.classTools,
-            //   routeName: '/tools', selectedIndex: selectedIndex),
-            // _buildDrawerItem(context,
-            //   index: 4, icon: Icons.voice_chat, title: AppLocalizations.of(context)!.aiChat,
-            //   routeName: '/AI', selectedIndex: selectedIndex),
-            _buildDrawerItem(context,
-              index: 2, icon: Icons.settings, title: AppLocalizations.of(context)!.setting,
-              routeName: '/setting', selectedIndex: selectedIndex),
-            
-          ],
+      key: _drawerKey,
+      drawerScrollDirection: DrawerScrollDirection.leftToRight,
+      drawerOpenedWidth: 192,
+      drawerClosedWidth: 60,
+      header: null,
+      drawer: Material(
+        color: const Color.fromARGB(255, 206, 230, 255),
+        child: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                color: const Color.fromARGB(255, 206, 230, 255),
+                padding: const EdgeInsets.only(
+                  right: 8.0,
+                  top: 16.0,
+                  bottom: 8.0,
+                ),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: IconButton(
+                    icon: const Icon(Icons.menu, size: 30, color: Colors.black),
+                    onPressed: () => _drawerKey.currentState?.toggleDrawer(),
+                  ),
+                ),
+              ),
+              // const SizedBox(height: 16),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        _buildDrawerItem(
+                          context,
+                          index: 0,
+                          icon: Icons.home,
+                          title: AppLocalizations.of(context)!.home,
+                          routeName: '/tools',
+                          selectedIndex: selectedIndex,
+                        ),
+                        _buildDrawerItem(
+                          context,
+                          index: 1,
+                          icon: Icons.person,
+                          title: AppLocalizations.of(context)!.presenterMain,
+                          routeName: '/profile',
+                          selectedIndex: selectedIndex,
+                        ),
+                        _buildDrawerItem(
+                          context,
+                          index: 2,
+                          icon: Icons.settings,
+                          title: AppLocalizations.of(context)!.setting,
+                          routeName: '/setting',
+                          selectedIndex: selectedIndex,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
-    ],
-  ),
-),
-  body: body,
-);
+      body: body,
+    );
   }
 }

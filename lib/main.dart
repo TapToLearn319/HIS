@@ -42,6 +42,7 @@ import 'pages/display_standby.dart';
 
 import 'pages/tools/debate.dart';
 import 'pages/tools/vote/vote_manager.dart';
+import 'pages/tools/button_test_page.dart';
 
 // import 'provider/button_provider.dart';
 // import 'provider/logs_provider.dart';
@@ -260,6 +261,7 @@ class PresenterApp extends StatelessWidget {
         '/tools/voting': (_) => PresenterVotePage(),
         '/tools/attendance': (_) => PresenterHomePage(),
         '/tools/random_seat': (_) => RandomSeatPage(),
+        '/tools/button_test': (_) => ButtonTestPage(),
         '/profile/student/details': (_) => const StudentScoreDetailsPage(),
         '/profile/class/details': (_) => const ClassScoreDetailsPage(),
       },
