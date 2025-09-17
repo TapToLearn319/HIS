@@ -33,9 +33,9 @@ const _dateNumTextStyle = TextStyle(
 );
 
 // 좌석 색: 출석/액션 기본(연파랑) & 수업 중 눌림(회색) & 미출석(연주황)
-const _kAttendedBlue = Color.fromARGB(255, 206, 230, 255);
-const _kDuringClassGray = Color.fromARGB(255, 206, 230, 255);
-const _kAssignedAbsent = Color.fromARGB(255, 255, 235, 226);
+const _kAttendedBlue = Color(0xFFCEE6FF);
+const _kDuringClassGray = Color(0x33A2A2A2);
+const _kAssignedAbsent = Color(0xFFFFEBE2);
 
 const String kHubId = 'hub-001'; // your hub/classroom id
 
@@ -102,6 +102,12 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     final currentSid = session.sessionId;
     try {
       if (currentSid != null) {
+        await FirebaseFirestore.instance.doc('sessions/$currentSid').set({
+      'classRunning': false,
+      'runIntervals': [], // 열린 구간 초기화
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    
         await _clearEventsForSession(currentSid);
         return;
       }
@@ -153,6 +159,14 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     if (t?.startsWith('S1_') == true) return '1';
     if (t?.startsWith('S2_') == true) return '2';
     return null;
+  }
+  
+  int _eventMs(Map<String, dynamic> x) {
+    final ts = x['ts'];
+    if (ts is Timestamp) return ts.millisecondsSinceEpoch; // ① 서버 타임스탬프 우선
+    final hubTs = (x['hubTs'] as num?)?.toInt();
+    if (hubTs != null && hubTs > 0) return hubTs;          // ② 허브 시간 보조
+    return 0;
   }
 
   // 세션 완전 삭제
@@ -483,13 +497,11 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                             triggerKey: x['triggerKey']);
                         if (slot == null) continue;
 
-                        final int hubTs =
-                            (x['hubTs'] as num?)?.toInt() ?? 0;
-                        final int ts = (x['ts'] is Timestamp)
-                            ? (x['ts'] as Timestamp)
-                                .millisecondsSinceEpoch
-                            : 0;
-                        final ms = hubTs > ts ? hubTs : ts;
+                        final ms = _eventMs(x);
+firstTouchColorByStudent.putIfAbsent(
+  sid,
+  () => isDuringRun(ms) ? 'gray' : 'blue',
+);
 
                         firstTouchColorByStudent.putIfAbsent(
                           sid,

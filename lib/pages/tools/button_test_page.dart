@@ -31,19 +31,21 @@ const _dateNumTextStyle = TextStyle(
   height: _kDateLineHeight,
 );
 
-// ===== 테스트 단계 정의 =====
-enum _StepKind { only1st, only2nd, first6Times, seq1121 }
+// ===== 테스트 단계 정의 ===== (1번 single, 2번 single, 1번 hold, 2번 hold, 1-2-1 single)
+enum _StepKind { single1st, single2nd, hold1st, hold2nd, onetwoone }
 
 String _headlineOf(_StepKind step) {
   switch (step) {
-    case _StepKind.only1st:
-      return 'Press the 1st Button';
-    case _StepKind.only2nd:
-      return 'Press the 2nd Button';
-    case _StepKind.first6Times:
-      return 'Press the 1st Button 6 Times';
-    case _StepKind.seq1121:
-      return 'Press the [1st - 1st - 2nd - 1st]';
+    case _StepKind.single1st:
+      return 'Press the 1st Button shortly';
+    case _StepKind.single2nd:
+      return 'Press the 2nd Button shortly';
+    case _StepKind.hold1st:
+      return 'Press the 1st Button for more than 2 seconds';
+    case _StepKind.hold2nd:
+      return 'Press the 2nd Button for more than 2 seconds';
+    case _StepKind.onetwoone:
+      return 'Press the [1st - 2nd - 1st]';
   }
 }
 
@@ -54,21 +56,62 @@ class ButtonTestPage extends StatefulWidget {
 }
 
 class _ButtonTestPageState extends State<ButtonTestPage> {
-  _StepKind _step = _StepKind.only1st; // 시작 단계
+  _StepKind _step = _StepKind.single1st; // 시작 단계
 
-  void _goNext() {
+  Future<void> _clearEventsForCurrentSession(BuildContext context) async {
+    final sid = context.read<SessionProvider>().sessionId;
+    if (sid == null) return;
+    final fs = FirebaseFirestore.instance;
+
+    const batchSize = 300;
+    Query<Map<String, dynamic>> q = fs
+        .collection('sessions/$sid/events')
+        .limit(batchSize);
+
+    while (true) {
+      final snap = await q.get();
+      if (snap.docs.isEmpty) break;
+      final batch = fs.batch();
+      for (final d in snap.docs) {
+        batch.delete(d.reference);
+      }
+      await batch.commit();
+      if (snap.docs.length < batchSize) break;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await _clearEventsForCurrentSession(context);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Logs have been reset!')));
+    });
+  }
+
+  Future<void> _goNext() async {
+    await _clearEventsForCurrentSession(context);
+    if (!mounted) return;
+
     setState(() {
       switch (_step) {
-        case _StepKind.only1st:
-          _step = _StepKind.only2nd;
+        case _StepKind.single1st:
+          _step = _StepKind.single2nd;
           break;
-        case _StepKind.only2nd:
-          _step = _StepKind.first6Times;
+        case _StepKind.single2nd:
+          _step = _StepKind.hold1st;
           break;
-        case _StepKind.first6Times:
-          _step = _StepKind.seq1121;
+        case _StepKind.hold1st:
+          _step = _StepKind.hold2nd;
           break;
-        case _StepKind.seq1121:
+        case _StepKind.hold2nd:
+          _step = _StepKind.onetwoone;
+          break;
+        case _StepKind.onetwoone:
           break;
       }
     });
@@ -86,30 +129,38 @@ class _ButtonTestPageState extends State<ButtonTestPage> {
   }
 
   // 현재 단계 완료 여부 계산
+  // eventsAsc: 오래된 → 최신 순서의 (slot, action) 목록
+  // slot: '1' | '2', action: 'single' | 'hold'
   bool _isStudentDoneForStep({
     required _StepKind step,
-    required List<String> slotHistoryAsc, // '1','2' 시간 오름차순
+    required List<({String slot, String action})> eventsAsc,
   }) {
     switch (step) {
-      case _StepKind.only1st:
-        // 1을 1번이라도 누름
-        return slotHistoryAsc.contains('1');
-      case _StepKind.only2nd:
-        // 2를 1번이라도 누름
-        return slotHistoryAsc.contains('2');
-      case _StepKind.first6Times:
-        // 1을 6번 이상 누름 (전체 합산)
-        final c1 = slotHistoryAsc.where((s) => s == '1').length;
-        return c1 >= 6;
-      case _StepKind.seq1121:
-        // 마지막 4번이 [1,1,2,1]인지 확인
-        if (slotHistoryAsc.length < 4) return false;
-        final last4 = slotHistoryAsc.sublist(slotHistoryAsc.length - 4);
-        const target = ['1', '1', '2', '1'];
-        for (int i = 0; i < 4; i++) {
-          if (last4[i] != target[i]) return false;
+      case _StepKind.single1st:
+        // 슬롯 1 + single 1회 이상
+        return eventsAsc.any((e) => e.slot == '1' && e.action == 'single');
+
+      case _StepKind.single2nd:
+        // 슬롯 2 + single 1회 이상
+        return eventsAsc.any((e) => e.slot == '2' && e.action == 'single');
+
+      case _StepKind.hold1st:
+        // 슬롯 1 + hold 1회 이상
+        return eventsAsc.any((e) => e.slot == '1' && e.action == 'hold');
+
+      case _StepKind.hold2nd:
+        // 슬롯 2 + hold 1회 이상
+        return eventsAsc.any((e) => e.slot == '2' && e.action == 'hold');
+
+      case _StepKind.onetwoone:
+        // single 이벤트만 추려서 "마지막 3개"가 [1,2,1]인지 확인
+        final singles = <String>[];
+        for (final e in eventsAsc) {
+          if (e.action == 'single') singles.add(e.slot);
         }
-        return true;
+        if (singles.length < 3) return false;
+        final last3 = singles.sublist(singles.length - 3);
+        return last3[0] == '1' && last3[1] == '2' && last3[2] == '1';
     }
   }
 
@@ -129,7 +180,12 @@ class _ButtonTestPageState extends State<ButtonTestPage> {
                     ? const Center(
                       child: Text('No session. Open "Session" and select one.'),
                     )
-                    : _Body(sessionId: sessionId, step: _step, onNext: _goNext),
+                    : _Body(
+                      sessionId: sessionId,
+                      step: _step,
+                      onNext: _goNext,
+                      onReset: () => _clearEventsForCurrentSession(context),
+                    ),
           ),
         ),
       ),
@@ -142,10 +198,13 @@ class _Body extends StatelessWidget {
     required this.sessionId,
     required this.step,
     required this.onNext,
+    required this.onReset,
   });
+
   final String sessionId;
   final _StepKind step;
-  final VoidCallback onNext;
+  final Future<void> Function() onNext;
+  final Future<void> Function() onReset;
 
   // Firestore 슬롯 파서 (Stateless에 복사)
   String? _extractSlot(dynamic raw, {String? triggerKey}) {
@@ -160,17 +219,18 @@ class _Body extends StatelessWidget {
 
   bool _doneForStep(_StepKind step, List<String> slotsAsc) {
     switch (step) {
-      case _StepKind.only1st:
+      case _StepKind.single1st:
         return slotsAsc.contains('1');
-      case _StepKind.only2nd:
+      case _StepKind.single2nd:
         return slotsAsc.contains('2');
-      case _StepKind.first6Times:
+      case _StepKind.hold1st:
         return slotsAsc.where((s) => s == '1').length >= 6;
-      case _StepKind.seq1121:
-        if (slotsAsc.length < 4) return false;
-        final last4 = slotsAsc.sublist(slotsAsc.length - 4);
-        const target = ['1', '1', '2', '1'];
-        for (int i = 0; i < 4; i++) {
+      case _StepKind.hold2nd:
+      case _StepKind.onetwoone:
+        if (slotsAsc.length < 3) return false;
+        final last4 = slotsAsc.sublist(slotsAsc.length - 3);
+        const target = ['1', '2', '1'];
+        for (int i = 0; i < 3; i++) {
           if (last4[i] != target[i]) return false;
         }
         return true;
@@ -209,26 +269,134 @@ class _Body extends StatelessWidget {
                 }
 
                 // 이벤트(슬롯 히스토리 만들기)
+                // 이벤트(슬롯 히스토리 만들기)
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream:
                       fs
                           .collection('sessions/$sessionId/events')
-                          .orderBy('ts', descending: false) // ↑ 오름차순으로 모으기 쉬움
+                          .orderBy('ts', descending: false) // 오래된 → 최신
                           .limit(1000)
                           .snapshots(),
                   builder: (context, evSnap) {
-                    // 학생별 슬롯 히스토리(오름차순)
-                    final Map<String, List<String>> slotsOf = {};
+                    // slot: '1'|'2', action: 'single'|'hold'
+                    (String slot, String action)? parseSlotAction(
+                      Map<String, dynamic> x,
+                    ) {
+                      // 1) 슬롯 추출
+                      String? slot;
+                      final s = x['slotIndex']?.toString().trim().toUpperCase();
+                      if (s == '1' || s == 'SLOT1' || s == 'S1' || s == 'LEFT')
+                        slot = '1';
+                      if (s == '2' || s == 'SLOT2' || s == 'S2' || s == 'RIGHT')
+                        slot = '2';
+
+                      // 2) 액션 추출: clickType 최우선, 없으면 보조 키워드/시간
+                      String act = 'single'; // 기본값
+
+                      final clickType =
+                          x['clickType']?.toString().trim().toLowerCase();
+                      if (clickType != null) {
+                        if (clickType == 'hold' ||
+                            clickType == 'long' ||
+                            clickType == 'long_press') {
+                          act = 'hold';
+                        } else if (clickType == 'click' ||
+                            clickType == 'single' ||
+                            clickType == 'short') {
+                          act = 'single';
+                        }
+                      } else {
+                        // 보조 신호들 (혹시 다른 필드로 들어오는 경우 대비)
+                        final trig =
+                            x['triggerKey']?.toString().trim().toLowerCase();
+                        final actionStr =
+                            x['action']?.toString().trim().toLowerCase();
+                        final gestureStr =
+                            x['gesture']?.toString().trim().toLowerCase();
+                        final typeStr =
+                            x['type']?.toString().trim().toLowerCase();
+                        final combined = [
+                          trig,
+                          actionStr,
+                          gestureStr,
+                          typeStr,
+                        ].where((e) => e != null && e.isNotEmpty).join('|');
+
+                        if (combined.contains('hold') ||
+                            combined.contains('long') ||
+                            combined.contains('long_press') ||
+                            combined.contains('longpress') ||
+                            combined.contains('press_and_hold') ||
+                            combined.contains('lp')) {
+                          act = 'hold';
+                        } else {
+                          // 시간 기반: 1.8s 이상이면 hold 간주
+                          num? durationMs = x['durationMs'] as num?;
+                          durationMs ??= x['pressMs'] as num?;
+                          durationMs ??= x['holdMs'] as num?;
+                          if (durationMs != null && durationMs >= 1800) {
+                            act = 'hold';
+                          }
+                        }
+                      }
+
+                      if (slot == '1' || slot == '2') return (slot!, act);
+                      return null;
+                    }
+
+                    // ----- 2) 학생별 달성 상태 집계 -----
+                    // single/hold 각각 슬롯별 달성 여부
+                    final hasSingle1 = <String, bool>{};
+                    final hasSingle2 = <String, bool>{};
+                    final hasHold1 = <String, bool>{};
+                    final hasHold2 = <String, bool>{};
+
+                    // onetwoone(1-2-1) 판정용: single 이벤트만 모은 순차 슬롯 목록
+                    final singlesSeqOf = <String, List<String>>{};
+
                     for (final d in (evSnap.data?.docs ?? const [])) {
                       final x = d.data();
                       final sid = (x['studentId'] as String?)?.trim();
                       if (sid == null || sid.isEmpty) continue;
-                      final slot = _extractSlot(
-                        x['slotIndex'],
-                        triggerKey: x['triggerKey'],
-                      );
-                      if (slot != '1' && slot != '2') continue;
-                      (slotsOf[sid] ??= []).add(slot!);
+
+                      final parsed = parseSlotAction(x); // ✅ x 전체 Map 전달
+                      if (parsed == null) continue;
+                      final slot = parsed.$1;
+                      final action = parsed.$2;
+
+                      // 달성 플래그
+                      if (action == 'single') {
+                        if (slot == '1') hasSingle1[sid] = true;
+                        if (slot == '2') hasSingle2[sid] = true;
+                        // onetwoone 시퀀스용으로 single만 누적
+                        (singlesSeqOf[sid] ??= []).add(slot);
+                      } else if (action == 'hold') {
+                        if (slot == '1') hasHold1[sid] = true;
+                        if (slot == '2') hasHold2[sid] = true;
+                      }
+                    }
+
+                    bool isDone(String studentId) {
+                      switch (step) {
+                        case _StepKind.single1st:
+                          return hasSingle1[studentId] == true;
+                        case _StepKind.single2nd:
+                          return hasSingle2[studentId] == true;
+                        case _StepKind.hold1st:
+                          return hasHold1[studentId] ==
+                              true; // ← Hold(슬롯1) 1회 이상
+                        case _StepKind.hold2nd:
+                          return hasHold2[studentId] ==
+                              true; // ← Hold(슬롯2) 1회 이상
+                        case _StepKind.onetwoone:
+                          final seq =
+                              singlesSeqOf[studentId] ?? const <String>[];
+                          if (seq.length < 3) return false;
+                          final last3 = seq.sublist(seq.length - 3);
+                          return last3[0] == '1' &&
+                              last3[1] == '2' &&
+                              last3[2] == '1';
+                      }
                     }
 
                     // 상단 날짜
@@ -246,7 +414,7 @@ class _Body extends StatelessWidget {
                     final dateNumStr =
                         '${now.month.toString().padLeft(2, "0")}.${now.day.toString().padLeft(2, "0")}';
 
-                    // 카드 레이아웃
+                    // 카드 레이아웃 (기존 그대로, isDoneBuilder만 변경)
                     return Center(
                       child: FractionallySizedBox(
                         widthFactor: 0.9,
@@ -262,7 +430,7 @@ class _Body extends StatelessWidget {
                             final padH = 28.0 * scale;
                             final padV = 24.0 * scale;
 
-                            final isLastStep = step == _StepKind.seq1121;
+                            final isLastStep = step == _StepKind.onetwoone;
 
                             return Center(
                               child: SizedBox(
@@ -289,12 +457,11 @@ class _Body extends StatelessWidget {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      // 상단: 날짜 • (가운데 지시문) • (우측 버튼 이미지 자리)
+                                      // --- 상단 바 (기존 코드 유지) ---
                                       Row(
                                         crossAxisAlignment:
                                             CrossAxisAlignment.center,
                                         children: [
-                                          // 날짜(요일+숫자)
                                           Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
@@ -310,87 +477,43 @@ class _Body extends StatelessWidget {
                                             ],
                                           ),
                                           const Spacer(),
-                                          // 가운데: 지시문 (Board 대신)
                                           Flexible(
                                             flex: 0,
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Text(
-                                                  _headlineOf(step),
-                                                  textAlign: TextAlign.center,
-                                                  style: const TextStyle(
-                                                    fontSize: 36,
-                                                    fontWeight: FontWeight.w700,
-                                                    color: Colors.black,
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 12),
-                                                // 로그 초기화 버튼
-                                                IconButton(
-                                                  icon: const Icon(
-                                                    Icons.refresh,
-                                                    size: 28,
-                                                    color: Colors.black,
-                                                  ),
-                                                  tooltip: 'Reset logs',
-                                                  onPressed: () async {
-                                                    final fs =
-                                                        FirebaseFirestore
-                                                            .instance;
-                                                    final events =
-                                                        await fs
-                                                            .collection(
-                                                              'sessions/$sessionId/events',
-                                                            )
-                                                            .get();
-                                                    for (final doc
-                                                        in events.docs) {
-                                                      await doc.reference
-                                                          .delete();
-                                                    }
-
-                                                    ScaffoldMessenger.of(
-                                                      context,
-                                                    ).showSnackBar(
-                                                      const SnackBar(
-                                                        content: Text(
-                                                          'Logs have been reset',
-                                                        ),
-                                                      ),
-                                                    );
-                                                  },
-                                                ),
-                                              ],
+                                            child: Text(
+                                              _headlineOf(step),
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                fontSize: 36,
+                                                fontWeight: FontWeight.w700,
+                                                color: Colors.black,
+                                              ),
                                             ),
                                           ),
-                                          Expanded(
-                                            child: Align(
-                                              alignment:
-                                                  Alignment
-                                                      .centerRight, // ← 오른쪽 끝으로 붙임
-                                              child: InkWell(
-                                                onTap: () {
-                                                  if (isLastStep) {
-                                                    Navigator.pushNamedAndRemoveUntil(
-                                                      context,
-                                                      '/tools',
-                                                      (route) => false,
-                                                    );
-                                                  } else {
-                                                    onNext();
-                                                  }
-                                                },
-                                                child: SizedBox(
-                                                  width: 400,
-                                                  height: 120,
-                                                  child: FittedBox(
-                                                    fit: BoxFit.contain,
-                                                    child: Image.asset(
-                                                      isLastStep
-                                                          ? 'assets/test/logo_bird_done.png'
-                                                          : 'assets/test/logo_bird_next.png',
-                                                    ),
+                                          const Spacer(),
+                                          Align(
+                                            alignment: Alignment.centerRight,
+                                            child: InkWell(
+                                              onTap: () async {
+                                                if (isLastStep) {
+                                                  // 마지막 단계면 종료 이동 (원하면 여기서 초기화 추가 호출 가능)
+                                                  Navigator.pushNamedAndRemoveUntil(
+                                                    context,
+                                                    '/tools',
+                                                    (route) => false,
+                                                  );
+                                                } else {
+                                                  await onNext(); // ← 단계 전환 전, 자동 초기화가 이미 실행됨
+                                                }
+                                              },
+                                              child: SizedBox(
+                                                width: 400,
+                                                height: 120,
+                                                child: FittedBox(
+                                                  fit: BoxFit.contain,
+                                                  child: Image.asset(
+                                                    isLastStep
+                                                        ? 'assets/test/logo_bird_done.png'
+                                                        : 'assets/test/logo_bird_next.png',
                                                   ),
                                                 ),
                                               ),
@@ -405,19 +528,15 @@ class _Body extends StatelessWidget {
                                         ),
                                       ),
 
-                                      // 좌석 그리드 (완료 여부에 따라 색상 변경)
+                                      // 좌석 그리드: 완료 여부는 isDone(studentId)로 판정
                                       Expanded(
                                         child: _SeatGridTestUI(
                                           cols: cols,
                                           rows: rows,
                                           seatMap: seatMap,
                                           nameOf: nameOf,
-                                          isDoneBuilder: (studentId) {
-                                            final slotsAsc =
-                                                slotsOf[studentId] ??
-                                                const <String>[];
-                                            return _doneForStep(step, slotsAsc);
-                                          },
+                                          isDoneBuilder:
+                                              (studentId) => isDone(studentId),
                                         ),
                                       ),
                                     ],
