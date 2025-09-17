@@ -313,16 +313,10 @@ class _Body extends StatelessWidget {
                                           // 가운데: 지시문 (Board 대신)
                                           Flexible(
                                             flex: 0,
-                                            child: ConstrainedBox(
-                                              constraints: BoxConstraints(
-                                                minWidth:
-                                                    320 * scale.clamp(0.7, 1.2),
-                                                maxWidth:
-                                                    544 * scale.clamp(0.7, 1.2),
-                                                minHeight: 40,
-                                              ),
-                                              child: Center(
-                                                child: Text(
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Text(
                                                   _headlineOf(step),
                                                   textAlign: TextAlign.center,
                                                   style: const TextStyle(
@@ -331,7 +325,43 @@ class _Body extends StatelessWidget {
                                                     color: Colors.black,
                                                   ),
                                                 ),
-                                              ),
+                                                const SizedBox(width: 12),
+                                                // 로그 초기화 버튼
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.refresh,
+                                                    size: 28,
+                                                    color: Colors.black,
+                                                  ),
+                                                  tooltip: 'Reset logs',
+                                                  onPressed: () async {
+                                                    final fs =
+                                                        FirebaseFirestore
+                                                            .instance;
+                                                    final events =
+                                                        await fs
+                                                            .collection(
+                                                              'sessions/$sessionId/events',
+                                                            )
+                                                            .get();
+                                                    for (final doc
+                                                        in events.docs) {
+                                                      await doc.reference
+                                                          .delete();
+                                                    }
+
+                                                    ScaffoldMessenger.of(
+                                                      context,
+                                                    ).showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text(
+                                                          'Logs have been reset',
+                                                        ),
+                                                      ),
+                                                    );
+                                                  },
+                                                ),
+                                              ],
                                             ),
                                           ),
                                           Expanded(

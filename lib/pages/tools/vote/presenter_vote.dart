@@ -1,7 +1,3 @@
-
-
-
-
 import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -9,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../provider/session_provider.dart';
 import '../../../main.dart';
+import '../../../sidebar_menu.dart';
 
 class PresenterVotePage extends StatefulWidget {
   const PresenterVotePage({super.key, this.voteId});
@@ -31,6 +28,8 @@ class _PresenterVotePageState extends State<PresenterVotePage>
 
   final List<TextEditingController> _optionCtrls = [];
   final List<_Binding> _bindings = [];
+
+  final _newOptionCtrl = TextEditingController();
 
   static const int _maxOptions = 4;
 
@@ -87,6 +86,7 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     }
 
     _autoCloseIfRunning();
+    _newOptionCtrl.dispose();
 
     super.dispose();
   }
@@ -256,7 +256,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
               return;
             }
 
-            // ✅ _watchActive 내부: 최신(업데이트가 가장 최근) 하나 고르기
             int _scoreOf(Map<String, dynamic> d) {
               final updated = d['updatedAt'];
               final started = d['startedAt'];
@@ -286,8 +285,29 @@ class _PresenterVotePageState extends State<PresenterVotePage>
         );
   }
 
+  void _addFromScratch() {
+    final t = _newOptionCtrl.text.trim();
+    if (t.isEmpty) return;
+
+    if (_optionCtrls.length >= _maxOptions) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('문항은 최대 4개까지 추가할 수 있습니다.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _optionCtrls.add(TextEditingController(text: t));
+      _bindings.add(_firstUnusedBinding());
+      _newOptionCtrl.clear();
+    });
+  }
+
   Future<void> _handleStartStop() async {
-    if (_busy) return; // ✅ 중복 클릭 방지
+    if (_busy) return;
     _busy = true;
     try {
       print('[VOTE] handleStartStop 실행됨. 현재 상태: _isRunning=$_isRunning');
@@ -407,178 +427,170 @@ class _PresenterVotePageState extends State<PresenterVotePage>
   Widget build(BuildContext context) {
     final sid = context.watch<SessionProvider>().sessionId;
 
-    return WillPopScope(
-      onWillPop: () async {
-        await _autoCloseIfRunning();
-        return true;
-      },
-      child: Scaffold(
-        backgroundColor: const Color(0xFFF6FAFF),
-        appBar: AppBar(
-          backgroundColor: Color(0xFFF6FAFF),
-          elevation: 0.5,
-          leading: IconButton(
-            tooltip: 'Back',
-            icon: const Icon(Icons.arrow_back),
-            onPressed: () async {
-              await _autoCloseIfRunning();
-              if (mounted) Navigator.maybePop(context);
-            },
+    return AppScaffold(
+      selectedIndex: 1,
+      body: WillPopScope(
+        onWillPop: () async {
+          await _autoCloseIfRunning();
+          return true;
+        },
+        child: Scaffold(
+          backgroundColor: const Color(0xFFF6FAFF),
+          appBar: AppBar(
+            backgroundColor: Color(0xFFF6FAFF),
+            elevation: 0.5,
+            automaticallyImplyLeading: false,
           ),
-          title: const Text('Vote'),
-        ),
-        body: Stack(
-          children: [
-            if (_loading)
-              const Center(child: CircularProgressIndicator())
-            else
-              Form(
-                key: _formKey,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 140),
-                  children: [
-                    _sectionTitle('Poll Question'),
-                    const SizedBox(height: 8),
+          body: Stack(
+            children: [
+              if (_loading)
+                const Center(child: CircularProgressIndicator())
+              else
+                Form(
+                  key: _formKey,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 140),
+                    children: [
+                      _sectionTitle('Poll Question'),
+                      const SizedBox(height: 8),
 
-                    Align(
-                      alignment: Alignment.center,
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints.tightFor(
-                          width: 948,
-                          height: 65,
-                        ),
-                        child: TextFormField(
-                          controller: _titleCtrl,
-                          decoration: InputDecoration(
-                            hintText: 'Did you understand today’s lesson?',
-                            hintStyle: const TextStyle(
-                              color: Color(0xFF001A36),
-                              fontSize: 24,
-                              fontWeight: FontWeight.w500,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 0,
-                            ),
-                            filled: true,
-                            fillColor: Colors.white,
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFD2D2D2),
-                                width: 1,
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: const BorderSide(
-                                color: Color(0xFFD2D2D2),
-                                width: 1,
-                              ),
-                            ),
+                      Align(
+                        alignment: Alignment.center,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints.tightFor(
+                            width: 948,
+                            height: 65,
                           ),
-                          style: const TextStyle(
-                            color: Color(0xFF001A36),
-                            fontSize: 24,
-                            fontWeight: FontWeight.w500,
-                          ),
-                          validator:
-                              (v) =>
-                                  (v ?? '').trim().isEmpty
-                                      ? 'Enter the Question.'
-                                      : null,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 18),
-
-                    Center(
-                      child: Container(
-                        width: 948,
-                        alignment: Alignment.centerLeft,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: const [
-                            Text(
-                              'Poll Options',
-                              style: TextStyle(
+                          child: TextFormField(
+                            controller: _titleCtrl,
+                            decoration: InputDecoration(
+                              hintText: 'Did you understand today’s lesson?',
+                              hintStyle: const TextStyle(
                                 color: Color(0xFF001A36),
                                 fontSize: 24,
                                 fontWeight: FontWeight.w500,
                               ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              '*Up to 4',
-                              style: TextStyle(
-                                color: Color(0xFF001A36),
-                                fontSize: 15,
-                                fontWeight: FontWeight.w400,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 0,
+                              ),
+                              filled: true,
+                              fillColor: Colors.white,
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD2D2D2),
+                                  width: 1,
+                                ),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: const BorderSide(
+                                  color: Color(0xFFD2D2D2),
+                                  width: 1,
+                                ),
                               ),
                             ),
-                          ],
+                            style: const TextStyle(
+                              color: Color(0xFF001A36),
+                              fontSize: 24,
+                              fontWeight: FontWeight.w500,
+                            ),
+                            validator:
+                                (v) =>
+                                    (v ?? '').trim().isEmpty
+                                        ? 'Enter the Question.'
+                                        : null,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    _optionsCard(),
+                      const SizedBox(height: 18),
 
-                    const SizedBox(height: 18),
-                    _sectionTitle('Poll Settings'),
-                    const SizedBox(height: 8),
-                    _settingsCard(),
-                  ],
+                      Center(
+                        child: Container(
+                          width: 948,
+                          alignment: Alignment.centerLeft,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: const [
+                              Text(
+                                'Poll Options',
+                                style: TextStyle(
+                                  color: Color(0xFF001A36),
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                '*Up to 4',
+                                style: TextStyle(
+                                  color: Color(0xFF001A36),
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _optionsCard(),
+
+                      const SizedBox(height: 18),
+                      _sectionTitle('Poll Settings'),
+                      const SizedBox(height: 8),
+                      _settingsCard(),
+                    ],
+                  ),
                 ),
-              ),
 
-            Positioned(
-              right: 16,
-              bottom: 16,
-              child: SafeArea(
-                top: false,
-                child: SizedBox(
-                  width: 160,
-                  height: 160,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: _handleStartStop,
-                      child: Padding(
-                        padding: const EdgeInsets.all(10.0),
-                        child: Image.asset(
-                          _isRunning
-                              ? 'assets/logo_bird_stop.png'
-                              : 'assets/logo_bird_start.png',
-                          fit: BoxFit.contain,
-                          // stop 이미지가 없을 때도 크래시 안 나도록 안전장치
-                          errorBuilder: (_, __, ___) {
-                            return Image.asset(
-                              'assets/logo_bird_start.png',
-                              fit: BoxFit.contain,
-                            );
-                          },
+              Positioned(
+                right: 16,
+                bottom: 16,
+                child: SafeArea(
+                  top: false,
+                  child: SizedBox(
+                    width: 160,
+                    height: 160,
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: _handleStartStop,
+                        child: Padding(
+                          padding: const EdgeInsets.all(10.0),
+                          child: Image.asset(
+                            _isRunning
+                                ? 'assets/logo_bird_stop.png'
+                                : 'assets/logo_bird_start.png',
+                            fit: BoxFit.contain,
+                            // stop 이미지가 없을 때도 크래시 안 나도록 안전장치
+                            errorBuilder: (_, __, ___) {
+                              return Image.asset(
+                                'assets/logo_bird_start.png',
+                                fit: BoxFit.contain,
+                              );
+                            },
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 
-  // Poll Options 카드
   Widget _optionsCard() {
     return Align(
       alignment: Alignment.center,
       child: ConstrainedBox(
-        constraints: const BoxConstraints.tightFor(
-          width: 948,
-        ), // Poll Settings와 맞춤
+        constraints: const BoxConstraints.tightFor(width: 948),
         child: Container(
           decoration: BoxDecoration(
             color: Colors.white,
@@ -592,21 +604,72 @@ class _PresenterVotePageState extends State<PresenterVotePage>
                 _optionRow(i),
                 const SizedBox(height: 10),
               ],
-              Align(
-                alignment: Alignment.centerLeft,
-                child: OutlinedButton.icon(
-                  onPressed:
-                      (_optionCtrls.length >= _maxOptions)
-                          ? null
-                          : () {
-                            setState(() {
-                              _optionCtrls.add(TextEditingController());
-                              _bindings.add(_firstUnusedBinding());
-                            });
-                          },
-                  icon: const Icon(Icons.add),
-                  label: const Text('문항 추가'),
-                ),
+
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints.tightFor(height: 60),
+                      child: TextField(
+                        controller: _newOptionCtrl,
+                        onSubmitted: (_) => _addFromScratch(),
+                        decoration: InputDecoration(
+                          hintText: 'Enter...',
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                          ),
+                          filled: true,
+                          fillColor: Colors.white,
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(32.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFD2D2D2),
+                              width: 1,
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(32.5),
+                            borderSide: const BorderSide(
+                              color: Color(0xFFD2D2D2),
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+
+                  GestureDetector(
+                    onTap:
+                        (_optionCtrls.length >= _maxOptions)
+                            ? null
+                            : _addFromScratch,
+                    child: Opacity(
+                      opacity: (_optionCtrls.length >= _maxOptions) ? 0.4 : 1.0,
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.white,
+                          border: Border.all(
+                            color: const Color(0xFFD2D2D2),
+                            width: 2,
+                          ),
+                        ),
+                        child: const Center(
+                          child: Icon(
+                            Icons.add,
+                            size: 20,
+                            color: Color(0xFFBDBDBD),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -619,10 +682,60 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     final ctrl = _optionCtrls[i];
     final bind = _bindings[i];
 
+    // 메뉴 공통 빌더 (안쪽 suffixIcon에서 재사용)
+    List<PopupMenuEntry<int>> _menuItems() => const [
+      PopupMenuItem(
+        enabled: false,
+        child: Text(
+          '— Button mapping —',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+      ),
+      PopupMenuDivider(),
+      PopupMenuItem(value: 1, child: Text('1 - single')),
+      PopupMenuItem(value: 2, child: Text('1 - hold')),
+      PopupMenuItem(value: 3, child: Text('2 - single')),
+      PopupMenuItem(value: 4, child: Text('2 - hold')),
+      PopupMenuDivider(),
+      PopupMenuItem(value: 9, child: Text('문항 삭제')),
+    ];
+
+    void _onMenuSelected(int v) {
+      if (i < 0 || i >= _optionCtrls.length || i >= _bindings.length) return;
+
+      if (v == 9) {
+        if (_optionCtrls.length <= 2) return;
+        setState(() {
+          _bindings.removeAt(i);
+          _optionCtrls.removeAt(i).dispose();
+        });
+        return;
+      }
+
+      _Binding next;
+      switch (v) {
+        case 1:
+          next = const _Binding(button: 1, gesture: 'single');
+          break;
+        case 2:
+          next = const _Binding(button: 1, gesture: 'hold');
+          break;
+        case 3:
+          next = const _Binding(button: 2, gesture: 'single');
+          break;
+        case 4:
+          next = const _Binding(button: 2, gesture: 'hold');
+          break;
+        default:
+          return;
+      }
+      _setUniqueBinding(i, next);
+    }
+
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // 입력창: 높이 60, pill 라운드, 내부 오른쪽에 매핑 텍스트
+        // 입력창 (안쪽에 매핑 텍스트 + 세로 ... 메뉴 포함)
         Expanded(
           child: ConstrainedBox(
             constraints: const BoxConstraints.tightFor(height: 60),
@@ -630,15 +743,12 @@ class _PresenterVotePageState extends State<PresenterVotePage>
               controller: ctrl,
               decoration: InputDecoration(
                 hintText: 'Option',
-                // 내부 여백
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 24,
                   vertical: 0,
                 ),
-                // 배경
                 filled: true,
                 fillColor: Colors.white,
-                // 테두리
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(32.5),
                   borderSide: const BorderSide(
@@ -654,93 +764,137 @@ class _PresenterVotePageState extends State<PresenterVotePage>
                   ),
                 ),
 
-                // ▶ 오른쪽 안쪽 매핑 표시 (예: "1 - hold")
-                suffixIcon: Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      '${bind.button} - ${bind.gesture}',
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        color: Color(0xFF8D8D8D),
-                        fontSize: 21,
-                        fontWeight: FontWeight.w400,
+                // ▼ 텍스트필드 안쪽 오른쪽: [매핑 텍스트] [세로점 메뉴]
+                suffixIcon: SizedBox(
+                  width: 170,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.max,
+                    children: [
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            '${bind.button} - ${bind.gesture}',
+                            textAlign: TextAlign.right,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFF8D8D8D),
+                              fontSize: 21,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 8),
+
+                      // ==== 디자인 시안 스타일의 팝업 ====
+                      Theme(
+                        data: Theme.of(context).copyWith(
+                          popupMenuTheme: PopupMenuThemeData(
+                            color: const Color(0xFFF6F6F6), // 배경
+                            elevation: 0, // 그림자 제거
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10), // 라운드 10
+                            ),
+                            textStyle: const TextStyle(
+                              // 기본 글꼴
+                              color: Color(0xFF8D8D8D),
+                              fontSize: 21,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ),
+                        child: PopupMenuButton<int>(
+                          tooltip: 'More',
+                          icon: const Icon(
+                            Icons.more_vert,
+                            color: Color(0xFF8D8D8D),
+                          ),
+                          elevation: 0,
+                          // ← 여기서 항목을 '디자인대로' 직접 구성
+                          itemBuilder: (_) {
+                            // 나(현재 행)를 제외하고 이미 사용 중인 매핑은 비활성화 표시
+                            final usedExceptMe =
+                                _bindings
+                                    .asMap()
+                                    .entries
+                                    .where((e) => e.key != i)
+                                    .map(
+                                      (e) =>
+                                          '${e.value.button}-${e.value.gesture}',
+                                    )
+                                    .toSet();
+
+                            final currentKey = '${bind.button}-${bind.gesture}';
+
+                            List<_MenuOpt> opts = const [
+                              _MenuOpt(1, '1 - single', '1-single'),
+                              _MenuOpt(2, '1 - hold', '1-hold'),
+                              _MenuOpt(3, '2 - single', '2-single'),
+                              _MenuOpt(4, '2 - hold', '2-hold'),
+                            ];
+
+                            return opts.map((o) {
+                              final disabled = usedExceptMe.contains(o.key);
+                              final selected = (o.key == currentKey);
+
+                              return PopupMenuItem<int>(
+                                value: o.value,
+                                enabled: !disabled, // 클릭만 막고
+                                height: 44, // 아이템 높이 고정
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                ),
+                                child: Row(
+                                  children: [
+                                    // 왼쪽 체크 (선택된 항목만)
+                                    SizedBox(
+                                      width: 24,
+                                      child:
+                                          selected
+                                              ? const Icon(
+                                                Icons.check,
+                                                size: 18,
+                                                color: Colors.black87,
+                                              )
+                                              : const SizedBox.shrink(),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    // 텍스트 (우측으로 정렬될 필요는 없고 균일한 여백)
+                                    Expanded(
+                                      child: Text(
+                                        o.label,
+                                        // 비활성화 항목은 취소선으로 표기 (디자인처럼)
+                                        style: TextStyle(
+                                          decoration:
+                                              disabled
+                                                  ? TextDecoration.lineThrough
+                                                  : null,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }).toList();
+                          },
+                          onSelected: _onMenuSelected, // 기존 핸들러 재사용
+                        ),
+                      ),
+                      // ===============================
+                    ],
                   ),
                 ),
-                // suffix 영역이 너무 좁아 잘리는 것 방지
                 suffixIconConstraints: const BoxConstraints(
-                  minWidth: 100,
-                  maxWidth: 140,
+                  minWidth: 170,
+                  maxWidth: 170,
                 ),
               ),
               validator: (v) => (v ?? '').trim().isEmpty ? '문항을 입력하세요.' : null,
             ),
           ),
         ),
-
-        const SizedBox(width: 8),
-
-        // … 메뉴 (매핑 변경/삭제)
-        PopupMenuButton<int>(
-          tooltip: 'More',
-          itemBuilder:
-              (_) => const [
-                PopupMenuItem(
-                  enabled: false,
-                  child: Text(
-                    '— Button mapping —',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                PopupMenuDivider(),
-                PopupMenuItem(value: 1, child: Text('1 - single')),
-                PopupMenuItem(value: 2, child: Text('1 - hold')),
-                PopupMenuItem(value: 3, child: Text('2 - single')),
-                PopupMenuItem(value: 4, child: Text('2 - hold')),
-                PopupMenuDivider(),
-                PopupMenuItem(value: 9, child: Text('문항 삭제')),
-              ],
-          onSelected: (v) {
-            if (i < 0 || i >= _optionCtrls.length || i >= _bindings.length)
-              return;
-
-            if (v == 9) {
-              if (_optionCtrls.length <= 2) return;
-              setState(() {
-                _bindings.removeAt(i);
-                _optionCtrls.removeAt(i).dispose();
-              });
-              return;
-            }
-
-            _Binding next;
-            switch (v) {
-              case 1:
-                next = const _Binding(button: 1, gesture: 'single');
-                break;
-              case 2:
-                next = const _Binding(button: 1, gesture: 'hold');
-                break;
-              case 3:
-                next = const _Binding(button: 2, gesture: 'single');
-                break;
-              case 4:
-                next = const _Binding(button: 2, gesture: 'hold');
-                break;
-              default:
-                return;
-            }
-            _setUniqueBinding(i, next);
-          },
-          child: const SizedBox(
-            width: 40,
-            height: 40,
-            child: Icon(Icons.more_horiz),
-          ),
-        ),
+        // 바깥쪽 옛날 … 버튼은 제거했으므로 간격도 제거
       ],
     );
   }
@@ -884,45 +1038,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     await batch.commit();
   }
 
-  // Future<void> _startVote() async {
-  //   final sid = context.read<SessionProvider>().sessionId;
-  //   if (sid == null) {
-  //     if (!mounted) return;
-  //     ScaffoldMessenger.of(context).showSnackBar(
-  //       const SnackBar(
-  //         content: Text('세션이 설정되지 않았습니다. (SessionProvider.sessionId=null)'),
-  //       ),
-  //     );
-  //     return;
-  //   }
-
-  //   try {
-  //     final voteId = await _persistVote(sid);
-  //     if (voteId == null) return;
-
-  //     await _stopAllActive(sid);
-
-  //     final doc = FirebaseFirestore.instance.doc('sessions/$sid/votes/$voteId');
-  //     await doc.set({
-  //       'status': 'active',
-  //       'startedAt': FieldValue.serverTimestamp(),
-  //       'endedAt': null,
-  //       'updatedAt': FieldValue.serverTimestamp(),
-  //     }, SetOptions(merge: true));
-
-  //     if (!mounted) return;
-  //     ScaffoldMessenger.of(
-  //       context,
-  //     ).showSnackBar(const SnackBar(content: Text('Vote started!')));
-  //   } catch (e, st) {
-  //     debugPrint('[VOTE][start] $e\n$st');
-  //     if (!mounted) return;
-  //     ScaffoldMessenger.of(
-  //       context,
-  //     ).showSnackBar(SnackBar(content: Text('시작 실패: $e')));
-  //   }
-  // }
-
   Widget _radioPill<T>(
     String label,
     T value,
@@ -1054,4 +1169,11 @@ class _Binding {
       other is _Binding && other.button == button && other.gesture == gesture;
   @override
   int get hashCode => Object.hash(button, gesture);
+}
+
+class _MenuOpt {
+  final int value;
+  final String label;
+  final String key;
+  const _MenuOpt(this.value, this.label, this.key);
 }

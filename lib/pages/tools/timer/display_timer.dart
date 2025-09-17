@@ -30,6 +30,12 @@ class _DisplayTimerPageState extends State<DisplayTimerPage> {
 
   String get _birdAsset => isRunning ? "logo_bird_stop.png" : "logo_bird_start.png";
 
+  double _uiScale(BuildContext context) {
+  final size = MediaQuery.of(context).size;
+  final targetWidth = size.width / 3;   // 목표: 화면 가로의 1/3
+  return (targetWidth / _cardWidth).clamp(0.5, 2.0).toDouble();
+}
+
   @override
   void initState() {
     super.initState();
@@ -72,6 +78,120 @@ class _DisplayTimerPageState extends State<DisplayTimerPage> {
     } catch (_) {}
   }
 
+  Widget _responsiveDisplayCard() {
+  final scale = _uiScale(context);
+
+  // 새 이미지가 카드 밖으로 나가므로, 잘리지 않게 여유 공간 확보
+  const double cardHeight = 124 + 40.0;     // 아이콘 124 + 세로 패딩 40
+  final double cardWScaled = _cardWidth * scale;
+  final double cardHScaled = cardHeight * scale;
+
+  final double birdSizeScaled = _birdSize * scale;
+
+  // 우/하단 여유 (새가 살짝 겹치도록 음수 offset을 쓰고 있으므로 여유 필요)
+  final double extraW = birdSizeScaled * 0.50;
+  final double extraH = birdSizeScaled * 0.50;
+
+  return SizedBox(
+    width: cardWScaled + extraW,
+    height: cardHScaled + extraH,
+    child: Stack(
+      clipBehavior: Clip.none,
+      children: [
+        // 카드(스케일 적용)
+        Positioned(
+          left: 0,
+          top: 0,
+          child: Transform.scale(
+            scale: scale,
+            alignment: Alignment.topLeft,
+            child: Container(
+              width: _cardWidth,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: const [
+                  BoxShadow(color: Color(0x14000000), blurRadius: 18, offset: Offset(0, 8)),
+                ],
+              ),
+              child: Row(
+                children: [
+                  SizedBox(width: _iconLeftInset),
+                  Container(
+                    width: _iconBoxSize,
+                    height: _iconBoxSize,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEDEAFF),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Icon(Icons.alarm, color: const Color(0xFF7C69FF), size: _iconSize),
+                  ),
+                  SizedBox(width: _gapAfterIcon),
+                  Expanded(
+                    child: Transform.translate(
+                      offset: const Offset(_digitsShiftX, 0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _digitText((minutes ~/ 10) % 10),
+                          _digitText(minutes % 10),
+                          const SizedBox(width: 8),
+                          const Text(':', style: TextStyle(fontSize: 54, fontWeight: FontWeight.w700, color: Colors.black)),
+                          const SizedBox(width: 8),
+                          _digitText((seconds ~/ 10) % 10),
+                          _digitText(seconds % 10),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 28,
+                    child: Align(
+                      alignment: Alignment.topRight,
+                      child: Container(
+                        width: 6, height: 6,
+                        decoration: BoxDecoration(
+                          color: isRunning ? Colors.redAccent : const Color(0xFFDADFE8),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+
+        // 새 이미지(표시만, 클릭 없음) — 카드와 동일 비율로 자연스럽게 이동/확대
+        Positioned(
+          // 기존 오프셋(_birdRight/_birdBottom)을 그대로 사용하되, 스케일에 따라 이동값도 함께 배수 처리
+          right: _birdRight * scale,
+          bottom: _birdBottom * scale,
+          child: SizedBox(
+            width: birdSizeScaled,
+            height: birdSizeScaled,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, anim) => FadeTransition(opacity: anim, child: child),
+              child: Image.asset(
+                _birdAsset,
+                key: ValueKey<String>(_birdAsset),
+                width: birdSizeScaled,
+                height: birdSizeScaled,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
   @override
   Widget build(BuildContext context) {
     final mT = (minutes ~/ 10) % 10;
@@ -86,108 +206,7 @@ class _DisplayTimerPageState extends State<DisplayTimerPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // ====== DISPLAY-ONLY TIMER CARD ======
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    width: _cardWidth,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x14000000),
-                          blurRadius: 18,
-                          offset: Offset(0, 8),
-                        )
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        SizedBox(width: _iconLeftInset),
-                        // 보라 알람 아이콘
-                        Container(
-                          width: _iconBoxSize,
-                          height: _iconBoxSize,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFEDEAFF),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Icon(Icons.alarm, color: const Color(0xFF7C69FF), size: _iconSize),
-                        ),
-                        SizedBox(width: _gapAfterIcon),
-
-                        // 큰 시간(검정) — 조작 UI 없음
-                        Expanded(
-                          child: Transform.translate(
-                            offset: const Offset(_digitsShiftX, 0),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                _digitText(mT),
-                                _digitText(mO),
-                                const SizedBox(width: 8),
-                                const Text(
-                                  ':',
-                                  style: TextStyle(
-                                    fontSize: 54,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.black,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                _digitText(sT),
-                                _digitText(sO),
-                              ],
-                            ),
-                          ),
-                        ),
-
-                        // 오른쪽 상단 상태 점
-                        SizedBox(
-                          width: 28,
-                          child: Align(
-                            alignment: Alignment.topRight,
-                            child: Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                color: isRunning ? Colors.redAccent : const Color(0xFFDADFE8),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // ====== 새 이미지(상태에 따른 토글, 클릭 불가) ======
-                  Positioned(
-                    right: _birdRight,
-                    bottom: _birdBottom,
-                    child: SizedBox(
-                      width: _birdSize,
-                      height: _birdSize,
-                      child: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 180),
-                        switchInCurve: Curves.easeOut,
-                        switchOutCurve: Curves.easeIn,
-                        transitionBuilder: (child, anim) => FadeTransition(opacity: anim, child: child),
-                        child: Image.asset(
-                          _birdAsset,
-                          key: ValueKey<String>(_birdAsset),
-                          width: _birdSize,
-                          height: _birdSize,
-                          fit: BoxFit.contain,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+              _responsiveDisplayCard(),
             ],
           ),
         ),

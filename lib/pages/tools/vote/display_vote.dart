@@ -42,6 +42,16 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
 
   bool _multi = false;
 
+  IconData _iconForGesture(String gesture) {
+    switch (gesture) {
+      case 'hold':
+        return Icons.touch_app;
+      case 'single':
+      default:
+        return Icons.pan_tool_alt;
+    }
+  }
+
   void dlog(Object? msg) {
     // 웹/릴리즈에서도 보이도록 print로 직접 출력
     // 긴 메시지도 잘 보이게 prefix 추가
@@ -482,9 +492,8 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
                           _title.isEmpty ? 'Untitled question' : _title,
                           textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontSize: 26,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.2,
+                            fontSize: 41,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -493,9 +502,8 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
                           child: Text(
                             hide ? '-' : '${_total} VOTERS',
                             style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.black54,
-                              fontWeight: FontWeight.w700,
+                              fontSize: 19,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ),
@@ -531,10 +539,9 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
                                   label: _opts[i].label,
                                   votes: _opts[i].votes,
                                   total: _total,
-                                  badge:
-                                      '${_opts[i].button} ${_opts[i].gesture}',
+                                  button: _opts[i].button,
+                                  gesture: _opts[i].gesture,
                                   onTap: _tapVoteDebug, // ← 이걸로
-                                  // 또는 onTap: () => _tapVoteDebug(),
                                   hideResults: hide,
                                 ),
                                 if (i != _opts.length - 1)
@@ -555,9 +562,10 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
     required String label,
     required int votes,
     required int total,
-    required String badge,
+    required int button,
+    required String gesture,
     required VoidCallback onTap,
-    bool hideResults = false, // ★ 추가
+    bool hideResults = false,
   }) {
     const yellow = Color(0xFFFFE483);
 
@@ -614,7 +622,33 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
                               ),
                             ),
                             const SizedBox(width: 12),
-                            _badge(hideResults ? 'Hidden' : badge), // ★ 숨김 표시
+                            if (!hideResults)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    '$button - ',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                  Icon(
+                                    _iconForGesture(gesture),
+                                    size: 24,
+                                    color: Colors.black54,
+                                  ),
+                                ],
+                              )
+                            else
+                              const Text(
+                                'Hidden',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.black54,
+                                ),
+                              ),
                           ],
                         ),
                       ),

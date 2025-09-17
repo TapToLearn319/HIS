@@ -1,6 +1,3 @@
-
-
-
 // lib/pages/home/presenter_home_page.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -12,28 +9,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../provider/session_provider.dart';
 import '../../sidebar_menu.dart';
 
-const _kBoardGreen = Color(0xFFD7FF79);
-const _kSoftBlueBg = Color(0xFFEAF2FF);
-const _kSoftBlueBd = Color(0xFF9DBCFD);
-const _kSoftPinkBg = Color(0xFFFBE9EE);
-const _kSoftPinkBd = Color(0xFFF0B9C8);
-const _kEmptyStroke = Color(0xFFCBD5E1);
-
+// ---- 색 / 상수 ----
 const _kAppBg = Color(0xFFF6FAFF);
-const _kPanelBorder = Color(0xFFE6EEF8);
-const _kPanelShadow = Color(0x14000000);
-const _kTitleNavy = Color(0xFF0B1324);
-
 const _kCardW = 1011.0;
 const _kCardH = 544.0;
 const _kCardRadius = 10.0;
 const _kCardBorder = Color(0xFFD2D2D2);
 
 const _kDateFontSize = 16.0;
-const _kDateLineHeight = 34.0 / 16.0; // 2.125
-
-const _weekdayFont = 'FONTSPRING DEMO - Lufga';
-const _dateNumFont = 'Pretendard Variable';
+const _kDateLineHeight = 34.0 / 16.0;
 
 const _weekdayTextStyle = TextStyle(
   color: Colors.black,
@@ -41,7 +25,6 @@ const _weekdayTextStyle = TextStyle(
   fontWeight: FontWeight.w400,
   height: _kDateLineHeight,
 );
-
 const _dateNumTextStyle = TextStyle(
   color: Colors.black,
   fontSize: _kDateFontSize,
@@ -49,16 +32,10 @@ const _dateNumTextStyle = TextStyle(
   height: _kDateLineHeight,
 );
 
-// 버튼 지정
-enum SlotPurpose { attendance, action }
-
-extension SlotPurposeX on SlotPurpose {
-  String get key => this == SlotPurpose.attendance ? 'attendance' : 'action';
-  static SlotPurpose fromKey(String? key) {
-    if (key == 'action') return SlotPurpose.action;
-    return SlotPurpose.attendance;
-  }
-}
+// 좌석 색: 출석/액션 기본(연파랑) & 수업 중 눌림(회색) & 미출석(연주황)
+const _kAttendedBlue = Color.fromARGB(255, 206, 230, 255);
+const _kDuringClassGray = Color.fromARGB(255, 206, 230, 255);
+const _kAssignedAbsent = Color.fromARGB(255, 255, 235, 226);
 
 const String kHubId = 'hub-001'; // your hub/classroom id
 
@@ -68,26 +45,7 @@ class PresenterHomePage extends StatefulWidget {
 }
 
 class _PresenterHomePageState extends State<PresenterHomePage> {
-  bool _showLogs = false;
   bool _popping = false;
-
-  // ✅ 세션 문서 + 모든 서브컬렉션 완전 삭제
-Future<void> _deleteSessionFully(String sid) async {
-  final fs = FirebaseFirestore.instance;
-
-  // 1) 서브컬렉션 전부 삭제
-  await _deleteCollection(fs, 'sessions/$sid/events', 500);
-  await _deleteCollection(fs, 'sessions/$sid/seatMap', 500);
-  await _deleteCollection(fs, 'sessions/$sid/studentStats', 500);
-  await _deleteCollection(fs, 'sessions/$sid/stats', 500);
-
-  // 2) 세션 문서 자체 삭제
-  final docRef = fs.doc('sessions/$sid');
-  final doc = await docRef.get();
-  if (doc.exists) {
-    await docRef.delete();
-  }
-}
 
   // Busy overlay
   bool _busy = false;
@@ -100,34 +58,27 @@ Future<void> _deleteSessionFully(String sid) async {
     });
   }
 
-  // ====== logger helpers ======
+  // 로그/도움
   String _ts() => DateTime.now().toIso8601String();
   void _log(String msg) => debugPrint('[HOME ${_ts()}] $msg');
 
-  // Seat doc ids: "1".."N"
+  // 좌석 키
   String _seatKey(int index) => '${index + 1}';
 
-  // ---- Safe pop (route/dialog) on next frame ----
+  // 안전 팝
   void _safeRootPop<T>(T result) {
-    if (_popping) {
-      _log('SAFE_POP suppressed: $result');
-      return;
-    }
+    if (_popping) return;
     _popping = true;
-    _log('SAFE_POP request: $result');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         _popping = false;
-        _log('SAFE_POP aborted (not mounted)');
         return;
       }
       Navigator.of(context, rootNavigator: true).pop(result);
       _popping = false;
-      _log('SAFE_POP done: $result');
     });
   }
 
-  // ---- Wait one endOfFrame + microtask ----
   Future<void> _runNextFrame(FutureOr<void> Function() action) async {
     await SchedulerBinding.instance.endOfFrame;
     await Future<void>.delayed(Duration.zero);
@@ -138,87 +89,62 @@ Future<void> _deleteSessionFully(String sid) async {
   @override
   void initState() {
     super.initState();
-    // 첫 진입 시 세션 자동 확보 + 해당 세션 이벤트 초기화
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _ensureSessionOnStart();
     });
   }
 
-  // ====== ensure session on first load ======
+  // ===== 세션 보장 =====
   Future<void> _ensureSessionOnStart() async {
     _log('ensureSessionOnStart: begin');
     final session = context.read<SessionProvider>();
     final currentSid = session.sessionId;
-
     try {
       if (currentSid != null) {
-        _log('ensureSessionOnStart: already bound to $currentSid');
-        _log('ensureSessionOnStart: clear events');
         await _clearEventsForSession(currentSid);
         return;
       }
-
       final ids = await _listRecentSessionIds(limit: 50);
-      _log('ensureSessionOnStart: found ${ids.length} sessions');
       if (ids.isEmpty) {
-        _log('ensureSessionOnStart: no sessions -> open picker sheet');
         await _openSessionMenu(context);
         return;
       }
-
-      // 최신 것 자동 선택
       final sid = ids.first;
-      _log('ensureSessionOnStart: auto-load recent "$sid"');
       await _switchSessionAndBind(context, sid);
-
-      // touch updatedAt
       await FirebaseFirestore.instance.doc('sessions/$sid').set({
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-
-      // ▶ 진입 시 기존 로그 비우기 (오버레이)
       await _clearEventsForSession(sid);
-
-      _log('ensureSessionOnStart: done');
     } catch (e, st) {
       _log('ensureSessionOnStart ERROR: $e\n$st');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to load recent session: $e')),
-      );
-      // 세션 선택 시트로 폴백
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Failed: $e')));
       await _openSessionMenu(context);
     }
   }
 
-  // 현재 세션 events 전체 삭제(진입/세션전환 시)
   Future<void> _clearEventsForSession(String sid) async {
-    _log('clearEventsForSession: start for $sid');
+    _log('clearEventsForSession: $sid');
     _setBusy(true, 'Clearing session logs…');
     try {
       await _deleteCollection(
-        FirebaseFirestore.instance,
-        'sessions/$sid/events',
-        300,
-      );
+          FirebaseFirestore.instance, 'sessions/$sid/events', 300);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Session logs cleared.')));
-      _log('clearEventsForSession: done');
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Session logs cleared.')));
     } catch (e, st) {
       _log('clearEventsForSession ERROR: $e\n$st');
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to clear logs: $e')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Failed: $e')));
     } finally {
       _setBusy(false);
     }
   }
 
-  // ===== robust slot extraction =====
+  // 이벤트에서 slot 추출
   String? _extractSlot(dynamic raw, {String? triggerKey}) {
     final s = raw?.toString().trim().toUpperCase();
     if (s == '1' || s == 'SLOT1' || s == 'S1' || s == 'LEFT') return '1';
@@ -229,13 +155,95 @@ Future<void> _deleteSessionFully(String sid) async {
     return null;
   }
 
+  // 세션 완전 삭제
+  Future<void> _deleteSessionFully(String sid) async {
+    final fs = FirebaseFirestore.instance;
+    await _deleteCollection(fs, 'sessions/$sid/events', 500);
+    await _deleteCollection(fs, 'sessions/$sid/seatMap', 500);
+    await _deleteCollection(fs, 'sessions/$sid/studentStats', 500);
+    await _deleteCollection(fs, 'sessions/$sid/stats', 500);
+    final docRef = fs.doc('sessions/$sid');
+    final doc = await docRef.get();
+    if (doc.exists) await docRef.delete();
+  }
+
+  // ===== 수업 토글 (서버 상태 기준) =====
+  Future<void> _toggleClassRunningServer() async {
+    final sid = context.read<SessionProvider>().sessionId;
+    if (sid == null) return;
+    final fs = FirebaseFirestore.instance;
+    final ref = fs.doc('sessions/$sid');
+
+    await fs.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      final meta = snap.data() ?? {};
+      final bool running = (meta['classRunning'] as bool?) ?? false;
+      final List<dynamic> raw = (meta['runIntervals'] as List?)?.toList() ?? [];
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      if (running) {
+        // stop: 마지막 구간 endMs 채우기
+        if (raw.isNotEmpty) {
+          final last = Map<String, dynamic>.from(raw.last as Map);
+          if (last['endMs'] == null) {
+            last['endMs'] = now;
+            raw[raw.length - 1] = last;
+          }
+        }
+        tx.set(
+          ref,
+          {
+            'classRunning': false,
+            'runIntervals': raw,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      } else {
+        // start: 새 구간 추가
+        raw.add({'startMs': now, 'endMs': null});
+        tx.set(
+          ref,
+          {
+            'classRunning': true,
+            'runIntervals': raw,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+      }
+    });
+  }
+
+  // 서버 runIntervals 파싱
+  List<_RunInterval> _parseRunIntervals(dynamic raw) {
+    final List<_RunInterval> out = [];
+    if (raw is List) {
+      for (final e in raw) {
+        if (e is Map) {
+          final start = (e['startMs'] as num?)?.toInt();
+          final end = (e['endMs'] as num?)?.toInt();
+          if (start != null) out.add(_RunInterval(start, end));
+        }
+      }
+    }
+    return out;
+  }
+
+  bool _isDuringRunServer(int ms, List<_RunInterval> intervals) {
+    for (final r in intervals) {
+      final end = r.endMs ?? DateTime.now().millisecondsSinceEpoch;
+      if (ms >= r.startMs && ms <= end) return true;
+    }
+    return false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = context.watch<SessionProvider>();
     final sessionId = session.sessionId;
     final fs = FirebaseFirestore.instance;
 
-    // Top bar & 세션 조작은 그대로 두고, 좌석/이벤트/학생 데이터는 스트림으로 직접 구독
     return AppScaffold(
       selectedIndex: 0,
       body: Scaffold(
@@ -248,7 +256,7 @@ Future<void> _deleteSessionFully(String sid) async {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Top bar (Back + Session)
+                    // 상단 바
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -257,10 +265,7 @@ Future<void> _deleteSessionFully(String sid) async {
                             IconButton(
                               tooltip: 'Back',
                               icon: const Icon(Icons.arrow_back),
-                              onPressed: () {
-                                _log('Back pressed -> Navigator.pop');
-                                Navigator.pop(context);
-                              },
+                              onPressed: () => Navigator.pop(context),
                             ),
                             const SizedBox(width: 8),
                             Text(
@@ -268,626 +273,384 @@ Future<void> _deleteSessionFully(String sid) async {
                                   ? 'No session'
                                   : 'Session • $sessionId',
                               style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
+                                  fontSize: 18, fontWeight: FontWeight.bold),
                             ),
                           ],
                         ),
                         OutlinedButton(
-                          onPressed: () {
-                            _log('Session button tapped');
-                            _openSessionMenu(context);
-                          },
+                          onPressed: () => _openSessionMenu(context),
                           child: const Text('Session'),
                         ),
                       ],
                     ),
                     const SizedBox(height: 10),
 
-                    // ===== Board + Seat (스트림 체인) =====
+                    // 본문
                     if (sessionId == null)
                       const Expanded(
                         child: Center(
-                          child: Text(
-                            'No session. Tap "Session" to create or load.',
-                          ),
-                        ),
+                            child: Text(
+                                'No session. Tap "Session" to create or load.')),
                       )
                     else
                       Expanded(
-                        child: Center(
-                          child: FractionallySizedBox(
-                            widthFactor: 0.9,
-                            heightFactor: 0.9,
-                            // ✅ 카드(Container) 대신, 먼저 세션 메타를 구해서
-                            //   "버튼매핑(위) + 카드(아래)"를 Column으로 배치
-                            child: StreamBuilder<
-                              DocumentSnapshot<Map<String, dynamic>>
-                            >(
-                              stream: fs.doc('sessions/$sessionId').snapshots(),
-                              builder: (context, sessSnap) {
-                                final meta = sessSnap.data?.data();
-                                final int cols =
-                                    (meta?['cols'] as num?)?.toInt() ?? 6;
-                                final int rows =
-                                    (meta?['rows'] as num?)?.toInt() ?? 4;
+                        child: StreamBuilder<
+                            DocumentSnapshot<Map<String, dynamic>>>(
+                          stream: fs.doc('sessions/$sessionId').snapshots(),
+                          builder: (context, sessSnap) {
+                            final meta = sessSnap.data?.data();
+                            final int cols =
+                                (meta?['cols'] as num?)?.toInt() ?? 6;
+                            final int rows =
+                                (meta?['rows'] as num?)?.toInt() ?? 4;
 
-                                // 슬롯 목적 맵
-                                final Map<String, dynamic> rawPurpose =
-                                    (meta?['slotPurpose']
-                                        as Map<String, dynamic>?) ??
-                                    const {};
-                                final Map<String, SlotPurpose> slotPurpose = {
-                                  '1': SlotPurposeX.fromKey(
-                                    rawPurpose['1'] as String? ?? 'attendance',
-                                  ),
-                                  '2': SlotPurposeX.fromKey(
-                                    rawPurpose['2'] as String? ?? 'action',
-                                  ),
-                                };
+                            final serverIntervals =
+                                _parseRunIntervals(meta?['runIntervals']);
+                            final bool serverRunning =
+                                (meta?['classRunning'] as bool?) ?? false;
 
-                                Future<void> _saveSlotPurpose(
-                                  String slot,
-                                  SlotPurpose p,
-                                ) async {
-                                  await FirebaseFirestore.instance
-                                      .doc('sessions/$sessionId')
-                                      .set({
-                                        'slotPurpose': {slot: p.key},
-                                        'updatedAt':
-                                            FieldValue.serverTimestamp(),
-                                      }, SetOptions(merge: true));
+                            // === 디자인 캔버스(1280×720) 스케일/클리핑 래퍼 ===
+                            return LayoutBuilder(
+                              builder: (context, box) {
+                                const designW = 1280.0;
+                                const designH = 720.0;
+                                final scaleW = box.maxWidth / designW;
+                                final scaleH = box.maxHeight / designH;
+                                final scaleFit =
+                                    scaleW < scaleH ? scaleW : scaleH;
+
+                                if (scaleFit < 1) {
+                                  // 더 작아지면 축소 없이 잘라내기
+                                  return ClipRect(
+                                    child: OverflowBox(
+                                      alignment: Alignment.center,
+                                      minWidth: 0,
+                                      minHeight: 0,
+                                      maxWidth: double.infinity,
+                                      maxHeight: double.infinity,
+                                      child: SizedBox(
+                                        width: designW,
+                                        height: designH,
+                                        child: _DesignSurface(
+                                          sessionId: sessionId!,
+                                          cols: cols,
+                                          rows: rows,
+                                          serverIntervals: serverIntervals,
+                                        ),
+                                      ),
+                                    ),
+                                  );
                                 }
 
-                                return Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    // 🔼 카드 위로 뺀 버튼 매핑
-                                    Center(
-                                      child: _SlotMappingPill(
-                                        slot1: slotPurpose['1']!,
-                                        slot2: slotPurpose['2']!,
-                                        onChanged: (slot, p) async {
-                                          await _saveSlotPurpose(slot, p);
-                                          if (!mounted) return;
-                                          ScaffoldMessenger.of(
-                                            context,
-                                          ).showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                'Slot $slot → ${p.key}',
-                                              ),
-                                            ),
-                                          );
-                                        },
+                                // 더 크면 확대
+                                return ClipRect(
+                                  child: OverflowBox(
+                                    alignment: Alignment.center,
+                                    minWidth: 0,
+                                    minHeight: 0,
+                                    maxWidth: double.infinity,
+                                    maxHeight: double.infinity,
+                                    child: Transform.scale(
+                                      scale: scaleFit,
+                                      alignment: Alignment.center,
+                                      child: SizedBox(
+                                        width: designW,
+                                        height: designH,
+                                        child: _DesignSurface(
+                                          sessionId: sessionId!,
+                                          cols: cols,
+                                          rows: rows,
+                                          serverIntervals: serverIntervals,
+                                        ),
                                       ),
                                     ),
-                                    const SizedBox(height: 12),
-
-                                    // 🔽 아래는 "카드" (원래 Container) + 그 안의 기존 내용
-                                    Expanded(
-                                      child: LayoutBuilder(
-                                        builder: (context, c) {
-                                          final scaleW = c.maxWidth / _kCardW;
-                                          final scaleH = c.maxHeight / _kCardH;
-                                          final scale =
-                                              (scaleW < scaleH)
-                                                  ? scaleW
-                                                  : scaleH; // ↑ 확대/축소 모두 허용
-
-                                          final cardW = _kCardW * scale;
-                                          final cardH = _kCardH * scale;
-
-                                          // 카드 내부 여백/모서리/테두리도 비율에 맞춰 스케일
-                                          final r = _kCardRadius * scale;
-                                          final padH = 28.0 * scale;
-                                          final padV = 24.0 * scale;
-                                          final borderW = (1.0 * scale).clamp(
-                                            0.75,
-                                            2.0,
-                                          ); // 너무 얇거나 두꺼워지는 것 방지
-
-                                          return Center(
-                                            child: SizedBox(
-  width: cardW,
-  height: cardH,
-  child: Container(
-    padding: EdgeInsets.fromLTRB(padH, padV, padH, padV),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(_kCardRadius),
-      border: Border.all(color: _kCardBorder, width: 1),
-    ),
-                                                  // ⬇️ 스트림 체인은 반드시 Container의 child로!
-                                                  child: StreamBuilder<
-                                                    QuerySnapshot<
-                                                      Map<String, dynamic>
-                                                    >
-                                                  >(
-                                                    stream:
-                                                        fs
-                                                            .collection(
-                                                              'sessions/$sessionId/seatMap',
-                                                            )
-                                                            .snapshots(),
-                                                    builder: (
-                                                      context,
-                                                      seatSnap,
-                                                    ) {
-                                                      final Map<String, String?>
-                                                      seatMap = {};
-                                                      if (seatSnap.data !=
-                                                          null) {
-                                                        for (final d
-                                                            in seatSnap
-                                                                .data!
-                                                                .docs) {
-                                                          seatMap[d.id] =
-                                                              (d.data()['studentId']
-                                                                      as String?)
-                                                                  ?.trim();
-                                                        }
-                                                      }
-
-                                                      return StreamBuilder<
-                                                        QuerySnapshot<
-                                                          Map<String, dynamic>
-                                                        >
-                                                      >(
-                                                        stream:
-                                                            fs
-                                                                .collection(
-                                                                  'students',
-                                                                )
-                                                                .snapshots(),
-                                                        builder: (
-                                                          context,
-                                                          stuSnap,
-                                                        ) {
-                                                          final Map<
-                                                            String,
-                                                            String
-                                                          >
-                                                          nameOf = {};
-                                                          if (stuSnap.data !=
-                                                              null) {
-                                                            for (final d
-                                                                in stuSnap
-                                                                    .data!
-                                                                    .docs) {
-                                                              final x =
-                                                                  d.data();
-                                                              final n =
-                                                                  (x['name']
-                                                                          as String?)
-                                                                      ?.trim();
-                                                              if (n != null &&
-                                                                  n.isNotEmpty)
-                                                                nameOf[d.id] =
-                                                                    n;
-                                                            }
-                                                          }
-
-                                                          return StreamBuilder<
-                                                            QuerySnapshot<
-                                                              Map<
-                                                                String,
-                                                                dynamic
-                                                              >
-                                                            >
-                                                          >(
-                                                            stream:
-                                                                fs
-                                                                    .collection(
-                                                                      'sessions/$sessionId/events',
-                                                                    )
-                                                                    .orderBy(
-                                                                      'ts',
-                                                                      descending:
-                                                                          true,
-                                                                    )
-                                                                    .limit(300)
-                                                                    .snapshots(),
-                                                            builder: (
-                                                              context,
-                                                              evSnap,
-                                                            ) {
-                                                              final Map<
-                                                                String,
-                                                                String
-                                                              >
-                                                              lastSlotByStudent =
-                                                                  {};
-                                                              final Map<
-                                                                String,
-                                                                int
-                                                              >
-                                                              lastScoreByStudent =
-                                                                  {};
-
-                                                              if (evSnap.data !=
-                                                                  null) {
-                                                                for (final d
-                                                                    in evSnap
-                                                                        .data!
-                                                                        .docs) {
-                                                                  final x =
-                                                                      d.data();
-                                                                  final studentId =
-                                                                      (x['studentId']
-                                                                              as String?)
-                                                                          ?.trim();
-                                                                  if (studentId ==
-                                                                          null ||
-                                                                      studentId
-                                                                          .isEmpty)
-                                                                    continue;
-                                                                  final slot = _extractSlot(
-                                                                    x['slotIndex'],
-                                                                    triggerKey:
-                                                                        x['triggerKey'],
-                                                                  );
-                                                                  if (slot !=
-                                                                          '1' &&
-                                                                      slot !=
-                                                                          '2')
-                                                                    continue;
-                                                                  final int
-                                                                  hubTs =
-                                                                      (x['hubTs']
-                                                                              as num?)
-                                                                          ?.toInt() ??
-                                                                      0;
-                                                                  final int ts =
-                                                                      (x['ts']
-                                                                              is Timestamp)
-                                                                          ? (x['ts']
-                                                                                  as Timestamp)
-                                                                              .millisecondsSinceEpoch
-                                                                          : 0;
-                                                                  final score =
-                                                                      (hubTs >
-                                                                              ts)
-                                                                          ? hubTs
-                                                                          : ts;
-                                                                  final prev =
-                                                                      lastScoreByStudent[studentId];
-                                                                  if (prev ==
-                                                                          null ||
-                                                                      score >
-                                                                          prev) {
-                                                                    lastScoreByStudent[studentId] =
-                                                                        score;
-                                                                    lastSlotByStudent[studentId] =
-                                                                        slot!;
-                                                                  }
-                                                                }
-                                                              }
-
-                                                              final now =
-                                                                  DateTime.now();
-                                                              final weekdayStr =
-                                                                  [
-                                                                    'SUN',
-                                                                    'MON',
-                                                                    'TUE',
-                                                                    'WED',
-                                                                    'THU',
-                                                                    'FRI',
-                                                                    'SAT',
-                                                                  ][now.weekday %
-                                                                      7];
-                                                              final dateNumStr =
-                                                                  '${now.month.toString().padLeft(2, "0")}.${now.day.toString().padLeft(2, "0")}';
-                                                              final totalSeats =
-                                                                  cols * rows;
-                                                              final assignedCount =
-                                                                  seatMap.values
-                                                                      .where(
-                                                                        (v) =>
-                                                                            (v?.trim().isNotEmpty ??
-                                                                                false),
-                                                                      )
-                                                                      .length;
-
-                                                              return Column(
-                                                                crossAxisAlignment:
-                                                                    CrossAxisAlignment
-                                                                        .start,
-                                                                children: [
-                                                                  // 상단 줄: 날짜 • 합계
-                                                                  // 상단 줄: 날짜(요일+숫자) • 합계
-                                                                  // ⛳️ 날짜 • Board • 학생 수를 한 줄에 배치
-                                                                  Row(
-                                                                    crossAxisAlignment:
-                                                                        CrossAxisAlignment
-                                                                            .center,
-                                                                    children: [
-                                                                      // 날짜(요일 + 숫자)
-                                                                      Row(
-                                                                        mainAxisSize:
-                                                                            MainAxisSize.min,
-                                                                        children: [
-                                                                          Text(
-                                                                            weekdayStr,
-                                                                            style:
-                                                                                _weekdayTextStyle,
-                                                                          ), // Lufga, 16, lh 34
-                                                                          const SizedBox(
-                                                                            width:
-                                                                                8,
-                                                                          ),
-                                                                          Text(
-                                                                            dateNumStr,
-                                                                            style:
-                                                                                _dateNumTextStyle,
-                                                                          ), // Pretendard Var, 16, lh 34
-                                                                        ],
-                                                                      ),
-
-                                                                      const Spacer(),
-
-                                                                      // Board pill (가운데)
-                                                                      SizedBox(
-                                                                        width:
-                                                                            544,
-                                                                        height:
-                                                                            40,
-                                                                        child: DecoratedBox(
-                                                                          decoration: BoxDecoration(
-                                                                            color: const Color(
-                                                                              0xFFD3FF6E,
-                                                                            ),
-                                                                            borderRadius: BorderRadius.circular(
-                                                                              12.05,
-                                                                            ),
-                                                                          ),
-                                                                          child: const Center(
-                                                                            child: Text(
-                                                                              'Board',
-                                                                              style: TextStyle(
-                                                                                fontSize:
-                                                                                    16,
-                                                                                fontWeight:
-                                                                                    FontWeight.w700,
-                                                                                color:
-                                                                                    Colors.black,
-                                                                              ),
-                                                                            ),
-                                                                          ),
-                                                                        ),
-                                                                      ),
-
-                                                                      const Spacer(),
-
-                                                                      // 학생 수 (오른쪽 정렬, 고정 너비)
-                                                                      SizedBox(
-                                                                        width:
-                                                                            142, // 피그마 기준
-                                                                        child: Text(
-                                                                          '$assignedCount / $totalSeats',
-                                                                          textAlign:
-                                                                              TextAlign.right,
-                                                                          style: const TextStyle(
-                                                                            fontSize:
-                                                                                25.26,
-                                                                            fontWeight:
-                                                                                FontWeight.w700,
-                                                                            height:
-                                                                                25 /
-                                                                                25.26,
-                                                                            color: Color(
-                                                                              0xFF001A36,
-                                                                            ),
-                                                                          ),
-                                                                        ),
-                                                                      ),
-                                                                    ],
-                                                                  ),
-                                                                  SizedBox(height: (18.0 * scale).clamp(12.0, 28.0)),
-
-                                                                  // Seat grid
-                                                                  Expanded(
-                                                                    child: _SeatGrid(
-                                                                      cols:
-                                                                          cols,
-                                                                      rows:
-                                                                          rows,
-                                                                      seatMap:
-                                                                          seatMap,
-                                                                      nameOf:
-                                                                          nameOf,
-                                                                      lastSlotByStudent:
-                                                                          lastSlotByStudent,
-                                                                      onSeatTap:
-                                                                          (
-                                                                            seatIndex,
-                                                                          ) => _openSeatPicker(
-                                                                            seatIndex:
-                                                                                seatIndex,
-                                                                          ),
-                                                                      purposeOfSlot:
-                                                                          (
-                                                                            studentId,
-                                                                            slot,
-                                                                          ) =>
-                                                                              slotPurpose[slot]?.key,
-                                                                    ),
-                                                                  ),
-                                                                  const SizedBox(
-                                                                    height: 12,
-                                                                  ),
-
-                                                                  // Logs
-                                                                  Row(
-                                                                    mainAxisAlignment:
-                                                                        MainAxisAlignment
-                                                                            .spaceBetween,
-                                                                    children: [
-                                                                      TextButton.icon(
-                                                                        onPressed:
-                                                                            () => setState(
-                                                                              () =>
-                                                                                  _showLogs =
-                                                                                      !_showLogs,
-                                                                            ),
-                                                                        icon: Icon(
-                                                                          _showLogs
-                                                                              ? Icons.expand_more
-                                                                              : Icons.expand_less,
-                                                                        ),
-                                                                        label: Text(
-                                                                          _showLogs
-                                                                              ? 'Hide logs'
-                                                                              : 'Show logs',
-                                                                        ),
-                                                                      ),
-                                                                    ],
-                                                                  ),
-                                                                  if (_showLogs)
-                                                                    SizedBox(
-                                                                      height:
-                                                                          200,
-                                                                      child: Container(
-                                                                        padding:
-                                                                            const EdgeInsets.all(
-                                                                              8,
-                                                                            ),
-                                                                        decoration: BoxDecoration(
-                                                                          color:
-                                                                              Colors.grey.shade200,
-                                                                          borderRadius:
-                                                                              BorderRadius.circular(
-                                                                                8,
-                                                                              ),
-                                                                        ),
-                                                                        child:
-                                                                            (evSnap.data ==
-                                                                                        null ||
-                                                                                    evSnap.data!.docs.isEmpty)
-                                                                                ? const Center(
-                                                                                  child: Text(
-                                                                                    'No logs',
-                                                                                  ),
-                                                                                )
-                                                                                : ListView.builder(
-                                                                                  itemCount:
-                                                                                      evSnap.data!.docs.length,
-                                                                                  itemBuilder: (
-                                                                                    context,
-                                                                                    index,
-                                                                                  ) {
-                                                                                    final ev =
-                                                                                        evSnap.data!.docs[index].data();
-                                                                                    final sid =
-                                                                                        ev['studentId']
-                                                                                            as String?;
-                                                                                    final name =
-                                                                                        (sid ==
-                                                                                                null)
-                                                                                            ? '(unknown)'
-                                                                                            : (nameOf[sid] ??
-                                                                                                sid);
-                                                                                    final timeStr =
-                                                                                        (ev['ts']
-                                                                                                is Timestamp)
-                                                                                            ? (ev['ts']
-                                                                                                    as Timestamp)
-                                                                                                .toDate()
-                                                                                                .toLocal()
-                                                                                                .toString()
-                                                                                            : '-';
-                                                                                    final slot =
-                                                                                        ev['slotIndex']?.toString();
-                                                                                    final dev =
-                                                                                        (ev['deviceId']
-                                                                                                as String? ??
-                                                                                            '');
-                                                                                    final tail5 =
-                                                                                        dev.length >
-                                                                                                5
-                                                                                            ? dev.substring(
-                                                                                              dev.length -
-                                                                                                  5,
-                                                                                            )
-                                                                                            : dev;
-                                                                                    final clickType =
-                                                                                        (ev['clickType']
-                                                                                                as String? ??
-                                                                                            '');
-                                                                                    return ListTile(
-                                                                                      dense:
-                                                                                          true,
-                                                                                      title: Text(
-                                                                                        '$name (slot ${slot ?? '-'} • $clickType)',
-                                                                                      ),
-                                                                                      subtitle: Text(
-                                                                                        'dev …$tail5 • hubTs=${(ev['hubTs'] as num?)?.toInt() ?? 0} • $timeStr',
-                                                                                        style: const TextStyle(
-                                                                                          fontSize:
-                                                                                              12,
-                                                                                        ),
-                                                                                      ),
-                                                                                    );
-                                                                                  },
-                                                                                ),
-                                                                      ),
-                                                                    ),
-                                                                ],
-                                                              );
-                                                            },
-                                                          );
-                                                        },
-                                                      );
-                                                    },
-                                                  ),
-                                                ),
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ],
+                                  ),
                                 );
                               },
-                            ),
-                          ),
-                        ),
-                      ),
-
-                    // 우리 측 busy overlay (로그 초기화 등)
-                    if (_busy)
-                      Positioned.fill(
-                        child: Container(
-                          color: Colors.black.withOpacity(0.5),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const CircularProgressIndicator(
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  Colors.white,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Text(
-                                _busyMsg ?? 'Working…',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
+                            );
+                          },
                         ),
                       ),
                   ],
                 ),
               ),
             ),
+
+            // 수업 토글 FAB (서버 상태와 동기 표시)
+            if (sessionId != null)
+              StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                stream: fs.doc('sessions/$sessionId').snapshots(),
+                builder: (context, snap) {
+                  final running =
+                      (snap.data?.data()?['classRunning'] as bool?) ?? false;
+                  return _ClassToggleFabImage(
+                    running: running,
+                    onTap: _toggleClassRunningServer,
+                  );
+                },
+              ),
+
+            // Busy overlay
+            if (_busy)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black.withOpacity(0.5),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const CircularProgressIndicator(
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        _busyMsg ?? 'Working…',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
+        ),
+      ),
+    );
+  }
+
+  // ============== 디자인 내부(1280×720) ==============
+  Widget _DesignSurface({
+    required String sessionId,
+    required int cols,
+    required int rows,
+    required List<_RunInterval> serverIntervals,
+  }) {
+    final fs = FirebaseFirestore.instance;
+
+    bool isDuringRun(int ms) => _isDuringRunServer(ms, serverIntervals);
+
+    return Center(
+      child: Container(
+        width: 1280,
+        height: 720,
+        color: Colors.transparent,
+        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: fs.collection('sessions/$sessionId/seatMap').snapshots(),
+          builder: (context, seatSnap) {
+            final Map<String, String?> seatMap = {};
+            if (seatSnap.data != null) {
+              for (final d in seatSnap.data!.docs) {
+                seatMap[d.id] =
+                    (d.data()['studentId'] as String?)?.trim();
+              }
+            }
+
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: fs.collection('students').snapshots(),
+              builder: (context, stuSnap) {
+                final Map<String, String> nameOf = {};
+                if (stuSnap.data != null) {
+                  for (final d in stuSnap.data!.docs) {
+                    final x = d.data();
+                    final n = (x['name'] as String?)?.trim();
+                    if (n != null && n.isNotEmpty) nameOf[d.id] = n;
+                  }
+                }
+
+                return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                  stream: fs
+                      .collection('sessions/$sessionId/events')
+                      .orderBy('ts', descending: true)
+                      .limit(300)
+                      .snapshots(),
+                  builder: (context, evSnap) {
+                    final Map<String, String> lastSlotByStudent = {};
+                    final Map<String, int> lastMsByStudent = {};
+                    final Map<String, String> firstTouchColorByStudent = {}; // 'blue'|'gray'
+
+                    if (evSnap.data != null) {
+                      // 1) 오래된 → 최신 순서로 '첫 터치' 시점에서 색 확정
+                      for (final d in evSnap.data!.docs.reversed) {
+                        final x = d.data();
+                        final sid =
+                            (x['studentId'] as String?)?.trim();
+                        if (sid == null || sid.isEmpty) continue;
+
+                        final slot = _extractSlot(x['slotIndex'],
+                            triggerKey: x['triggerKey']);
+                        if (slot == null) continue;
+
+                        final int hubTs =
+                            (x['hubTs'] as num?)?.toInt() ?? 0;
+                        final int ts = (x['ts'] is Timestamp)
+                            ? (x['ts'] as Timestamp)
+                                .millisecondsSinceEpoch
+                            : 0;
+                        final ms = hubTs > ts ? hubTs : ts;
+
+                        firstTouchColorByStudent.putIfAbsent(
+                          sid,
+                          () => isDuringRun(ms) ? 'gray' : 'blue',
+                        );
+                      }
+
+                      // 2) 최신 기준으로 마지막 탭 상태/시간
+                      for (final d in evSnap.data!.docs) {
+                        final x = d.data();
+                        final sid =
+                            (x['studentId'] as String?)?.trim();
+                        if (sid == null || sid.isEmpty) continue;
+
+                        final slot = _extractSlot(x['slotIndex'],
+                            triggerKey: x['triggerKey']);
+                        if (slot == null) continue;
+                        final int hubTs =
+                            (x['hubTs'] as num?)?.toInt() ?? 0;
+                        final int ts = (x['ts'] is Timestamp)
+                            ? (x['ts'] as Timestamp)
+                                .millisecondsSinceEpoch
+                            : 0;
+                        final ms = hubTs > ts ? hubTs : ts;
+
+                        if (!lastMsByStudent.containsKey(sid) ||
+                            ms > lastMsByStudent[sid]!) {
+                          lastMsByStudent[sid] = ms;
+                          lastSlotByStudent[sid] = slot;
+                        }
+                      }
+                    }
+
+                    // 상단 정보
+                    final now = DateTime.now();
+                    final weekdayStr = [
+                      'SUN',
+                      'MON',
+                      'TUE',
+                      'WED',
+                      'THU',
+                      'FRI',
+                      'SAT'
+                    ][now.weekday % 7];
+                    final dateNumStr =
+                        '${now.month.toString().padLeft(2, "0")}.${now.day.toString().padLeft(2, "0")}';
+                    final totalSeats = cols * rows;
+                    final assignedCount = seatMap.values
+                        .where((v) => (v?.trim().isNotEmpty ?? false))
+                        .length;
+
+                    return Center(
+                      child: SizedBox(
+                        width: _kCardW,
+                        height: _kCardH,
+                        child: Container(
+                          padding:
+                              const EdgeInsets.fromLTRB(28, 24, 28, 24),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius:
+                                BorderRadius.circular(_kCardRadius),
+                            border: Border.all(
+                                color: _kCardBorder, width: 1),
+                          ),
+                          child: Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              // 날짜 • Board • 합계
+                              Row(
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(weekdayStr,
+                                          style: _weekdayTextStyle),
+                                      const SizedBox(width: 8),
+                                      Text(dateNumStr,
+                                          style: _dateNumTextStyle),
+                                    ],
+                                  ),
+                                  const Spacer(),
+                                  SizedBox(
+                                    width: 680,
+                                    height: 40,
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        color: const Color.fromARGB(
+                                            255, 211, 255, 110),
+                                        borderRadius:
+                                            BorderRadius.circular(
+                                                12.05),
+                                      ),
+                                      child: const Center(
+                                        child: Padding(
+                                          padding: EdgeInsets.symmetric(
+                                              horizontal: 16),
+                                          child: Text(
+                                            'Board',
+                                            maxLines: 1,
+                                            softWrap: false,
+                                            overflow:
+                                                TextOverflow.fade,
+                                            textAlign:
+                                                TextAlign.center,
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight:
+                                                  FontWeight.w700,
+                                              color: Colors.black,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  SizedBox(
+                                    width: 142,
+                                    child: Text(
+                                      '$assignedCount / $totalSeats',
+                                      textAlign: TextAlign.right,
+                                      style: const TextStyle(
+                                        fontSize: 25.26,
+                                        fontWeight: FontWeight.w700,
+                                        height: 25 / 25.26,
+                                        color: Color(0xFF001A36),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 18),
+
+                              // 좌석 그리드
+                              Expanded(
+                                child: _SeatGrid(
+                                  cols: cols,
+                                  rows: rows,
+                                  seatMap: seatMap,
+                                  nameOf: nameOf,
+                                  lastSlotByStudent:
+                                      lastSlotByStudent,
+                                  fixedColorByStudent:
+                                      firstTouchColorByStudent,
+                                  onSeatTap: (i) =>
+                                      _openSeatPicker(
+                                          seatIndex: i),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            );
+          },
         ),
       ),
     );
@@ -895,8 +658,6 @@ Future<void> _deleteSessionFully(String sid) async {
 
   // ===================== Session menu =====================
   Future<void> _openSessionMenu(BuildContext context) async {
-    _log('Open session sheet');
-
     final String? action = await showModalBottomSheet<String>(
       context: context,
       useRootNavigator: true,
@@ -916,37 +677,26 @@ Future<void> _deleteSessionFully(String sid) async {
                   leading: const Icon(Icons.fiber_new),
                   title: const Text('New session'),
                   subtitle: const Text('Set seat layout (cols/rows)'),
-                  onTap: () {
-                    _log('sheet tap: new_empty');
-                    Navigator.of(
-                      sheetCtx,
-                      rootNavigator: true,
-                    ).pop('new_empty');
-                  },
+                  onTap: () => Navigator.of(sheetCtx, rootNavigator: true)
+                      .pop('new_empty'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.folder_open),
                   title: const Text('Load existing session'),
-                  subtitle: const Text('Switch to a saved session & layout'),
-                  onTap: () {
-                    _log('sheet tap: load_existing');
-                    Navigator.of(
-                      sheetCtx,
-                      rootNavigator: true,
-                    ).pop('load_existing');
-                  },
+                  subtitle:
+                      const Text('Switch to a saved session & layout'),
+                  onTap: () => Navigator.of(sheetCtx, rootNavigator: true)
+                      .pop('load_existing'),
                 ),
                 const Divider(height: 0),
                 ListTile(
-                  leading: const Icon(Icons.delete_forever, color: Colors.red),
-                  title: const Text('Delete current session data (admin)'),
+                  leading: const Icon(Icons.delete_forever,
+                      color: Colors.red),
+                  title: const Text('Delete current session (admin)'),
                   subtitle: const Text(
-                    'Delete events, studentStats, and stats/summary',
-                  ),
-                  onTap: () {
-                    _log('sheet tap: purge');
-                    Navigator.of(sheetCtx, rootNavigator: true).pop('purge');
-                  },
+                      'Remove document + subcollections: events, seatMap, studentStats, stats.'),
+                  onTap: () => Navigator.of(sheetCtx, rootNavigator: true)
+                      .pop('purge'),
                 ),
               ],
             ),
@@ -955,11 +705,9 @@ Future<void> _deleteSessionFully(String sid) async {
       },
     );
 
-    _log('sheet closed with action=$action');
     if (!mounted || action == null) return;
 
     await _runNextFrame(() async {
-      _log('execute action: $action');
       switch (action) {
         case 'new_empty':
           await _createEmptySession(context);
@@ -971,14 +719,11 @@ Future<void> _deleteSessionFully(String sid) async {
           await _purgeCurrentSession(context);
           break;
       }
-      _log('done action: $action');
     });
   }
 
-  // ---------- New session (with cols/rows) ----------
+  // ---------- New session ----------
   Future<void> _createEmptySession(BuildContext context) async {
-    _log('createEmptySession: open dialog');
-
     final ctrlSid = TextEditingController(text: _defaultSessionId());
     int cols = 6;
     int rows = 4;
@@ -995,72 +740,62 @@ Future<void> _deleteSessionFully(String sid) async {
         return Theme(
           data: noSplashTheme,
           child: StatefulBuilder(
-            builder:
-                (context, setLocal) => AlertDialog(
-                  title: const Text('New session'),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
+            builder: (context, setLocal) => AlertDialog(
+              title: const Text('New session'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: ctrlSid,
+                    decoration: const InputDecoration(
+                      labelText: 'Session ID',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
                     children: [
-                      TextField(
-                        controller: ctrlSid,
-                        decoration: const InputDecoration(
-                          labelText: 'Session ID',
-                          border: OutlineInputBorder(),
+                      Expanded(
+                        child: _DialogStepper(
+                          label: 'Cols',
+                          value: cols,
+                          onChanged: (v) =>
+                              setLocal(() => cols = v.clamp(1, 12)),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _DialogStepper(
-                              label: 'Cols',
-                              value: cols,
-                              onChanged:
-                                  (v) => setLocal(() => cols = v.clamp(1, 12)),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _DialogStepper(
-                              label: 'Rows',
-                              value: rows,
-                              onChanged:
-                                  (v) => setLocal(() => rows = v.clamp(1, 12)),
-                            ),
-                          ),
-                        ],
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _DialogStepper(
+                          label: 'Rows',
+                          value: rows,
+                          onChanged: (v) =>
+                              setLocal(() => rows = v.clamp(1, 12)),
+                        ),
                       ),
                     ],
                   ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => _safeRootPop(false),
-                      child: const Text('Cancel'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => _safeRootPop(true),
-                      child: const Text('Create'),
-                    ),
-                  ],
-                ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                    onPressed: () => _safeRootPop(false),
+                    child: const Text('Cancel')),
+                ElevatedButton(
+                    onPressed: () => _safeRootPop(true),
+                    child: const Text('Create')),
+              ],
+            ),
           ),
         );
       },
     );
-    _log('createEmptySession: dialog result=$ok');
     if (ok != true) return;
 
+    final sid = ctrlSid.text.trim();
+    if (sid.isEmpty) return;
+
     await _runNextFrame(() async {
-      final sid = ctrlSid.text.trim();
-      if (sid.isEmpty) {
-        _log('createEmptySession: empty sid, abort');
-        return;
-      }
-
-      _log('createEmptySession: switch/bind sid=$sid');
       await _switchSessionAndBind(context, sid);
-
-      _log('createEmptySession: write sessions/$sid meta with cols/rows');
       await FirebaseFirestore.instance.doc('sessions/$sid').set({
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -1068,63 +803,42 @@ Future<void> _deleteSessionFully(String sid) async {
         'cols': cols,
         'rows': rows,
       }, SetOptions(merge: true));
-
-      // 새 세션이어도 초기화 UX 일관성 유지 (no-op이어도 호출)
       await _clearEventsForSession(sid);
-
       if (!mounted) return;
-      _log('createEmptySession: snackbar');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Started new session: $sid ($cols×$rows)')),
-      );
+          SnackBar(content: Text('Started new session: $sid ($cols×$rows)')));
     });
   }
 
   // ---------- Load existing ----------
   Future<void> _loadExistingSession(BuildContext context) async {
-    _log('loadExisting: pick dialog');
     final sid = await _pickSessionId(context, title: 'Load session');
-    _log('loadExisting: picked=$sid');
     if (sid == null) return;
 
     await _runNextFrame(() async {
-      _log('loadExisting: switch/bind sid=$sid');
       await _switchSessionAndBind(context, sid);
-
-      _log('loadExisting: touch updatedAt');
       await FirebaseFirestore.instance.doc('sessions/$sid').set({
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-
-      // ▶ 다른 세션 로드 시에도 초기화
       await _clearEventsForSession(sid);
-
       if (!mounted) return;
-      _log('loadExisting: snackbar');
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Loaded session: $sid')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Loaded session: $sid')));
     });
   }
 
-  // ---------- Common: switch + bind + set hub ----------
-  Future<void> _switchSessionAndBind(BuildContext context, String sid) async {
-    _log('switchSessionAndBind: start sid=$sid');
+  // ---------- Switch + bind + hub ----------
+  Future<void> _switchSessionAndBind(
+      BuildContext context, String sid) async {
     final session = context.read<SessionProvider>();
-
     session.setSession(sid);
-    _log('switchSessionAndBind: session.setSession done');
-
-    // hub가 이 세션을 따라가도록
     await FirebaseFirestore.instance.doc('hubs/$kHubId').set({
       'currentSessionId': sid,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
-    _log('switchSessionAndBind: hub updated');
   }
 
-  // ---------- Helpers ----------
-  // 서버 orderBy 없이 가져와 로컬에서 정렬
+  // ---------- helpers ----------
   Future<List<String>> _listRecentSessionIds({int limit = 50}) async {
     final fs = FirebaseFirestore.instance;
     try {
@@ -1138,24 +852,19 @@ Future<void> _deleteSessionFully(String sid) async {
         return vb.compareTo(va);
       });
       return docs.map((d) => d.id).toList();
-    } catch (e, st) {
-      _log('listRecentSessionIds error: $e\n$st');
+    } catch (_) {
       final alt = await fs.collection('sessions').limit(limit).get();
       return alt.docs.map((d) => d.id).toList();
     }
   }
 
-  Future<String?> _pickSessionId(
-    BuildContext context, {
-    required String title,
-  }) async {
+  Future<String?> _pickSessionId(BuildContext context,
+      {required String title}) async {
     final ids = await _listRecentSessionIds();
-    _log('pickSessionId: ${ids.length} items');
     if (ids.isEmpty) {
       if (!mounted) return null;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No saved sessions.')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('No saved sessions.')));
       return null;
     }
 
@@ -1178,22 +887,114 @@ Future<void> _deleteSessionFully(String sid) async {
                 height: 360,
                 child: ListView.builder(
                   itemCount: ids.length,
-                  itemBuilder:
-                      (_, i) => ListTile(
-                        title: Text(ids[i]),
-                        onTap: () => _safeRootPop(ids[i]),
-                      ),
+                  itemBuilder: (_, i) => ListTile(
+                    title: Text(ids[i]),
+                    onTap: () => _safeRootPop(ids[i]),
+                  ),
                 ),
               ),
               TextButton(
-                onPressed: () => _safeRootPop(null),
-                child: const Text('Cancel'),
-              ),
+                  onPressed: () => _safeRootPop(null),
+                  child: const Text('Cancel')),
             ],
           ),
         );
       },
     );
+  }
+
+  Future<void> _purgeCurrentSession(BuildContext context) async {
+    final sid = context.read<SessionProvider>().sessionId;
+    if (sid == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No session is set.')));
+      return;
+    }
+
+    final ok = await showDialog<bool>(
+      context: context,
+      useRootNavigator: true,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete current session'),
+        content: Text(
+          'This will remove the entire session (document + all subcollections):\n'
+          'events, seatMap, studentStats, stats.\n\n'
+          'sessions/$sid\n\n'
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => _safeRootPop(false),
+              child: const Text('Cancel')),
+          ElevatedButton(
+              onPressed: () => _safeRootPop(true),
+              child: const Text('Delete')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+
+    showDialog(
+      barrierDismissible: false,
+      context: context,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+      useRootNavigator: true,
+    );
+
+    try {
+      await _deleteSessionFully(sid);
+      final remain = await _listRecentSessionIds(limit: 50);
+      if (remain.isNotEmpty) {
+        final nextSid = remain.first;
+        await _switchSessionAndBind(context, nextSid);
+        await _clearEventsForSession(nextSid);
+        if (mounted) {
+          Navigator.of(context, rootNavigator: true).pop();
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(
+                  'Session "$sid" deleted. Switched to "$nextSid".')));
+        }
+      } else {
+        final session = context.read<SessionProvider>();
+        session.clear(); // nullable이면 사용
+        await FirebaseFirestore.instance.doc('hubs/$kHubId').set({
+          'currentSessionId': null,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+        if (mounted) {
+          Navigator.of(context, rootNavigator: true).pop();
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Session deleted. No sessions left.')));
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+    }
+  }
+
+  Future<void> _deleteCollection(
+      FirebaseFirestore fs, String path, int batchSize) async {
+    Query q = fs.collection(path).limit(batchSize);
+    while (true) {
+      final snap = await q.get();
+      if (snap.docs.isEmpty) break;
+      final batch = fs.batch();
+      for (final d in snap.docs) {
+        batch.delete(d.reference);
+      }
+      await batch.commit();
+      if (snap.docs.length < batchSize) break;
+    }
+  }
+
+  String _defaultSessionId() {
+    final now = DateTime.now();
+    return '${now.toIso8601String().substring(0, 10)}-'
+        '${now.hour.toString().padLeft(2, '0')}'
+        '${now.minute.toString().padLeft(2, '0')}';
   }
 
   Future<void> _openSeatPicker({required int seatIndex}) async {
@@ -1203,7 +1004,6 @@ Future<void> _deleteSessionFully(String sid) async {
 
     final seatNo = _seatKey(seatIndex);
 
-    // 학생 목록 로드(간단 버전)
     final stuSnap = await fs.collection('students').get();
     final items = <DropdownMenuItem<String?>>[
       const DropdownMenuItem<String?>(value: null, child: Text('— Empty —')),
@@ -1239,13 +1039,11 @@ Future<void> _deleteSessionFully(String sid) async {
             ),
             actions: [
               TextButton(
-                onPressed: () => _safeRootPop(false),
-                child: const Text('Cancel'),
-              ),
+                  onPressed: () => _safeRootPop(false),
+                  child: const Text('Cancel')),
               ElevatedButton(
-                onPressed: () => _safeRootPop(true),
-                child: const Text('Save'),
-              ),
+                  onPressed: () => _safeRootPop(true),
+                  child: const Text('Save')),
             ],
           ),
         );
@@ -1255,157 +1053,35 @@ Future<void> _deleteSessionFully(String sid) async {
     if (ok == true) {
       try {
         await _assignSeatExclusive(seatNo: seatNo, studentId: selected);
-        final name =
-            selected == null
-                ? 'Empty'
-                : ((await fs.doc('students/$selected').get()).data()?['name']
-                        as String? ??
+        final name = selected == null
+            ? 'Empty'
+            : ((await fs.doc('students/$selected').get())
+                        .data()?['name'] as String? ??
                     selected);
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Seat $seatNo → $name')));
-        _log('assignSeatExclusive OK: seat=$seatNo student=$selected');
-      } catch (e, st) {
-        _log('assignSeatExclusive ERROR: $e\n$st');
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Seat $seatNo → $name')));
+      } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Assign failed: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Assign failed: $e')));
       }
     }
   }
 
-  // ====== Admin purge ======
-  Future<void> _purgeCurrentSession(BuildContext context) async {
-  final sid = context.read<SessionProvider>().sessionId;
-  _log('purge: start (sid=$sid)');
-  if (sid == null) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('No session is set.')));
-    return;
-  }
-
-  final ok = await showDialog<bool>(
-    context: context,
-    useRootNavigator: true,
-    builder: (_) => AlertDialog(
-      title: const Text('Delete current session'),
-      content: Text(
-        'This will remove the entire session (document + all subcollections):\n'
-        'events, seatMap, studentStats, stats.\n\n'
-        'sessions/$sid\n\n'
-        'This cannot be undone.',
-      ),
-      actions: [
-        TextButton(onPressed: () => _safeRootPop(false), child: const Text('Cancel')),
-        ElevatedButton(onPressed: () => _safeRootPop(true), child: const Text('Delete')),
-      ],
-    ),
-  );
-  _log('purge: confirm result=$ok');
-  if (ok != true) return;
-
-  // 로딩 오버레이
-  showDialog(
-    barrierDismissible: false,
-    context: context,
-    builder: (_) => const Center(child: CircularProgressIndicator()),
-    useRootNavigator: true,
-  );
-
-  try {
-    // 1) 세션 완전 삭제
-    await _deleteSessionFully(sid);
-
-    // 2) 가장 최근 세션 자동 선택(있으면)
-    final remain = await _listRecentSessionIds(limit: 50);
-    if (remain.isNotEmpty) {
-      final nextSid = remain.first;
-      _log('purge: switch to next recent session "$nextSid"');
-      await _switchSessionAndBind(context, nextSid);
-
-      // 기존 UX와 맞추려면 로드 직후 이벤트도 정리
-      await _clearEventsForSession(nextSid);
-
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop(); // 로딩 닫기
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Session "$sid" deleted. Switched to "$nextSid".')),
-        );
-      }
-    } else {
-      // 3) 남은 세션이 없으면 언바인드
-      final session = context.read<SessionProvider>();
-      // SessionProvider가 nullable이면 아래 한 줄이 동작합니다.
-      session.clear();
-
-      await FirebaseFirestore.instance.doc('hubs/$kHubId').set({
-        'currentSessionId': null,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop(); // 로딩 닫기
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Session deleted. No sessions left.')),
-        );
-      }
-    }
-  } catch (e, st) {
-    _log('purge ERROR: $e\n$st');
-    if (!mounted) return;
-    Navigator.of(context, rootNavigator: true).pop(); // 로딩 닫기
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Delete failed: $e')),
-    );
-  }
-}
-
-
-  Future<void> _deleteCollection(
-    FirebaseFirestore fs,
-    String path,
-    int batchSize,
-  ) async {
-    Query q = fs.collection(path).limit(batchSize);
-    while (true) {
-      final snap = await q.get();
-      if (snap.docs.isEmpty) break;
-      final batch = fs.batch();
-      for (final d in snap.docs) {
-        batch.delete(d.reference);
-      }
-      await batch.commit();
-      if (snap.docs.length < batchSize) break;
-    }
-    _log('deleteCollection: done $path');
-  }
-
-  String _defaultSessionId() {
-    final now = DateTime.now();
-    return '${now.toIso8601String().substring(0, 10)}-'
-        '${now.hour.toString().padLeft(2, '0')}'
-        '${now.minute.toString().padLeft(2, '0')}';
-  }
-
-  // ===== exclusive seat assign (no duplicates) =====
   Future<void> _assignSeatExclusive({
     required String seatNo,
-    required String? studentId, // null이면 비우기
+    required String? studentId,
   }) async {
     final sid = context.read<SessionProvider>().sessionId;
     if (sid == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No session is set.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No session is set.')));
       return;
     }
-
     final fs = FirebaseFirestore.instance;
     final col = fs.collection('sessions/$sid/seatMap');
 
-    // 미리 중복 후보 목록 조회 (쿼리는 트랜잭션 밖에서만 가능)
     List<DocumentSnapshot<Map<String, dynamic>>> dupDocs = const [];
     if (studentId != null) {
       final qSnap =
@@ -1414,7 +1090,6 @@ Future<void> _deleteSessionFully(String sid) async {
     }
 
     await fs.runTransaction((tx) async {
-      // 1) 기존에 그 학생이 앉아 있던 다른 좌석 -> 비우기
       for (final d in dupDocs) {
         if (d.id == seatNo) continue;
         final dr = col.doc(d.id);
@@ -1424,49 +1099,25 @@ Future<void> _deleteSessionFully(String sid) async {
           tx.set(dr, {'studentId': null}, SetOptions(merge: true));
         }
       }
-      // 2) 타깃 좌석 최종 배정/비우기
       final targetRef = col.doc(seatNo);
       tx.set(targetRef, {'studentId': studentId}, SetOptions(merge: true));
     });
   }
 }
 
-enum _SeatState { empty, assignedAbsent, attended, actioned }
+// ===== 좌석 상태(간소화: slot 목적 없이 탭 유무만) =====
+enum _SeatState { empty, assignedAbsent, attended }
 
-_SeatState _seatStateByPurpose({
+_SeatState _seatStateByPresence({
   required bool hasStudent,
-  required String? lastSlot,
-  required String? Function(String studentId, String slot) purposeOfSlot,
-  required String studentId,
+  required bool tapped,
 }) {
   if (!hasStudent) return _SeatState.empty;
-  if (lastSlot == null) return _SeatState.assignedAbsent;
-
-  final purpose = purposeOfSlot(
-    studentId,
-    lastSlot,
-  ); // 'attendance' | 'action' | null
-  if (purpose == 'attendance') return _SeatState.attended;
-  if (purpose == 'action') return _SeatState.actioned;
-
-  return _SeatState.assignedAbsent;
-}
-
-Color _colorOfState(_SeatState s) {
-  switch (s) {
-    case _SeatState.empty:
-      return Colors.white; // 빈 좌석
-    case _SeatState.assignedAbsent:
-      return Colors.black; // 미출석(검정)
-    case _SeatState.attended:
-      return _kSoftBlueBg; // 출석(연파랑)
-    case _SeatState.actioned:
-      return _kSoftPinkBg; // 액션(연핑크)
-  }
+  if (!tapped) return _SeatState.assignedAbsent;
+  return _SeatState.attended;
 }
 
 /* ---------- Seat Grid ---------- */
-
 class _SeatGrid extends StatelessWidget {
   const _SeatGrid({
     required this.cols,
@@ -1474,8 +1125,8 @@ class _SeatGrid extends StatelessWidget {
     required this.seatMap,
     required this.nameOf,
     required this.lastSlotByStudent,
+    required this.fixedColorByStudent,
     required this.onSeatTap,
-    required this.purposeOfSlot,
   });
 
   final int cols;
@@ -1483,17 +1134,10 @@ class _SeatGrid extends StatelessWidget {
   final Map<String, String?> seatMap; // seatNo -> studentId?
   final Map<String, String> nameOf; // studentId -> name
   final Map<String, String> lastSlotByStudent; // studentId -> '1' | '2'
+  final Map<String, String> fixedColorByStudent; // studentId -> 'gray' | 'blue'
   final ValueChanged<int> onSeatTap;
 
-  final String? Function(String studentId, String slot) purposeOfSlot;
-
   String _seatKey(int index) => '${index + 1}';
-
-  Color? _highlightColor(String? slot) {
-    if (slot == '2') return Colors.lightGreenAccent; // slot2=초록
-    if (slot == '1') return Colors.redAccent; // slot1=빨강
-    return null;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -1505,21 +1149,21 @@ class _SeatGrid extends StatelessWidget {
         const mainSpacing = 24.0;
 
         final gridW = c.maxWidth;
-final gridH = c.maxHeight - 2; // ⬅️ 1~2px 여유로 오차 흡수
-final tileW = (gridW - crossSpacing * (cols - 1)) / cols;
-final tileH = (gridH - mainSpacing * (rows - 1)) / rows;
-final ratio = (tileW / tileH).isFinite ? tileW / tileH : 1.0;
+        final gridH = c.maxHeight - 2;
+        final tileW = (gridW - crossSpacing * (cols - 1)) / cols;
+        final tileH = (gridH - mainSpacing * (rows - 1)) / rows;
+        final ratio = (tileW / tileH).isFinite ? tileW / tileH : 1.0;
 
-return GridView.builder(
-  padding: const EdgeInsets.only(bottom: 8), // ⬅️ 마지막 줄 여유 공간
-  physics: const NeverScrollableScrollPhysics(),
-  itemCount: seatCount,
-  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-    crossAxisCount: cols,
-    crossAxisSpacing: crossSpacing,
-    mainAxisSpacing: mainSpacing,
-    childAspectRatio: ratio,
-  ),
+        return GridView.builder(
+          padding: const EdgeInsets.only(bottom: 8),
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: seatCount,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: cols,
+            crossAxisSpacing: crossSpacing,
+            mainAxisSpacing: mainSpacing,
+            childAspectRatio: ratio,
+          ),
           itemBuilder: (context, index) {
             final seatNo = _seatKey(index);
             final seatStudentId = seatMap[seatNo]?.trim();
@@ -1527,27 +1171,36 @@ return GridView.builder(
                 seatStudentId != null && seatStudentId.isNotEmpty;
             final name =
                 hasStudent ? (nameOf[seatStudentId!] ?? seatStudentId) : null;
-            final lastSlot =
-                hasStudent ? lastSlotByStudent[seatStudentId!] : null;
 
-            final state = _seatStateByPurpose(
-              hasStudent: hasStudent,
-              lastSlot: lastSlot,
-              purposeOfSlot: purposeOfSlot,
-              studentId: seatStudentId ?? '',
-            );
-            final fillColor = _colorOfState(state);
+            final tapped =
+                hasStudent ? lastSlotByStudent.containsKey(seatStudentId!) : false;
+            final state =
+                _seatStateByPresence(hasStudent: hasStudent, tapped: tapped);
+
+            // 색 계산 (폴백=연파랑, 절대 running으로 회색 강제 X)
+            Color fillColor;
+            if (!hasStudent) {
+              fillColor = Colors.white;
+            } else if (state == _SeatState.assignedAbsent) {
+              fillColor = _kAssignedAbsent;
+            } else {
+              final fixed = fixedColorByStudent[seatStudentId!]; // 'gray'|'blue'|null
+              if (fixed == 'gray') {
+                fillColor = _kDuringClassGray; // 수업 중 '첫 터치'였다면 회색 고정
+              } else {
+                // 'blue'이거나 아직 없으면(지연) 기본 연파랑
+                fillColor = _kAttendedBlue;
+              }
+            }
+
             final isDark = fillColor.computeLuminance() < 0.5;
             final nameColor = isDark ? Colors.white : const Color(0xFF0B1324);
             final seatNoColor =
                 isDark ? Colors.white70 : const Color(0xFF1F2937);
             final showDashed = (state == _SeatState.empty);
 
-            // ... itemBuilder 내부 공통 계산( seatNo, hasStudent, state 등 ) 그대로 두고
-
             final tile = LayoutBuilder(
               builder: (ctx, cc) {
-                // 디자인 기준(피그마) 대비 스케일: 기본치 계산은 유지
                 const baseH = 76.0;
                 final s = (cc.maxHeight / baseH).clamp(0.6, 2.2);
 
@@ -1559,85 +1212,77 @@ return GridView.builder(
                 final gap = (2.0 * s).clamp(1.0, 8.0);
 
                 Widget contentColumn() => Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      seatNo,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textHeightBehavior: const TextHeightBehavior(
-                        applyHeightToFirstAscent: false,
-                        applyHeightToLastDescent: false,
-                      ),
-                      style: TextStyle(
-                        fontSize: fsSeat,
-                        height: 1.0, // 라인 여백 최소화
-                        color: seatNoColor,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    SizedBox(height: gap),
-                    Text(
-                      name ?? '',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      textHeightBehavior: const TextHeightBehavior(
-                        applyHeightToFirstAscent: false,
-                        applyHeightToLastDescent: false,
-                      ),
-                      style: TextStyle(
-                        fontSize: fsName,
-                        height: 1.0,
-                        color: nameColor,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                );
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          seatNo,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textHeightBehavior: const TextHeightBehavior(
+                            applyHeightToFirstAscent: false,
+                            applyHeightToLastDescent: false,
+                          ),
+                          style: TextStyle(
+                            fontSize: fsSeat,
+                            height: 1.0,
+                            color: seatNoColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        SizedBox(height: gap),
+                        Text(
+                          name ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          textHeightBehavior: const TextHeightBehavior(
+                            applyHeightToFirstAscent: false,
+                            applyHeightToLastDescent: false,
+                          ),
+                          style: TextStyle(
+                            fontSize: fsName,
+                            height: 1.0,
+                            color: nameColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    );
 
-                // 타일(배경/모서리) 크기는 고정, 내부 컨텐츠는 필요 시 축소
                 final contentBox = Container(
                   decoration: BoxDecoration(
                     color: fillColor,
                     borderRadius: BorderRadius.circular(radius),
                     border:
-                        showDashed
-                            ? null
-                            : Border.all(color: Colors.transparent),
+                        showDashed ? null : Border.all(color: Colors.transparent),
                   ),
                   alignment: Alignment.center,
-                  padding: EdgeInsets.symmetric(
-                    horizontal: padH,
-                    vertical: padV,
-                  ),
-                  child:
-                      hasStudent
-                          ? FittedBox(
-                            // ✅ 넘치면 자동으로 축소
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.center,
-                            child: contentColumn(),
-                          )
-                          : const SizedBox.shrink(),
+                  padding:
+                      EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+                  child: hasStudent
+                      ? FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.center,
+                          child: contentColumn(),
+                        )
+                      : const SizedBox.shrink(),
                 );
 
                 return showDashed
                     ? CustomPaint(
-                      foregroundPainter: _DashedBorderPainter(
-                        radius: radius + 4,
-                        color: const Color(0xFFCBD5E1),
-                        strokeWidth: (2.0 * s).clamp(1.2, 3.0),
-                        dash: (8.0 * s).clamp(5.0, 12.0),
-                        gap: (6.0 * s).clamp(3.0, 10.0),
-                      ),
-                      child: contentBox,
-                    )
+                        foregroundPainter: _DashedBorderPainter(
+                          radius: radius + 4,
+                          color: const Color(0xFFCBD5E1),
+                          strokeWidth: (2.0 * s).clamp(1.2, 3.0),
+                          dash: (8.0 * s).clamp(5.0, 12.0),
+                          gap: (6.0 * s).clamp(3.0, 10.0),
+                        ),
+                        child: contentBox,
+                      )
                     : contentBox;
               },
             );
 
-            // 반환
             return InkWell(onTap: () => onSeatTap(index), child: tile);
           },
         );
@@ -1646,7 +1291,7 @@ return GridView.builder(
   }
 }
 
-/* ---------- small UI pieces ---------- */
+/* ---------- 작은 UI들 ---------- */
 
 class _DialogStepper extends StatelessWidget {
   const _DialogStepper({
@@ -1681,21 +1326,15 @@ class _DialogStepper extends StatelessWidget {
           ),
           Row(
             children: [
-              _roundBtn(
-                Icons.remove,
-                onTap: () => onChanged((value - 1).clamp(1, 12)),
-              ),
+              _roundBtn(Icons.remove,
+                  onTap: () => onChanged((value - 1).clamp(1, 12))),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Text(
-                  '$value',
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
+                child: Text('$value',
+                    style: const TextStyle(fontWeight: FontWeight.w800)),
               ),
-              _roundBtn(
-                Icons.add,
-                onTap: () => onChanged((value + 1).clamp(1, 12)),
-              ),
+              _roundBtn(Icons.add,
+                  onTap: () => onChanged((value + 1).clamp(1, 12))),
             ],
           ),
         ],
@@ -1715,8 +1354,7 @@ class _DialogStepper extends StatelessWidget {
   }
 }
 
-/* ---------- dashed border painter ---------- */
-
+/* ---------- dashes ---------- */
 class _DashedBorderPainter extends CustomPainter {
   _DashedBorderPainter({
     required this.radius,
@@ -1735,16 +1373,13 @@ class _DashedBorderPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final rrect = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(radius),
-    );
+        Offset.zero & size, Radius.circular(radius));
     final path = Path()..addRRect(rrect);
 
-    final paint =
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = strokeWidth
-          ..color = color;
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..color = color;
 
     for (final metric in path.computeMetrics()) {
       double distance = 0.0;
@@ -1759,76 +1394,69 @@ class _DashedBorderPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _DashedBorderPainter oldDelegate) {
-    return radius != oldDelegate.radius ||
-        strokeWidth != oldDelegate.strokeWidth ||
-        dash != oldDelegate.dash ||
-        gap != oldDelegate.gap ||
-        color != oldDelegate.color;
+  bool shouldRepaint(covariant _DashedBorderPainter old) {
+    return radius != old.radius ||
+        strokeWidth != old.strokeWidth ||
+        dash != old.dash ||
+        gap != old.gap ||
+        color != old.color;
   }
 }
 
-class _SlotMappingPill extends StatelessWidget {
-  const _SlotMappingPill({
-    required this.slot1,
-    required this.slot2,
-    required this.onChanged,
+/* ---------- 수업 토글 FAB & 런 이력 ---------- */
+
+class _RunInterval {
+  _RunInterval(this.startMs, [this.endMs]);
+  final int startMs;
+  final int? endMs;
+}
+
+class _ClassToggleFabImage extends StatelessWidget {
+  const _ClassToggleFabImage({
+    required this.running,
+    required this.onTap,
   });
 
-  final SlotPurpose slot1;
-  final SlotPurpose slot2;
-  final Future<void> Function(String slot, SlotPurpose purpose) onChanged;
+  final bool running;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    Widget buildSelector({
-      required String label,
-      required String slot,
-      required SlotPurpose value,
-    }) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(width: 8),
-          DropdownButton<SlotPurpose>(
-            value: value,
-            onChanged: (v) {
-              if (v != null) onChanged(slot, v);
-            },
-            items: const [
-              DropdownMenuItem(
-                value: SlotPurpose.attendance,
-                child: Text('Attendance'),
+    return Positioned(
+      right: 16,
+      bottom: 16,
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          width: 200,
+          height: 200,
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              hoverColor: Colors.black.withOpacity(0.05),
+              splashColor: Colors.black.withOpacity(0.1),
+              onTap: onTap,
+              child: Tooltip(
+                message: running ? 'Stop class' : 'Start class',
+                child: Padding(
+                  padding: const EdgeInsets.all(10.0),
+                  child: Image.asset(
+                    running
+                        ? 'assets/logo_bird_done.png'
+                        : 'assets/logo_bird_begin.png',
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => Icon(
+                      running ? Icons.stop_circle : Icons.play_circle_fill,
+                      size: 64,
+                      color: running ? Colors.redAccent : Colors.indigo,
+                    ),
+                  ),
+                ),
               ),
-              DropdownMenuItem(
-                value: SlotPurpose.action,
-                child: Text('Action'),
-              ),
-            ],
+            ),
           ),
-        ],
-      );
-    }
-
-    return Container(
-      height: 42,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFD2D2D2)),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          buildSelector(label: 'Slot 1', slot: '1', value: slot1),
-          const SizedBox(width: 16),
-          buildSelector(label: 'Slot 2', slot: '2', value: slot2),
-        ],
+        ),
       ),
     );
   }
