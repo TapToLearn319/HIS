@@ -43,6 +43,7 @@ import 'pages/display_standby.dart';
 import 'pages/tools/debate.dart';
 import 'pages/tools/vote/vote_manager.dart';
 import 'pages/tools/button_test_page.dart';
+import 'pages/tools/display_button_test.dart';
 
 // import 'provider/button_provider.dart';
 // import 'provider/logs_provider.dart';
@@ -331,6 +332,7 @@ class _DisplayAppState extends State<DisplayApp> {
         '/tools/voting': (_) => DisplayVotePage(),
         '/tools/grouping': (_) => GroupDisplayPage(),
         '/tools/random_seat': (_) => DisplayRandomSeatPage(),
+        '/tools/button_test': (_) => ButtonTestDisplayPage(),
         '/profile/student': (_) => const DisplayStandByPage(),
         '/profile/class': (_) => const DisplayStandByPage(),
       },

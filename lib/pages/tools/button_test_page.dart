@@ -33,6 +33,16 @@ const _dateNumTextStyle = TextStyle(
 
 // ===== 테스트 단계 정의 ===== (1번 single, 2번 single, 1번 hold, 2번 hold, 1-2-1 single)
 enum _StepKind { single1st, single2nd, hold1st, hold2nd, onetwoone }
+String stepKey(_StepKind s) {
+  switch (s) {
+    case _StepKind.single1st: return 'single1st';
+    case _StepKind.single2nd: return 'single2nd';
+    case _StepKind.hold1st:   return 'hold1st';
+    case _StepKind.hold2nd:   return 'hold2nd';
+    case _StepKind.onetwoone: return 'onetwoone';
+  }
+}
+
 
 String _headlineOf(_StepKind step) {
   switch (step) {
@@ -81,41 +91,57 @@ class _ButtonTestPageState extends State<ButtonTestPage> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
-      await _clearEventsForCurrentSession(context);
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Logs have been reset!')));
-    });
-  }
+void initState() {
+  super.initState();
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    if (!mounted) return;
+    await _clearEventsForCurrentSession(context);
+
+    // 🔹 현재 단계도 Firestore에 반영해서 display와 초기에 맞춰줌
+    final sid = context.read<SessionProvider>().sessionId;
+    if (sid != null) {
+      await FirebaseFirestore.instance.doc('sessions/$sid').set({
+        'testStep': stepKey(_step),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      .showSnackBar(const SnackBar(content: Text('Logs have been reset!')));
+  });
+}
 
   Future<void> _goNext() async {
-    await _clearEventsForCurrentSession(context);
-    if (!mounted) return;
+  final sid = context.read<SessionProvider>().sessionId;
+  if (sid == null) return;
 
-    setState(() {
-      switch (_step) {
-        case _StepKind.single1st:
-          _step = _StepKind.single2nd;
-          break;
-        case _StepKind.single2nd:
-          _step = _StepKind.hold1st;
-          break;
-        case _StepKind.hold1st:
-          _step = _StepKind.hold2nd;
-          break;
-        case _StepKind.hold2nd:
-          _step = _StepKind.onetwoone;
-          break;
-        case _StepKind.onetwoone:
-          break;
-      }
-    });
+  // 1) 다음 단계 계산
+  _StepKind next;
+  switch (_step) {
+    case _StepKind.single1st: next = _StepKind.single2nd; break;
+    case _StepKind.single2nd: next = _StepKind.hold1st;   break;
+    case _StepKind.hold1st:   next = _StepKind.hold2nd;   break;
+    case _StepKind.hold2nd:   next = _StepKind.onetwoone; break;
+    case _StepKind.onetwoone: next = _StepKind.onetwoone; break; // 마지막은 유지
   }
+
+  // 2) 이전 단계 로그 비우기(디스플레이에서 잘못 판정되는 것 방지)
+  await _clearEventsForCurrentSession(context);
+
+  // 3) Firestore에 다음 단계 올리기 → display가 즉시 반영
+  await FirebaseFirestore.instance.doc('sessions/$sid').set({
+    'testStep': stepKey(next),
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  if (!mounted) return;
+
+  // 4) 로컬 상태도 동기화
+  setState(() {
+    _step = next;
+  });
+}
 
   // Firestore 이벤트의 슬롯 추출 (Attendance 로직 재사용)
   String? _extractSlot(dynamic raw, {String? triggerKey}) {
@@ -459,68 +485,79 @@ class _Body extends StatelessWidget {
                                     children: [
                                       // --- 상단 바 (기존 코드 유지) ---
                                       Row(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.center,
-                                        children: [
-                                          Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                weekdayStr,
-                                                style: _weekdayTextStyle,
-                                              ),
-                                              const SizedBox(width: 8),
-                                              Text(
-                                                dateNumStr,
-                                                style: _dateNumTextStyle,
-                                              ),
-                                            ],
-                                          ),
-                                          const Spacer(),
-                                          Flexible(
-                                            flex: 0,
-                                            child: Text(
-                                              _headlineOf(step),
-                                              textAlign: TextAlign.center,
-                                              style: const TextStyle(
-                                                fontSize: 36,
-                                                fontWeight: FontWeight.w700,
-                                                color: Colors.black,
-                                              ),
-                                            ),
-                                          ),
-                                          const Spacer(),
-                                          Align(
-                                            alignment: Alignment.centerRight,
-                                            child: InkWell(
-                                              onTap: () async {
-                                                if (isLastStep) {
-                                                  // 마지막 단계면 종료 이동 (원하면 여기서 초기화 추가 호출 가능)
-                                                  Navigator.pushNamedAndRemoveUntil(
-                                                    context,
-                                                    '/tools',
-                                                    (route) => false,
-                                                  );
-                                                } else {
-                                                  await onNext(); // ← 단계 전환 전, 자동 초기화가 이미 실행됨
-                                                }
-                                              },
-                                              child: SizedBox(
-                                                width: 400,
-                                                height: 120,
-                                                child: FittedBox(
-                                                  fit: BoxFit.contain,
-                                                  child: Image.asset(
-                                                    isLastStep
-                                                        ? 'assets/test/logo_bird_done.png'
-                                                        : 'assets/test/logo_bird_next.png',
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+  crossAxisAlignment: CrossAxisAlignment.center,
+  children: [
+    // 날짜(좌) — 필요한 만큼만 차지
+    Flexible(
+      flex: 0,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(weekdayStr, style: _weekdayTextStyle),
+          const SizedBox(width: 8),
+          Text(dateNumStr, style: _dateNumTextStyle),
+        ],
+      ),
+    ),
+
+    const SizedBox(width: 8),
+
+    // 안내 문구(가운데) — 좁아지면 … 으로 잘림
+    Expanded(
+      child: Center(
+        child: Text(
+          _headlineOf(step),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 36,
+            fontWeight: FontWeight.w700,
+            color: Colors.black,
+          ),
+        ),
+      ),
+    ),
+
+    const SizedBox(width: 8),
+
+    // Next 이미지(우) — 가용 공간에 맞춰 축소, 비율 유지
+    Flexible(
+      flex: 0,
+      child: InkWell(
+        onTap: () async {
+          if (isLastStep) {
+            Navigator.pushNamedAndRemoveUntil(
+              context,
+              '/tools',
+              (route) => false,
+            );
+          } else {
+            await onNext();
+          }
+        },
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(
+            // 디자인 최대치만 지정 (필요 시 더 작아질 수 있음)
+            maxWidth: 400,
+            maxHeight: 120,
+          ),
+          child: AspectRatio(
+            aspectRatio: 400 / 120, // 원본 비율 유지
+            child: FittedBox(
+              fit: BoxFit.contain,   // 공간에 맞춰 축소/확대
+              child: Image.asset(
+                isLastStep
+                  ? 'assets/test/logo_bird_done.png'
+                  : 'assets/test/logo_bird_next.png',
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  ],
+),
                                       SizedBox(
                                         height: (24.0 * scale).clamp(
                                           12.0,
