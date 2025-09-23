@@ -110,7 +110,8 @@ ThemeData buildAppTheme({required Brightness brightness}) {
           EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         ),
         backgroundColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.disabled) ? cs.surfaceVariant : cs.surface,
+          (s) =>
+              s.contains(WidgetState.disabled) ? cs.surfaceVariant : cs.surface,
         ),
         foregroundColor: WidgetStatePropertyAll(cs.onSurface),
         side: WidgetStatePropertyAll(BorderSide(color: cs.outlineVariant)),
@@ -122,9 +123,11 @@ ThemeData buildAppTheme({required Brightness brightness}) {
     ),
     switchTheme: SwitchThemeData(
       trackColor: WidgetStateProperty.resolveWith(
-        (states) => states.contains(WidgetState.selected)
-            ? cs.onSurface // “검은색 느낌” 트랙
-            : cs.outlineVariant,
+        (states) =>
+            states.contains(WidgetState.selected)
+                ? cs
+                    .onSurface // “검은색 느낌” 트랙
+                : cs.outlineVariant,
       ),
       thumbColor: WidgetStatePropertyAll(cs.surface), // 라이트/다크 자동
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -339,3 +342,4 @@ class _DisplayAppState extends State<DisplayApp> {
     );
   }
 }
+//test
