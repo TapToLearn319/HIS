@@ -39,6 +39,9 @@ class TopicDetailPage extends StatelessWidget {
         final currentIndex = (topic?['currentIndex'] as num?)?.toInt();
         final currentQuizId = topic?['currentQuizId'] as String?;
         final questionStartedAt = topic?['questionStartedAt'] as Timestamp?;
+        // ★ 추가: ms 기반 시작 시각
+        final int? questionStartedAtMs =
+            (topic?['questionStartedAtMs'] is num) ? (topic?['questionStartedAtMs'] as num).toInt() : null;
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream: quizzesStream,
@@ -89,6 +92,8 @@ class TopicDetailPage extends StatelessWidget {
                               currentIndex: currentIndex,
                               currentQuizId: currentQuizId,
                               questionStartedAt: questionStartedAt,
+                              // ★ 전달
+                              questionStartedAtMs: questionStartedAtMs,
                             ),
                           ),
                         ),
@@ -641,6 +646,7 @@ class _RunBar extends StatefulWidget {
     required this.currentIndex,
     required this.currentQuizId,
     required this.questionStartedAt,
+    required this.questionStartedAtMs, // ★ 추가
   });
 
   final String hubId;
@@ -651,6 +657,7 @@ class _RunBar extends StatefulWidget {
   final int? currentIndex;
   final String? currentQuizId;
   final Timestamp? questionStartedAt;
+  final int? questionStartedAtMs; // ★ 추가
 
   @override
   State<_RunBar> createState() => _RunBarState();
@@ -749,6 +756,8 @@ class _RunBarState extends State<_RunBar> {
         'currentIndex': 0,
         'currentQuizId': first.id,
         'questionStartedAt': FieldValue.serverTimestamp(),
+        // ★ ms 버전 추가
+        'questionStartedAtMs': DateTime.now().millisecondsSinceEpoch,
         'startedAt': FieldValue.serverTimestamp(),
         'endedAt': null,
         'updatedAt': FieldValue.serverTimestamp(),
@@ -781,8 +790,11 @@ class _RunBarState extends State<_RunBar> {
   Future<void> _revealCurrent(BuildContext context) async {
     final idx = widget.currentIndex ?? -1;
     if (idx < 0 || idx >= widget.quizzes.length) return;
+
+    // ★ ms 기준 우선 사용, 없으면 Timestamp 사용
+    final startedAtMs = widget.questionStartedAtMs;
     final startedAt = widget.questionStartedAt;
-    if (startedAt == null) return;
+    if (startedAtMs == null && startedAt == null) return;
 
     _setBusy(true);
     try {
@@ -797,14 +809,16 @@ class _RunBarState extends State<_RunBar> {
         try {
           final counts = await _computeCountsForQuiz(
             qDoc,
-            startedAt: startedAt,
+            startedAtMs: startedAtMs ?? startedAt!.millisecondsSinceEpoch,
+            // endedAt는 liveByDevice에서는 사용하지 않지만 시그니처 보존
             endedAt: Timestamp.now(),
             prefix: _prefix,
           );
           await _fs.doc('$_prefix/quizTopics/${widget.topicId}/results/${qDoc.id}').set({
             'counts': counts,
             'correctIndex': (qDoc.data()['correctIndex'] as num?)?.toInt(),
-            'startedAt': startedAt,
+            'startedAt': startedAt ?? FieldValue.serverTimestamp(),
+            'startedAtMs': startedAtMs ?? DateTime.now().millisecondsSinceEpoch,
             'endedAt': FieldValue.serverTimestamp(),
             'computedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
@@ -822,8 +836,11 @@ class _RunBarState extends State<_RunBar> {
   Future<void> _nextOrFinish(BuildContext context) async {
     final idx = widget.currentIndex ?? -1;
     if (idx < 0 || idx >= widget.quizzes.length) return;
+
+    // ★ ms 기준 우선 사용
+    final startedAtMs = widget.questionStartedAtMs;
     final startedAt = widget.questionStartedAt;
-    if (startedAt == null) return;
+    if (startedAtMs == null && startedAt == null) return;
 
     _setBusy(true);
     try {
@@ -832,14 +849,15 @@ class _RunBarState extends State<_RunBar> {
       try {
         final counts = await _computeCountsForQuiz(
           qDoc,
-          startedAt: startedAt,
+          startedAtMs: startedAtMs ?? startedAt!.millisecondsSinceEpoch,
           endedAt: Timestamp.now(),
           prefix: _prefix,
         );
         await _fs.doc('$_prefix/quizTopics/${widget.topicId}/results/${qDoc.id}').set({
           'counts': counts,
           'correctIndex': (qDoc.data()['correctIndex'] as num?)?.toInt(),
-          'startedAt': startedAt,
+          'startedAt': startedAt ?? FieldValue.serverTimestamp(),
+          'startedAtMs': startedAtMs ?? DateTime.now().millisecondsSinceEpoch,
           'endedAt': FieldValue.serverTimestamp(),
           'computedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
@@ -865,6 +883,8 @@ class _RunBarState extends State<_RunBar> {
           'currentIndex': idx + 1,
           'currentQuizId': next.id,
           'questionStartedAt': FieldValue.serverTimestamp(),
+          // ★ ms도 함께 갱신
+          'questionStartedAtMs': DateTime.now().millisecondsSinceEpoch,
           'updatedAt': FieldValue.serverTimestamp(),
           'showSummaryOnDisplay': false,
         }, SetOptions(merge: true));
@@ -963,57 +983,63 @@ class _RunBarState extends State<_RunBar> {
 
   Future<List<int>> _computeCountsForQuiz(
     QueryDocumentSnapshot<Map<String, dynamic>> quizDoc, {
-    required Timestamp startedAt,
-    required Timestamp endedAt,
-    required String prefix, // hubs/{hubId}
+    required int startedAtMs,   // ★ ms 기준
+    required Timestamp endedAt, // 시그니처 보존
+    required String prefix,     // hubs/{hubId}
   }) async {
-    // hubs/{hubId} 문서에서 currentSessionId 참조
+    // 허브에서 currentSessionId 읽어와서 가능하면 sessionId로 필터
     final hubDoc = await _fs.doc(prefix).get();
     final sid = hubDoc.data()?['currentSessionId'] as String?;
-    if (sid == null || sid.isEmpty) {
-      final choiceLen = ((quizDoc.data()['choices'] as List?) ?? const []).length;
-      return List<int>.filled(choiceLen, 0);
-    }
 
     final qx = quizDoc.data();
     final List<String> triggers =
         (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ?? const [];
     final choiceLen = triggers.length;
 
-    final q = await _fs
-        .collection('$prefix/sessions/$sid/events')
-        .where('ts', isGreaterThanOrEqualTo: startedAt)
-        .orderBy('ts', descending: false)
-        .get();
+    // liveByDevice에서 시작 ms 이후 업데이트만 집계
+    Query<Map<String, dynamic>> q =
+        _fs.collection('$prefix/liveByDevice').where('lastHubTs', isGreaterThanOrEqualTo: startedAtMs);
 
-    final startMs = startedAt.millisecondsSinceEpoch;
-    final endMs = endedAt.millisecondsSinceEpoch;
+    if (sid != null && sid.isNotEmpty) {
+      // 정확도를 위해 세션도 함께 필터 (복합 인덱스 필요할 수 있음)
+      q = q.where('sessionId', isEqualTo: sid);
+    }
 
-    final Map<String, _Last> last = {};
-    for (final d in q.docs) {
+    final snap = await q.get();
+
+    // 학생별 최신 lastHubTs만 카운트
+    final Map<String, _Last> lastByStudent = {};
+
+    String _toTrig(String slotIndex, String clickType) {
+      final isHold = (clickType == 'hold');
+      if (slotIndex == '1') return isHold ? 'S1_HOLD' : 'S1_CLICK';
+      return isHold ? 'S2_HOLD' : 'S2_CLICK';
+    }
+
+    for (final d in snap.docs) {
       final x = d.data();
-      final ts = x['ts'] as Timestamp?;
-      if (ts == null) continue;
-      final t = ts.millisecondsSinceEpoch;
-      if (t < startMs || t > endMs) continue;
 
-      final sidStudent = x['studentId'] as String?;
-      final slotIndex = x['slotIndex']?.toString();
-      final clickType = (x['clickType'] as String?)?.toLowerCase();
+      final studentId = (x['studentId'] ?? '').toString();
+      if (studentId.isEmpty) continue;
 
-      if (sidStudent == null) continue;
-      if (slotIndex != '1' && slotIndex != '2') continue;
-      if (clickType != 'click' && clickType != 'hold') continue;
+      final slot = (x['slotIndex'] ?? '').toString();
+      if (slot != '1' && slot != '2') continue;
 
-      final trig = (slotIndex == '1')
-          ? (clickType == 'click' ? 'S1_CLICK' : 'S1_HOLD')
-          : (clickType == 'click' ? 'S2_CLICK' : 'S2_HOLD');
+      final clickType = (x['clickType'] ?? 'click').toString();
+      final hubTs = (x['lastHubTs'] is num) ? (x['lastHubTs'] as num).toInt() : 0;
+      if (hubTs <= startedAtMs) continue;
 
-      last[sidStudent] = _Last(t, trig);
+      final trig = _toTrig(slot, clickType);
+      if (!triggers.contains(trig)) continue;
+
+      final cur = lastByStudent[studentId];
+      if (cur == null || hubTs >= cur.t) {
+        lastByStudent[studentId] = _Last(hubTs, trig);
+      }
     }
 
     final counts = List<int>.filled(choiceLen, 0);
-    for (final v in last.values) {
+    for (final v in lastByStudent.values) {
       final idx = triggers.indexOf(v.trig);
       if (idx >= 0 && idx < counts.length) counts[idx]++;
     }

@@ -34,11 +34,8 @@ class _DisplayQuizPageState extends State<DisplayQuizPage> {
 
     // 허브 경로
     final hubPath = context.watch<HubProvider>().hubDocPath;
-    print('🔎 Display hubId=${context.read<HubProvider?>()?.hubId}, hubPath=${context.read<HubProvider?>()?.hubDocPath}');
-
+    // 무조건 허브가 있어야 진행
     if (hubPath == null) {
-      // 허브 미선택 시 대기화면
-      
       return const Scaffold(body: _WaitingScreen());
     }
 
@@ -65,7 +62,7 @@ class _DisplayQuizPageState extends State<DisplayQuizPage> {
             return const _WaitingScreen();
           }
 
-          // 1) running 중인 토픽 중 "가장 최근" 것을 무조건 표시 (fresh 필터 제거)
+          // 1) running 중인 토픽 중 "가장 최근" 것을 표시
           final running = docs
               .where((d) => (d.data()['status'] as String?) == 'running')
               .toList()
@@ -83,19 +80,33 @@ class _DisplayQuizPageState extends State<DisplayQuizPage> {
             final phase = (x['phase'] as String?) ?? 'finished';
             final currentQuizId = x['currentQuizId'] as String?;
             final title = (x['title'] as String?) ?? '';
+
             if (phase == 'finished' || currentQuizId == null) {
               return const _WaitingScreen();
             }
+
+            // 시작 기준 시각(ms) 확보: questionStartedAtMs → fallback questionStartedAt
+            final startMs = (x['questionStartedAtMs'] is num)
+                ? (x['questionStartedAtMs'] as num).toInt()
+                : ((x['questionStartedAt'] is Timestamp)
+                    ? (x['questionStartedAt'] as Timestamp)
+                        .millisecondsSinceEpoch
+                    : null);
+
+            // 가능하면 세션ID도 넘겨서 필터 정확도↑
+            final sessionId = (x['sessionId'] as String?)?.trim();
+
             return _ActiveQuizView(
               topicId: d.id,
               title: title,
               phase: phase, // 'question' | 'reveal'
               currentQuizId: currentQuizId,
+              startMs: startMs,
+              sessionId: sessionId,
             );
           }
 
-          // 2) running이 없고, 명시적으로 디스플레이 요약 요청된 경우
-          //    ⚠️ updatedAt 이 디스플레이 오픈 이후인 경우에만 반영 (과거 Show Result 무시)
+          // 2) running이 없고 디스플레이 요약 요청이 신선하면 표시
           final showSummary = docs.where((d) {
             final x = d.data();
             final want = (x['showSummaryOnDisplay'] as bool?) == true;
@@ -172,19 +183,23 @@ class _WaitingScreen extends StatelessWidget {
   }
 }
 
-/// 진행 중 화면(문제/리빌) — (아래 클래스들은 이전 버전과 동일, 폰트/아이콘 확대 버전 유지)
+/// 진행 중 화면(문제/리빌)
 class _ActiveQuizView extends StatefulWidget {
   const _ActiveQuizView({
     required this.topicId,
     required this.title,
     required this.phase,
     required this.currentQuizId,
+    required this.startMs,
+    required this.sessionId,
   });
 
   final String topicId;
   final String title;
   final String phase; // 'question' | 'reveal'
   final String currentQuizId;
+  final int? startMs;          // ★ liveByDevice 필터 기준
+  final String? sessionId;     // ★ 있으면 정확도↑
 
   @override
   State<_ActiveQuizView> createState() => _ActiveQuizViewState();
@@ -206,50 +221,29 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
 
     final quizRef =
         fs.doc('$hubPath/quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}');
-    final resRef =
-        fs.doc('$hubPath/quizTopics/${widget.topicId}/results/${widget.currentQuizId}');
 
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: quizRef.snapshots(),
-      builder: (context, quizSnap) {
-        Map<String, dynamic>? qx = quizSnap.data?.data();
+    if (widget.phase == 'question') {
+      // 문제 단계는 기존처럼 문제/트리거만 표시
+      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: quizRef.snapshots(),
+        builder: (context, quizSnap) {
+          Map<String, dynamic>? qx = quizSnap.data?.data();
 
-        if (qx != null) {
-          _quizCache[widget.currentQuizId] = qx;
-          _lastQuizIdShown = widget.currentQuizId;
-        }
-        qx ??= _quizCache[widget.currentQuizId] ??
-            (_lastQuizIdShown != null ? _quizCache[_lastQuizIdShown] : null);
+          if (qx != null) {
+            _quizCache[widget.currentQuizId] = qx;
+            _lastQuizIdShown = widget.currentQuizId;
+          }
+          qx ??= _quizCache[widget.currentQuizId] ??
+              (_lastQuizIdShown != null ? _quizCache[_lastQuizIdShown] : null);
 
-        if (qx == null) {
-          return const _WaitingScreen();
-        }
+          if (qx == null) return const _WaitingScreen();
 
-        final question = (qx['question'] as String?) ?? '';
-        final List<String> choices =
-            (qx['choices'] as List?)?.map((e) => e.toString()).toList() ?? const [];
-        final List<String> triggers =
-            (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ?? const [];
-        final int? correct = (qx['correctIndex'] as num?)?.toInt();
+          final question = (qx['question'] as String?) ?? '';
+          final List<String> choices =
+              (qx['choices'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+          final List<String> triggers =
+              (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ?? const [];
 
-        Widget _centerWrapper(Widget child) {
-          return Container(
-            color: const Color(0xFFF7F9FC),
-            width: double.infinity,
-            height: double.infinity,
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1100),
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(48, 32, 48, 48),
-                  child: child,
-                ),
-              ),
-            ),
-          );
-        }
-
-        if (widget.phase == 'question') {
           return _centerWrapper(
             Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -279,57 +273,153 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
               ],
             ),
           );
-        } else {
-          return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-            stream: resRef.snapshots(),
-            builder: (context, resSnap) {
-              final counts = (resSnap.data?.data()?['counts'] as List?)
-                      ?.map((e) => (e as num).toInt())
-                      .toList() ??
-                  const [];
+        },
+      );
+    }
 
-              return _centerWrapper(
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      widget.title.isEmpty ? 'Quiz' : widget.title,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      question,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 34,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0B1324),
-                        height: 1.25,
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                    _ChoiceListReveal(
-                      choices: choices,
-                      triggers: triggers,
-                      counts: counts,
-                      correct: correct,
-                      compact: kCompactReveal,
-                      shrink: true,
-                    ),
-                  ],
-                ),
-              );
-            },
-          );
+    // ▼▼▼ 리빌 단계: results 대신 hubs/{hubId}/liveByDevice에서 실시간 집계 ▼▼▼
+    final liveStream =
+    fs.collection('$hubPath/liveByDevice').snapshots();
+
+return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+  stream: liveStream,
+  builder: (context, liveSnap) {
+    // 퀴즈 본문은 캐시/스트림 병행으로 확보
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: quizRef.snapshots(),
+      builder: (context, quizSnap) {
+        Map<String, dynamic>? qx = quizSnap.data?.data();
+        qx ??= _quizCache[widget.currentQuizId];
+        if (qx == null) return const _WaitingScreen();
+
+        final question = (qx['question'] as String?) ?? '';
+        final List<String> choices =
+            (qx['choices'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+        final List<String> triggers =
+            (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+        final int? correct = (qx['correctIndex'] as num?)?.toInt();
+
+        // liveByDevice 문서들
+        final docs = liveSnap.data?.docs ?? const [];
+
+        // 학생별 최신 선택만 반영
+        final Map<String, _Hit> lastByStudent = {};
+
+        for (final d in docs) {
+          final x = d.data();
+
+          // 세션 필터 (세션 지정 시)
+          if (widget.sessionId != null &&
+              (x['sessionId']?.toString() ?? '') != widget.sessionId) {
+            continue;
+          }
+
+          // 시작 시각 이후만
+          final hubTs = (x['lastHubTs'] is num) ? (x['lastHubTs'] as num).toInt() : 0;
+          if (hubTs <= (widget.startMs ?? 0)) continue;
+
+          final studentId = (x['studentId'] ?? '').toString();
+          if (studentId.isEmpty) continue;
+
+          final slot = (x['slotIndex'] ?? '').toString(); // '1' | '2'
+          if (slot != '1' && slot != '2') continue;
+
+          final clickType = (x['clickType'] ?? 'click').toString().toLowerCase();
+          if (clickType != 'click' && clickType != 'hold') continue;
+
+          final trigKey = _triggerKey(slot: slot, clickType: clickType);
+
+          // 이번 문제의 트리거 목록에 없는 신호는 무시
+          if (!triggers.contains(trigKey)) continue;
+
+          final cur = lastByStudent[studentId];
+          if (cur == null || hubTs >= cur.hubTs) {
+            lastByStudent[studentId] = _Hit(trigger: trigKey, hubTs: hubTs);
+          }
         }
+
+        // 트리거 → 보기 인덱스 매핑
+        final Map<String, int> trigToIndex = {
+          for (int i = 0; i < triggers.length; i++) triggers[i]: i
+        };
+
+        final counts = List<int>.filled(choices.length, 0);
+        for (final h in lastByStudent.values) {
+          final idx = trigToIndex[h.trigger];
+          if (idx != null && idx >= 0 && idx < counts.length) counts[idx] += 1;
+        }
+
+        return _centerWrapper(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                widget.title.isEmpty ? 'Quiz' : widget.title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                question,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 34,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0B1324),
+                  height: 1.25,
+                ),
+              ),
+              const SizedBox(height: 22),
+              _ChoiceListReveal(
+                choices: choices,
+                triggers: triggers,
+                counts: counts,          // ★ 실시간 집계 결과
+                correct: correct,
+                compact: kCompactReveal,
+                shrink: true,
+              ),
+            ],
+          ),
+        );
       },
     );
+  },
+);
   }
+
+  Widget _centerWrapper(Widget child) {
+    return Container(
+      color: const Color(0xFFF7F9FC),
+      width: double.infinity,
+      height: double.infinity,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1100),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(48, 32, 48, 48),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 버튼/제스처 → 트리거 키 변환
+  String _triggerKey({required String slot, required String clickType}) {
+    final isHold = (clickType == 'hold');
+    if (slot == '1') return isHold ? 'S1_HOLD' : 'S1_CLICK';
+    return isHold ? 'S2_HOLD' : 'S2_CLICK';
+  }
+}
+
+class _Hit {
+  final String trigger;
+  final int hubTs;
+  _Hit({required this.trigger, required this.hubTs});
 }
 
 /// 문제 단계
@@ -718,7 +808,8 @@ class _SummaryView extends StatelessWidget {
                                       return Padding(
                                         padding: const EdgeInsets.only(bottom: 12),
                                         child: _resultRow(
-                                          label: '${String.fromCharCode(65 + ci)}. ${choices[ci]}',
+                                          label:
+                                              '${String.fromCharCode(65 + ci)}. ${choices[ci]}',
                                           value: counts.length > ci ? counts[ci] : 0,
                                           total: total,
                                           isCorrect: correct != null && ci == correct,
