@@ -614,7 +614,7 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                                                 overflow: TextOverflow.fade,
                                                 textAlign: TextAlign.center,
                                                 style: TextStyle(
-                                                  fontSize: 16,
+                                                  fontSize: 20,
                                                   fontWeight: FontWeight.w700,
                                                   color: Colors.black,
                                                 ),

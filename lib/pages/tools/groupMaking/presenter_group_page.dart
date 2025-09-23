@@ -1,10 +1,10 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'grouping_controller.dart';
 
 import '../../../sidebar_menu.dart';
-// ✅ HubProvider 임포트
 import '../../../provider/hub_provider.dart';
 
 class PresenterGroupPage extends StatefulWidget {
@@ -19,10 +19,15 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
   late final GroupingController c;
   late final TabController _tab;
 
+  final Set<String> _tempAdded = <String>{}; // 현장 추가 학생 리스트
+  final TextEditingController _addCtrl = TextEditingController();
+  final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+  Timer? _searchDebounce;
+
   @override
   void initState() {
     super.initState();
-    // ✅ 허브 스코프로 동작하도록 HubProvider를 컨트롤러에 주입
     c = GroupingController(hub: context.read<HubProvider>())..init();
     _tab = TabController(length: 2, vsync: this, initialIndex: 0);
     _tab.addListener(() {
@@ -33,9 +38,13 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _tab.dispose();
     c.disposeAll();
     c.dispose();
+    _addCtrl.dispose();
+    _searchCtrl.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -59,114 +68,115 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
             return AppScaffold(
               selectedIndex: 1,
               body: Scaffold(
-              appBar: AppBar(
-                elevation: 0,
-                backgroundColor: const Color(0xFFF6FAFF),
-                leading: IconButton(
-                  tooltip: 'Back',
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () => Navigator.maybePop(context),
+                appBar: AppBar(
+                  elevation: 0,
+                  backgroundColor: const Color(0xFFF6FAFF),
+                  leading: IconButton(
+                    tooltip: 'Back',
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => Navigator.maybePop(context),
+                  ),
                 ),
-              ),
-              backgroundColor: const Color(0xFFF6FAFF),
-              body: Stack(
-                children: [
-                  SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 120),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // 왼쪽 카드
-                            Expanded(
-                              flex: 5,
-                              child: Center(
-                                child: SizedBox(
-                                  width: 449 * scale,
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Choose List',
-                                        style: TextStyle(
-                                          fontSize: 24 * scale,
-                                          fontWeight: FontWeight.w500,
-                                          color: const Color(0xFF001A36),
+                backgroundColor: const Color(0xFFF6FAFF),
+                body: Stack(
+                  children: [
+                    SingleChildScrollView(
+                      padding: const EdgeInsets.fromLTRB(24, 12, 24, 120),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // 왼쪽 카드
+                              Expanded(
+                                flex: 5,
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 449 * scale,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Choose List',
+                                          style: TextStyle(
+                                            fontSize: 24 * scale,
+                                            fontWeight: FontWeight.w500,
+                                            color: const Color(0xFF001A36),
+                                          ),
                                         ),
-                                      ),
-                                      SizedBox(height: 8 * scale),
-                                      _chooseListCard(
-                                        filtered,
-                                        scale: scale,
-                                      ),
-                                    ],
+                                        SizedBox(height: 8 * scale),
+                                        _chooseListCard(
+                                          filtered,
+                                          scale: scale,
+                                          tempAdded: _tempAdded,
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
 
-                            // 오른쪽 카드
-                            Expanded(
-                              flex: 5,
-                              child: Center(
-                                child: SizedBox(
-                                  width: 449 * scale,
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'How to',
-                                        style: TextStyle(
-                                          fontSize: 24 * scale,
-                                          fontWeight: FontWeight.w500,
-                                          color: const Color(0xFF001A36),
+                              // 오른쪽 카드
+                              Expanded(
+                                flex: 5,
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 449 * scale,
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'How to',
+                                          style: TextStyle(
+                                            fontSize: 24 * scale,
+                                            fontWeight: FontWeight.w500,
+                                            color: const Color(0xFF001A36),
+                                          ),
                                         ),
-                                      ),
-                                      SizedBox(height: 8 * scale),
-                                      _howToCard(
-                                        scale: scale,
-                                        totalSelected: totalSelected,
-                                        groupsPreview: groupsPreview,
-                                        sizePreview: sizePreview,
-                                      ),
-                                    ],
+                                        SizedBox(height: 8 * scale),
+                                        _howToCard(
+                                          scale: scale,
+                                          totalSelected: totalSelected,
+                                          groupsPreview: groupsPreview,
+                                          sizePreview: sizePreview,
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-
-                        ChangeNotifierProvider<GroupingController>.value(
-                          value: c,
-                          child: Consumer<GroupingController>(
-                            builder:
-                                (_, c, __) => Padding(
-                                  padding: EdgeInsets.only(top: 16.0),
-                                  child: _EditableGroupBoard(controller: c),
-                                ),
+                            ],
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
+                          const SizedBox(height: 20),
 
-                  Positioned(
-                    right: 24,
-                    bottom: (60 * scale).clamp(40, 80),
-                    child: _MakeButton(
-                      scale: scale,
-                      onTap: c.makeGroups,
-                      imageAsset: 'assets/logo_bird_make.png',
+                          ChangeNotifierProvider<GroupingController>.value(
+                            value: c,
+                            child: Consumer<GroupingController>(
+                              builder:
+                                  (_, c, __) => Padding(
+                                    padding: EdgeInsets.only(top: 16.0),
+                                    child: _EditableGroupBoard(controller: c),
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
+
+                    Positioned(
+                      right: 24,
+                      bottom: (60 * scale).clamp(40, 80),
+                      child: _MakeButton(
+                        scale: scale,
+                        onTap: c.makeGroups,
+                        imageAsset: 'assets/logo_bird_make.png',
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
           },
@@ -175,171 +185,213 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
     );
   }
 
-  Widget _chooseListCard(List<String> filtered, {required double scale}) {
-  const baseW = 449.0;
-  const baseH = 486.0;
+  Widget _chooseListCard(
+    List<String> filtered, {
+    required double scale,
+    required Set<String> tempAdded,
+  }) {
+    const baseW = 449.0;
+    const baseH = 486.0;
 
-  final selectedAll =
-      c.selected.length == c.allStudents.length && c.allStudents.isNotEmpty;
+    final selectedAll =
+        c.selected.length == c.allStudents.length && c.allStudents.isNotEmpty;
 
-  return Center(
-    child: SizedBox(
-      width: baseW * scale,
-      height: baseH * scale,
-      child: Card(
-        color: Colors.white,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10 * scale),
-          side: const BorderSide(color: Color(0xFFD2D2D2), width: 1),
-        ),
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(20 * scale, 18 * scale, 20 * scale, 20 * scale),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    'TOTAL ${c.selected.length}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 19 * scale,
-                      color: const Color(0xFF000000),
-                    ),
-                  ),
-                  const Spacer(),
-                  SizedBox(
-                    width: 260 * scale,
-                    child: TextField(
-                      onChanged: c.setQuery,
-                      decoration: InputDecoration(
-                        hintText: 'Search name',
-                        isDense: true,
-                        prefixIcon: Icon(Icons.search, size: 18 * scale),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 10 * scale),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22 * scale),
-                          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22 * scale),
-                          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(22 * scale),
-                          borderSide: const BorderSide(color: Color(0xFF46A5FF)),
-                        ),
-                        fillColor: const Color(0xFFF9FAFB),
-                        filled: true,
+    final remain = filtered.where((n) => !tempAdded.contains(n)).toList();
+
+    return Center(
+      child: SizedBox(
+        width: baseW * scale,
+        height: baseH * scale,
+        child: Card(
+          color: Colors.white,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10 * scale),
+            side: const BorderSide(color: Color(0xFFD2D2D2), width: 1),
+          ),
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              20 * scale,
+              18 * scale,
+              20 * scale,
+              20 * scale,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      'TOTAL ${c.selected.length}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 19 * scale,
+                        color: const Color(0xFF000000),
                       ),
                     ),
-                  ),
-                ],
-              ),
-              SizedBox(height: 10 * scale),
+                    const Spacer(),
+                    SizedBox(
+                      width: 260 * scale,
+                      child: _SearchField(
+                        controller: _searchCtrl,
+                        focusNode: _searchFocus,
+                        scale: scale,
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 10 * scale),
 
-              Row(
-                children: [
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      if (!selectedAll) {
-                        c.selected..clear()..addAll(c.allStudents);
-                      } else {
-                        c.selected.clear();
-                      }
-                      c.notifyListeners();
-                    },
-                    child: Row(
-                      children: [
-                        _RadioDot(selected: selectedAll, size: 18 * scale),
-                        SizedBox(width: 10 * scale),
-                        Text(
-                          'Select All',
-                          style: TextStyle(
-                            color: const Color(0xFF868C98),
-                            fontSize: 14 * scale,
-                            fontWeight: FontWeight.w400,
+                Row(
+                  children: [
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        if (!selectedAll) {
+                          c.selected
+                            ..clear()
+                            ..addAll(c.allStudents);
+                        } else {
+                          c.selected.clear();
+                        }
+                        c.notifyListeners();
+                      },
+                      child: Row(
+                        children: [
+                          _RadioDot(selected: selectedAll, size: 18 * scale),
+                          SizedBox(width: 10 * scale),
+                          Text(
+                            'Select All',
+                            style: TextStyle(
+                              color: const Color(0xFF868C98),
+                              fontSize: 14 * scale,
+                              fontWeight: FontWeight.w400,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    SizedBox(
+                      width: 260 * scale,
+                      child: TextField(
+                        controller: _addCtrl,
+                        onSubmitted: (v) {
+                          final name = v.trim();
+                          if (name.isEmpty) return;
+                          setState(() => tempAdded.add(name));
+                          c.addName(name);
+                          _addCtrl.clear();
+                        },
+                        decoration: InputDecoration(
+                          hintText: 'Add name',
+                          isDense: true,
+                          border: const UnderlineInputBorder(),
+                          enabledBorder: const UnderlineInputBorder(
+                            borderSide: BorderSide(color: Color(0xFFE5E7EB)),
+                          ),
+                          focusedBorder: const UnderlineInputBorder(
+                            borderSide: BorderSide(color: Color(0xFF46A5FF)),
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 4 * scale,
+                            vertical: 6 * scale,
+                          ),
+                          suffixIcon: IconButton(
+                            icon: Icon(Icons.add, size: 20 * scale),
+                            onPressed: () {
+                              final name = _addCtrl.text.trim();
+                              if (name.isEmpty) return;
+                              setState(() => tempAdded.add(name));
+                              c.addName(name);
+                              _addCtrl.clear();
+                            },
+                            tooltip: 'Add',
                           ),
                         ),
-                      ],
-                    ),
-                  ),
-                  const Spacer(),
-                  SizedBox(
-                    width: 260 * scale,
-                    child: TextField(
-                      onSubmitted: c.addName,
-                      decoration: InputDecoration(
-                        hintText: 'Add name',
-                        isDense: true,
-                        border: const UnderlineInputBorder(),
-                        enabledBorder: const UnderlineInputBorder(
-                          borderSide: BorderSide(color: Color(0xFFE5E7EB)),
-                        ),
-                        focusedBorder: const UnderlineInputBorder(
-                          borderSide: BorderSide(color: Color(0xFF46A5FF)),
-                        ),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 6 * scale),
-                        suffixIcon: Icon(Icons.add, size: 20 * scale),
                       ),
                     ),
+                  ],
+                ),
+
+                SizedBox(height: 12 * scale),
+
+                if (tempAdded.isNotEmpty) ...[
+                  _TempAddedList(
+                    names:
+                        filtered.where((n) => tempAdded.contains(n)).toList(),
+                    scale: scale,
+                    isSelected: (name) => c.selected.contains(name),
+                    onToggle: (name) => c.toggleName(name),
+                    onRemove: (name) {
+                      setState(() => tempAdded.remove(name));
+                      // try { c.removeName(name); } catch (_) {}
+                    },
                   ),
+                  SizedBox(height: 8 * scale),
                 ],
-              ),
 
-              SizedBox(height: 12 * scale),
-              const Divider(height: 16),
+                const Divider(height: 16),
 
-              Expanded(
-                child: Scrollbar(
-                  child: GridView.builder(
-                    itemCount: filtered.length,
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      childAspectRatio: (6 / scale).clamp(3.5, 8.0).toDouble(),
-                      crossAxisSpacing: 12 * scale,
-                      mainAxisSpacing: 2 * scale,
-                    ),
-                    itemBuilder: (_, i) {
-                      final name = filtered[i];
-                      final selected = c.selected.contains(name);
-                      return InkWell(
-                        onTap: () => c.toggleName(name),
-                        child: Row(
-                          children: [
-                            _RadioDot(selected: selected, size: 18 * scale),
-                            SizedBox(width: 10 * scale),
-                            Expanded(
-                              child: Text(
-                                name,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 18 * scale),
+                Expanded(
+                  child: ValueListenableBuilder<TextEditingValue>(
+                    valueListenable: _searchCtrl,
+                    builder: (_, val, __) {
+                      final q = val.text.trim().toLowerCase();
+                      // 컨트롤러 전체를 건드리지 않고, 여기서만 필터
+                      final remain =
+                          c.allStudents
+                              .where((n) => !tempAdded.contains(n))
+                              .where((n) => n.toLowerCase().contains(q))
+                              .toList();
+
+                      return Scrollbar(
+                        child: GridView.builder(
+                          // shrinkWrap 기본(false) 유지 → 성능 유리
+                          itemCount: remain.length,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                childAspectRatio:
+                                    (6 / scale).clamp(3.5, 8.0).toDouble(),
+                                crossAxisSpacing: 12 * scale,
+                                mainAxisSpacing: 2 * scale,
                               ),
-                            ),
-                            if (selected)
-                              Padding(
-                                padding: EdgeInsets.only(right: 6 * scale),
-                                child: CircleAvatar(
-                                  radius: 5 * scale,
-                                  backgroundColor: _kBlue,
-                                ),
+                          itemBuilder: (_, i) {
+                            final name = remain[i];
+                            final selected = c.selected.contains(name);
+                            return InkWell(
+                              onTap: () => c.toggleName(name),
+                              child: Row(
+                                children: [
+                                  _RadioDot(
+                                    selected: selected,
+                                    size: 18 * scale,
+                                  ),
+                                  SizedBox(width: 10 * scale),
+                                  Expanded(
+                                    child: Text(
+                                      name,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontSize: 18 * scale),
+                                    ),
+                                  ),
+                                ],
                               ),
-                          ],
+                            );
+                          },
                         ),
                       );
                     },
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
   Widget _howToCard({
     required double scale,
@@ -521,21 +573,7 @@ class _MakeButtonState extends State<_MakeButton> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.12),
-                        blurRadius: 14 * widget.scale,
-                        offset: Offset(0, 6 * widget.scale),
-                      ),
-                    ],
-                  ),
-                  child: Image.asset(
-                    widget.imageAsset,
-                    fit: BoxFit.contain,
-                  ),
-                ),
+                Image.asset(widget.imageAsset, fit: BoxFit.contain),
               ],
             ),
           ),
@@ -790,6 +828,156 @@ class _MemberChip extends StatelessWidget {
           color: dragging ? const Color(0xFF1D4ED8) : const Color(0xFF0B1324),
         ),
       ),
+    );
+  }
+}
+
+class _TempAddedList extends StatelessWidget {
+  const _TempAddedList({
+    required this.names,
+    required this.scale,
+    required this.isSelected,
+    required this.onToggle,
+    required this.onRemove,
+  });
+
+  final List<String> names;
+  final double scale;
+  final bool Function(String name) isSelected;
+  final void Function(String name) onToggle;
+  final void Function(String name) onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    if (names.isEmpty) return const SizedBox.shrink();
+
+    return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: names.length,
+      separatorBuilder: (_, __) => SizedBox(height: 6 * scale),
+      itemBuilder: (_, i) {
+        final name = names[i];
+        final selected = isSelected(name);
+        return InkWell(
+          onTap: () => onToggle(name),
+          child: Row(
+            children: [
+              _RadioDot(selected: selected, size: 18 * scale),
+              SizedBox(width: 12 * scale),
+              Expanded(
+                child: Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 18 * scale,
+                    fontWeight: FontWeight.w400,
+                    color: const Color(0xFF001A36),
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              SizedBox(width: 8 * scale),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => onRemove(name),
+                child: Padding(
+                  padding: EdgeInsets.all(1 * scale),
+                  child: Icon(
+                    Icons.close,
+                    size: 15 * scale,
+                    color: Colors.black87,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SearchField extends StatefulWidget {
+  const _SearchField({
+    required this.controller,
+    required this.focusNode,
+    required this.scale,
+  });
+
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final double scale;
+
+  @override
+  State<_SearchField> createState() => _SearchFieldState();
+}
+
+class _SearchFieldState extends State<_SearchField> {
+  bool _hasText = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hasText = widget.controller.text.isNotEmpty;
+    widget.controller.addListener(_onTextChanged);
+  }
+
+  void _onTextChanged() {
+    final has = widget.controller.text.isNotEmpty;
+    if (has != _hasText) {
+      setState(() => _hasText = has);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onTextChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scale = widget.scale;
+    return TextField(
+      controller: widget.controller,
+      focusNode: widget.focusNode,
+      decoration: InputDecoration(
+        hintText: 'Search name',
+        isDense: true,
+        prefixIcon: Icon(Icons.search, size: 18 * scale),
+        suffixIcon:
+            _hasText
+                ? IconButton(
+                  icon: Icon(Icons.close, size: 18 * scale),
+                  tooltip: 'Clear',
+                  onPressed: () {
+                    widget.controller.clear();
+                    if (!widget.focusNode.hasFocus) {
+                      widget.focusNode.requestFocus();
+                    }
+                  },
+                )
+                : null,
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: 12 * scale,
+          vertical: 10 * scale,
+        ),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(22 * scale),
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(22 * scale),
+          borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(22 * scale),
+          borderSide: const BorderSide(color: Color(0xFF46A5FF)),
+        ),
+        fillColor: const Color(0xFFF9FAFB),
+        filled: true,
+      ),
+      textInputAction: TextInputAction.search,
     );
   }
 }

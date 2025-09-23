@@ -14,6 +14,9 @@ import '../../provider/seat_map_provider.dart';
 
 const String kHubId = 'hub-001';
 
+const double _kGutter = 16.0;
+const double _kToolsAspect = 1.6;
+
 class PresenterToolsPage extends StatefulWidget {
   const PresenterToolsPage({super.key});
 
@@ -231,92 +234,62 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     );
   }
 
-  Widget _beforeClassSection(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, c) {
-        const gap = 14.0;
-        final maxW = c.maxWidth;
-        final twoCols = maxW >= 420;
-
-        if (twoCols) {
-          final btnW = (maxW - gap) / 2;
-          return Row(
-            children: [
-              _bcButton(
-                width: btnW,
-                label: 'Button Test',
-                icon: Icons.radio_button_checked,
-                iconColor: const Color(0xFF5F5F5F),
-                onTap: () {
-                  Navigator.pushNamed(context, '/tools/button_test');
-                },
-              ),
-              const SizedBox(width: gap),
-              _bcButton(
-                width: btnW,
-                label: 'Warm-up',
-                icon: Icons.mood,
-                iconColor: const Color(0xFF44A0FF),
-                onTap: () {}, // TODO
-              ),
-            ],
-          );
-        } else {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _bcButton(
-                width: maxW,
-                label: 'Button Test',
-                icon: Icons.radio_button_checked,
-                iconColor: const Color(0xFF5F5F5F),
-                onTap: () {
-                  Navigator.pushNamed(context, '/tools/button_test');
-                },
-              ),
-              const SizedBox(height: gap),
-              _bcButton(
-                width: maxW,
-                label: 'Warm-up',
-                icon: Icons.mood,
-                iconColor: const Color(0xFF44A0FF),
-                onTap: () {}, // TODO
-              ),
-            ],
+  Widget _beforeClassSectionGrid(
+    BuildContext context, {
+    required int crossAxisCount,
+  }) {
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: crossAxisCount * 2,
+        crossAxisSpacing: _kGutter,
+        mainAxisSpacing: _kGutter,
+        mainAxisExtent: 80,
+      ),
+      itemCount: 2,
+      itemBuilder: (_, i) {
+        if (i == 0) {
+          return _bcCard(
+            label: 'Button Test',
+            icon: Icons.radio_button_checked,
+            iconColor: const Color(0xFF5F5F5F),
+            onTap: () => Navigator.pushNamed(context, '/tools/button_test'),
           );
         }
+        return _bcCard(
+          label: 'Warm-up',
+          icon: Icons.mood,
+          iconColor: const Color(0xFF44A0FF),
+          onTap: () {}, // TODO
+        );
       },
     );
   }
 
-  Widget _bcButton({
-    required double width,
+  // 버튼 카드 하나 (크기 지정 X: 그리드가 크기 결정)
+  Widget _bcCard({
     required String label,
     required IconData icon,
     required Color iconColor,
     required VoidCallback onTap,
   }) {
-    final w = width.clamp(170.0, 600.0);
-    return SizedBox(
-      width: w,
-      height: 130,
-      child: OutlinedButton.icon(
-        onPressed: onTap,
-        icon: Icon(icon, color: iconColor, size: 50),
-        label: Text(
-          label,
-          style: const TextStyle(
-            color: Color(0xFF001A36),
-            fontSize: 30,
-            fontWeight: FontWeight.w600,
-          ),
+    return OutlinedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, color: iconColor, size: 40),
+      label: Text(
+        label,
+        style: const TextStyle(
+          color: Color(0xFF001A36),
+          fontSize: 30,
+          fontWeight: FontWeight.w600,
         ),
-        style: OutlinedButton.styleFrom(
-          backgroundColor: Colors.white,
-          side: const BorderSide(color: Color(0xFFD2D2D2), width: 1),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          padding: EdgeInsets.zero,
-        ),
+      ),
+      style: OutlinedButton.styleFrom(
+        backgroundColor: Colors.white,
+        side: const BorderSide(color: Color(0xFFD2D2D2), width: 1),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        padding: EdgeInsets.zero,
       ),
     );
   }
@@ -330,70 +303,77 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       selectedIndex: 0,
       body: Scaffold(
         backgroundColor: const Color(0xFFF6FAFF),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 77),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Before Class
-              const Text(
-                'Before Class',
-                style: TextStyle(
-                  fontSize: 48,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF001A36),
-                ),
-              ),
-              const SizedBox(height: 12),
-              _beforeClassSection(context),
-              const SizedBox(height: 32),
+        body: LayoutBuilder(
+          builder: (context, constraints) {
+            int crossAxisCount = 1;
+            if (constraints.maxWidth >= 1200) {
+              crossAxisCount = 3;
+            } else if (constraints.maxWidth >= 700) {
+              crossAxisCount = 2;
+            }
+            final double cardW =
+                (constraints.maxWidth - (crossAxisCount - 1) * _kGutter) /
+                crossAxisCount;
+            final double cardH = cardW / _kToolsAspect;
 
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: const [
-                  Text(
-                    'Classroom Tools',
+            return SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 77),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Before Class
+                  const Text(
+                    'Before Class',
                     style: TextStyle(
                       fontSize: 48,
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF111827),
+                      color: Color(0xFF001A36),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
+                  const SizedBox(height: 12),
+                  _beforeClassSectionGrid(
+                    context,
+                    crossAxisCount: crossAxisCount,
+                  ),
 
-              // 6개 카드 그리드
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  int crossAxisCount = 1;
-                  if (constraints.maxWidth >= 1200) {
-                    crossAxisCount = 3;
-                  } else if (constraints.maxWidth >= 700) {
-                    crossAxisCount = 2;
-                  }
-                  return GridView.builder(
+                  const SizedBox(height: 32),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: const [
+                      Text(
+                        'Classroom Tools',
+                        style: TextStyle(
+                          fontSize: 48,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF111827),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 6개 카드 그리드
+                  GridView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: crossAxisCount,
-                      crossAxisSpacing: 16,
-                      mainAxisSpacing: 16,
-                      childAspectRatio: 1.3,
+                      crossAxisSpacing: _kGutter,
+                      mainAxisSpacing: _kGutter,
+                      childAspectRatio: _kToolsAspect,
                     ),
                     itemCount: tools.length,
-                    itemBuilder: (context, i) {
-                      final t = tools[i];
-                      return ToolCard(
-                        item: t,
-                        onTap: () => _onToolTap(context, t), // ▶ 여기만 변경
-                      );
-                    },
-                  );
-                },
+                    itemBuilder:
+                        (context, i) => ToolCard(
+                          item: tools[i],
+                          onTap: () => _onToolTap(context, tools[i]),
+                        ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );

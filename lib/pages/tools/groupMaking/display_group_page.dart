@@ -174,9 +174,9 @@ class _TeamCard extends StatelessWidget {
           Text(
             'Team $index',
             style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.normal,
-              color: _ink,
+              fontSize: 29,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF001A36),
             ),
           ),
           const SizedBox(height: 12),
@@ -194,9 +194,9 @@ class _TeamCard extends StatelessWidget {
                     textAlign: TextAlign.center,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.normal,
-                      color: _inkSub,
+                      fontSize: 32,
+                      fontWeight: FontWeight.w400,
+                      color: Color(0xFF001A36),
                     ),
                   ),
             ),

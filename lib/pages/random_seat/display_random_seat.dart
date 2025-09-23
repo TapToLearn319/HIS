@@ -4,23 +4,35 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import '../../provider/hub_provider.dart';
 
+// ===== 출석(프레젠터)와 동일한 디자인 상수 =====
+const _kAppBg = Color(0xFFF6FAFF);
+const _kCardW = 1011.0;
+const _kCardH = 544.0;
+const _kCardRadius = 10.0;
+const _kCardBorder = Color(0xFFD2D2D2);
+
+const _kAttendedBlue = Color(0xFFCEE6FF);
+const _kDashedGrey = Color(0xFFCBD5E1);
+const _kTextDark = Color(0xFF0B1324);
+const _kTextNum = Color(0xFF1F2937);
+
 class DisplayRandomSeatPage extends StatelessWidget {
   const DisplayRandomSeatPage({super.key});
 
   @override
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
-
-    // ✅ HubProvider에서 허브 ID 구독
     final hubId = context.watch<HubProvider>().hubId;
+
     if (hubId == null || hubId.isEmpty) {
-      return const Scaffold(body: _WaitingSeatScreen());
+      return const Scaffold(backgroundColor: _kAppBg, body: _WaitingSeatScreen());
     }
 
-    // 1) 허브의 현재 세션 구독 (hubs/{hubId})
+    // 허브의 현재 세션 구독
     final hubStream = fs.doc('hubs/$hubId').snapshots();
 
     return Scaffold(
+      backgroundColor: _kAppBg,
       body: SafeArea(
         child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: hubStream,
@@ -34,10 +46,9 @@ class DisplayRandomSeatPage extends StatelessWidget {
               return const _WaitingSeatScreen();
             }
 
-            // 2) 세션 메타(행/열) + 좌석맵 + 학생목록 동시 구독(중첩)
-            //    ✅ 허브 스코프 경로로 변경
+            // 세션/좌석/학생 동시 구독
             final sessionDocStream =
-                fs.doc('hubs/$hubId/sessions/$sid').snapshots(); // rows/cols(optional)
+                fs.doc('hubs/$hubId/sessions/$sid').snapshots(); // rows/cols
             final seatMapStream =
                 fs.collection('hubs/$hubId/sessions/$sid/seatMap').snapshots();
             final studentsStream =
@@ -53,7 +64,6 @@ class DisplayRandomSeatPage extends StatelessWidget {
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: seatMapStream,
                   builder: (context, seatSnap) {
-                    // seatNo -> studentId
                     final Map<String, String?> seatMap = {};
                     if (seatSnap.data != null) {
                       for (final d in seatSnap.data!.docs) {
@@ -65,23 +75,64 @@ class DisplayRandomSeatPage extends StatelessWidget {
                     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                       stream: studentsStream,
                       builder: (context, stuSnap) {
-                        // studentId -> name
                         final Map<String, String> nameOf = {};
                         if (stuSnap.data != null) {
                           for (final d in stuSnap.data!.docs) {
                             final x = d.data();
                             final n = (x['name'] as String?)?.trim();
-                            if (n != null && n.isNotEmpty) {
-                              nameOf[d.id] = n;
-                            }
+                            if (n != null && n.isNotEmpty) nameOf[d.id] = n;
                           }
                         }
 
-                        return _SeatBoard(
-                          cols: cols,
-                          rows: rows,
-                          seatMap: seatMap,
-                          nameOf: nameOf,
+                        // === 출석페이지와 동일 스케일 래퍼(1280×720) ===
+                        return LayoutBuilder(
+                          builder: (context, box) {
+                            const designW = 1280.0;
+                            const designH = 720.0;
+                            final scaleW = box.maxWidth / designW;
+                            final scaleH = box.maxHeight / designH;
+                            final scaleFit = scaleW < scaleH ? scaleW : scaleH;
+
+                            final child = SizedBox(
+                              width: designW,
+                              height: designH,
+                              child: _DesignSurfaceDisplay(
+                                cols: cols,
+                                rows: rows,
+                                seatMap: seatMap,
+                                nameOf: nameOf,
+                              ),
+                            );
+
+                            if (scaleFit < 1) {
+                              // 작아지면 축소 없이 잘라내기(프레젠터와 동일)
+                              return ClipRect(
+                                child: OverflowBox(
+                                  alignment: Alignment.center,
+                                  minWidth: 0,
+                                  minHeight: 0,
+                                  maxWidth: double.infinity,
+                                  maxHeight: double.infinity,
+                                  child: child,
+                                ),
+                              );
+                            }
+                            // 커지면 확대
+                            return ClipRect(
+                              child: OverflowBox(
+                                alignment: Alignment.center,
+                                minWidth: 0,
+                                minHeight: 0,
+                                maxWidth: double.infinity,
+                                maxHeight: double.infinity,
+                                child: Transform.scale(
+                                  scale: scaleFit,
+                                  alignment: Alignment.center,
+                                  child: child,
+                                ),
+                              ),
+                            );
+                          },
                         );
                       },
                     );
@@ -96,10 +147,10 @@ class DisplayRandomSeatPage extends StatelessWidget {
   }
 }
 
-/* ------------------------ Seat Board ------------------------ */
+/* ============== 디자인 내부(1280×720) ============== */
 
-class _SeatBoard extends StatelessWidget {
-  const _SeatBoard({
+class _DesignSurfaceDisplay extends StatelessWidget {
+  const _DesignSurfaceDisplay({
     required this.cols,
     required this.rows,
     required this.seatMap,
@@ -109,139 +160,195 @@ class _SeatBoard extends StatelessWidget {
   final int cols;
   final int rows;
   final Map<String, String?> seatMap; // seatNo -> studentId?
-  final Map<String, String> nameOf; // studentId -> name
+  final Map<String, String> nameOf;   // studentId -> name
 
   String _seatKey(int index) => '${index + 1}';
 
   @override
   Widget build(BuildContext context) {
-    final seatCount = cols * rows;
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      child: Column(
-        children: [
-          _boardHeader(context),
-          const SizedBox(height: 12),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, c) {
-                // 스크롤 없이 꽉 차게: 타일 비율 역산
-                const crossSpacing = 16.0;
-                const mainSpacing = 16.0;
-                final gridW = c.maxWidth;
-                final gridH = c.maxHeight;
-                final tileW = (gridW - crossSpacing * (cols - 1)) / cols;
-                final tileH = (gridH - mainSpacing * (rows - 1)) / rows;
-                final ratio = (tileW / tileH).isFinite ? tileW / tileH : 1.0;
-
-                return GridView.builder(
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: seatCount,
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: cols,
-                    crossAxisSpacing: crossSpacing,
-                    mainAxisSpacing: mainSpacing,
-                    childAspectRatio: ratio,
+    return Center(
+      child: SizedBox(
+        width: _kCardW,
+        height: _kCardH,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(28, 24, 28, 24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(_kCardRadius),
+            border: Border.all(color: _kCardBorder, width: 1),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Board 바 (프레젠터 동일)
+              SizedBox(
+                width: double.infinity,
+                height: 40,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFD3FF6E),
+                    borderRadius: BorderRadius.circular(12.0),
                   ),
-                  itemBuilder: (context, index) {
-                    final seatNo = _seatKey(index);
-                    final studentId = seatMap[seatNo];
-                    final hasStudent =
-                        studentId != null && studentId.trim().isNotEmpty;
-                    final name = hasStudent
-                        ? (nameOf[studentId!.trim()] ?? studentId)
-                        : null;
-
-                    final Color fillColor =
-                        hasStudent ? const Color(0xFFE6F0FF) : Colors.white;
-
-                    final Border? solidBorder = hasStudent
-                        ? Border.all(
-                            color: const Color(0xFF8DB3FF), width: 1.2)
-                        : null;
-
-                    final child = Container(
-                      decoration: BoxDecoration(
-                        color: fillColor,
-                        borderRadius: BorderRadius.circular(12),
-                        border: solidBorder,
+                  child: const Center(
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
+                      child: Text(
+                        'Board',
+                        maxLines: 1,
+                        softWrap: false,
+                        overflow: TextOverflow.fade,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black,
+                        ),
                       ),
-                      alignment: Alignment.center,
-                      child: hasStudent
-                          ? Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  seatNo,
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Color(0xFF1F2937),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  name!,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Color(0xFF0B1324),
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            )
-                          : const Text(
-                              'empty',
-                              style: TextStyle(
-                                color: Color(0xFF9CA3AF),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                    );
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
 
-                    if (hasStudent) return child;
+              // 좌석 그리드(출석페이지와 동일한 계산식)
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, c) {
+                    const crossSpacing = 24.0;
+                    const mainSpacing = 24.0;
 
-                    // empty → 점선 테두리
-                    return CustomPaint(
-                      foregroundPainter: _DashedBorderPainter(
-                        radius: 12,
-                        color: const Color(0xFFCBD5E1),
-                        strokeWidth: 1.4,
-                        dash: 6,
-                        gap: 5,
+                    final gridW = c.maxWidth;
+                    final gridH = c.maxHeight - 2; // 동일 여유
+                    final tileW = (gridW - crossSpacing * (cols - 1)) / cols;
+                    final tileH = (gridH - mainSpacing * (rows - 1)) / rows;
+                    final ratio = (tileW / tileH).isFinite ? tileW / tileH : 1.0;
+
+                    return GridView.builder(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: cols * rows,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: cols,
+                        crossAxisSpacing: crossSpacing,
+                        mainAxisSpacing: mainSpacing,
+                        childAspectRatio: ratio,
                       ),
-                      child: child,
+                      itemBuilder: (context, index) {
+                        final seatNo = _seatKey(index);
+                        final sid = seatMap[seatNo]?.trim();
+                        final hasStudent = sid != null && sid.isNotEmpty;
+                        final name =
+                            hasStudent ? (nameOf[sid!] ?? sid) : null;
+
+                        return _SeatTileLikePresenter(
+                          index: index,
+                          hasStudent: hasStudent,
+                          name: name,
+                        );
+                      },
                     );
                   },
-                );
-              },
-            ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
+}
 
-  Widget _boardHeader(BuildContext context) {
-    final screenW = MediaQuery.sizeOf(context).width;
-    return Container(
-      width: (screenW * 0.60).clamp(320.0, 720.0),
-      height: 42,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: const Color(0xFFCCFF88),
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: const Text(
-        'Board',
-        style: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF111827),
-        ),
-      ),
+/* ---------- 타일: 프레젠터 스타일 ---------- */
+
+class _SeatTileLikePresenter extends StatelessWidget {
+  const _SeatTileLikePresenter({
+    required this.index,
+    required this.hasStudent,
+    required this.name,
+  });
+
+  final int index;
+  final bool hasStudent;
+  final String? name;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (ctx, cc) {
+        const baseH = 76.0;
+        final s = (cc.maxHeight / baseH).clamp(0.6, 2.2);
+
+        final radius = 12.0 * s;
+        final padH = (6.0 * s).clamp(2.0, 10.0);
+        final padV = (4.0 * s).clamp(1.0, 8.0);
+        final fsSeat = (12.0 * s).clamp(9.0, 16.0);
+        final fsName = (14.0 * s).clamp(10.0, 18.0);
+        final gap = (2.0 * s).clamp(1.0, 8.0);
+
+        final fillColor = hasStudent ? _kAttendedBlue : Colors.white;
+        final isDark = fillColor.computeLuminance() < 0.5;
+        final nameColor = isDark ? Colors.white : _kTextDark;
+        final seatNoColor = isDark ? Colors.white70 : _kTextNum;
+
+        final inner = Container(
+          decoration: BoxDecoration(
+            color: fillColor,
+            borderRadius: BorderRadius.circular(radius),
+            border: hasStudent ? Border.all(color: Colors.transparent) : null,
+          ),
+          alignment: Alignment.center,
+          padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+          child: hasStudent
+              ? FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.center,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${index + 1}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: fsSeat,
+                          height: 1.0,
+                          color: seatNoColor,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      SizedBox(height: gap),
+                      Text(
+                        name ?? '',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: fsName,
+                          height: 1.0,
+                          color: nameColor,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : const SizedBox.shrink(),
+        );
+
+        if (hasStudent) return inner;
+
+        // empty → 점선
+        return CustomPaint(
+          foregroundPainter: _DashedBorderPainter(
+            radius: radius + 4,
+            color: _kDashedGrey,
+            strokeWidth: (2.0 * s).clamp(1.2, 3.0),
+            dash: (8.0 * s).clamp(5.0, 12.0),
+            gap: (6.0 * s).clamp(3.0, 10.0),
+          ),
+          child: inner,
+        );
+      },
     );
   }
 }
@@ -254,7 +361,7 @@ class _WaitingSeatScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      color: const Color.fromARGB(255, 246, 250, 255),
+      color: _kAppBg,
       width: double.infinity,
       height: double.infinity,
       child: const Center(
@@ -278,7 +385,7 @@ class _WaitingSeatScreen extends StatelessWidget {
   }
 }
 
-/* --------------- dashed border painter (공통) --------------- */
+/* --------------- dashed border painter(공통) --------------- */
 
 class _DashedBorderPainter extends CustomPainter {
   _DashedBorderPainter({
@@ -297,10 +404,8 @@ class _DashedBorderPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rrect = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      Radius.circular(radius),
-    );
+    final rrect =
+        RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius));
     final path = Path()..addRRect(rrect);
 
     final paint = Paint()
@@ -311,8 +416,9 @@ class _DashedBorderPainter extends CustomPainter {
     for (final metric in path.computeMetrics()) {
       double distance = 0.0;
       while (distance < metric.length) {
-        final double len =
-            distance + dash > metric.length ? metric.length - distance : dash;
+        final len = distance + dash > metric.length
+            ? metric.length - distance
+            : dash;
         final extract = metric.extractPath(distance, distance + len);
         canvas.drawPath(extract, paint);
         distance += dash + gap;
