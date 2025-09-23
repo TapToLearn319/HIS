@@ -1,3 +1,4 @@
+// lib/provider/student_stats_provider.dart
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -45,8 +46,7 @@ class StudentSlotStats {
         }
       });
     } else if (rawBySlot is List) {
-      // 혹시 예전에 배열로 저장된 적이 있다면 인덱스 1,2만 사용
-      // [null, {count:..., lastTs:...}, {count:..., lastTs:...}]
+      // 옛 스키마 호환: [null, {...}, {...}]
       if (rawBySlot.length > 1 && rawBySlot[1] is Map) {
         final v = rawBySlot[1] as Map;
         final cnt = (v['count'] as num?)?.toInt() ?? 0;
@@ -74,6 +74,7 @@ class StudentStatsProvider extends ChangeNotifier {
   final FirebaseFirestore _fs;
   StudentStatsProvider(this._fs);
 
+  String? _hubId;
   String? _sessionId;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _sub;
 
@@ -84,8 +85,20 @@ class StudentStatsProvider extends ChangeNotifier {
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
-  void bindSession(String? sessionId) {
-    if (_sessionId == sessionId) return;
+  String? get hubId => _hubId;
+  String? get sessionId => _sessionId;
+
+  String? get _statsColPath {
+    if (_hubId == null || _sessionId == null) return null;
+    return 'hubs/$_hubId/sessions/$_sessionId/studentStats';
+  }
+
+  /// 허브/세션 바인딩 (변경 시 기존 스트림 해제 후 새로 구독)
+  void bindHubSession({required String hubId, required String? sessionId}) {
+    final same = (_hubId == hubId) && (_sessionId == sessionId);
+    if (same) return;
+
+    _hubId = hubId;
     _sessionId = sessionId;
 
     _sub?.cancel();
@@ -99,11 +112,8 @@ class StudentStatsProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    // 정렬기준은 total 내림차순(없으면 ts필요 없음)
-    final q = _fs
-        .collection('sessions/$_sessionId/studentStats')
-        .orderBy('total', descending: true)
-        .limit(500);
+    final path = _statsColPath!;
+    final q = _fs.collection(path).orderBy('total', descending: true).limit(500);
 
     _sub = q.snapshots().listen((snap) {
       try {
@@ -127,6 +137,13 @@ class StudentStatsProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     });
+  }
+
+  /// (하위 호환) 예전 API: 세션만 받는 버전.
+  /// 새 구조에서는 hubId가 필요하므로, 반드시 [bindHubSession]을 사용하세요.
+  @Deprecated('Use bindHubSession(hubId: ..., sessionId: ...) instead.')
+  void bindSession(String? sessionId) {
+    bindHubSession(hubId: _hubId ?? 'hub-001', sessionId: sessionId);
   }
 
   @override

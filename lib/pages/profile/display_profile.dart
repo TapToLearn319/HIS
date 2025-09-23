@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 
 import '../../provider/students_provider.dart';
 
+const String kHubId = 'hub-001'; // ✅ 허브 스코프 경로 상수
+
 class DisplayProfilePage extends StatefulWidget {
   const DisplayProfilePage({super.key});
   @override
@@ -52,7 +54,9 @@ class _DisplayMainPageState extends State<DisplayProfilePage> {
     if (ok == true) {
       final name = ctrl.text.trim();
       if (name.isNotEmpty) {
-        await FirebaseFirestore.instance.collection('students').add({
+        await FirebaseFirestore.instance
+            .collection('hubs/$kHubId/students') // ✅ 허브 경로로 변경
+            .add({
           'name': name,
           'createdAt': FieldValue.serverTimestamp(),
         });
@@ -276,7 +280,7 @@ class _ClassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: fs.collection('students').snapshots(),
+      stream: fs.collection('hubs/$kHubId/students').snapshots(), // ✅ 허브 경로로 변경
       builder: (_, snap) {
         int total = 0;
         if (snap.hasData) {
@@ -351,7 +355,10 @@ class _StudentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = (data['name'] as String?) ?? '(no name)';
-    final pointsStream = FirebaseFirestore.instance.collection('students').doc(studentId).snapshots();
+    final pointsStream = FirebaseFirestore.instance
+        .collection('hubs/$kHubId/students') // ✅ 허브 경로로 변경
+        .doc(studentId)
+        .snapshots();
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: pointsStream,

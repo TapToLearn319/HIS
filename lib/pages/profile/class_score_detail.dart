@@ -1,9 +1,9 @@
-
-
 // lib/pages/profile/class_score_details_page.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../sidebar_menu.dart';
+
+const String kHubId = 'hub-001'; // ✅ hub 경로용
 
 class ClassScoreDetailsPage extends StatelessWidget {
   const ClassScoreDetailsPage({super.key});
@@ -16,7 +16,7 @@ class ClassScoreDetailsPage extends StatelessWidget {
 
     final fs = FirebaseFirestore.instance;
     final logsQuery = fs
-        .collection('classes/$classId/pointLogs')
+        .collection('hubs/$kHubId/classes/$classId/pointLogs') // ✅ hub 경로로 변경
         .orderBy('createdAt', descending: true);
 
     return AppScaffold(
@@ -236,8 +236,8 @@ class _ClassLogTile extends StatelessWidget {
               if (ok != true) return;
 
               final fs = FirebaseFirestore.instance;
-              final stuRef = fs.doc('students/${log.studentId}');
-              final classLogRef = fs.doc('classes/$classId/pointLogs/${log.id}');
+              final stuRef = fs.doc('hubs/$kHubId/students/${log.studentId}'); // ✅ hub 경로로 변경
+              final classLogRef = fs.doc('hubs/$kHubId/classes/$classId/pointLogs/${log.id}'); // ✅ hub 경로로 변경
 
               await fs.runTransaction((tx) async {
                 final cur = await tx.get(stuRef);

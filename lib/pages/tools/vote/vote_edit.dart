@@ -3,6 +3,10 @@ import 'dart:js_interop';
 import 'package:flutter/material.dart';
 import 'vote_models.dart';
 
+// ⬇️ 추가
+import 'package:provider/provider.dart';
+import '../../../provider/hub_provider.dart';
+
 class VoteEditPage extends StatefulWidget {
   final Vote? initial;
   const VoteEditPage({super.key, this.initial});
@@ -73,6 +77,9 @@ class _VoteEditPageState extends State<VoteEditPage> {
 
   @override
   Widget build(BuildContext context) {
+    // ⬇️ 추가: 허브 구독 (필요 시 저장 로직에서 사용)
+    final String? hubId = context.watch<HubProvider>().hubId;
+
     final isEdit = widget.initial != null;
 
     return Scaffold(

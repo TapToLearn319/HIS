@@ -2,6 +2,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+const String kHubId = 'hub-001'; // ✅ 허브 경로 상수
+
 // ===== 공용 타입/목록 (presenter와 동일) =====
 class ScoreType {
   final String id;
@@ -64,7 +66,7 @@ class _DisplayClassPageState extends State<DisplayClassPage> {
     required int delta,
   }) async {
     final snap = await _fs
-        .collection('students')
+        .collection('hubs/$kHubId/students') // ✅ 허브 경로
         .where('classId', isEqualTo: classId)
         .get();
 
@@ -75,8 +77,8 @@ class _DisplayClassPageState extends State<DisplayClassPage> {
       final batch = _fs.batch();
 
       for (final d in part) {
-        final stuRef = _fs.doc('students/${d.id}');
-        final logRef = _fs.collection('students/${d.id}/pointLogs').doc();
+        final stuRef = _fs.doc('hubs/$kHubId/students/${d.id}'); // ✅ 허브 경로
+        final logRef = _fs.collection('hubs/$kHubId/students/${d.id}/pointLogs').doc(); // ✅ 허브 경로
 
         batch.set(stuRef, {
           'points': FieldValue.increment(delta),
@@ -91,7 +93,7 @@ class _DisplayClassPageState extends State<DisplayClassPage> {
         });
 
         // (선택) 클래스 로그 미러링
-        batch.set(_fs.collection('classes/$classId/pointLogs').doc(), {
+        batch.set(_fs.collection('hubs/$kHubId/classes/$classId/pointLogs').doc(), { // ✅ 허브 경로
           'studentId': d.id,
           'studentName': (d.data()['name'] ?? '') as String,
           'typeId': typeId,
@@ -117,7 +119,8 @@ class _DisplayClassPageState extends State<DisplayClassPage> {
 
     // 클래스 총 포인트(학생 points 합)
     final classStuStream =
-        _fs.collection('students').where('classId', isEqualTo: classId).snapshots();
+        _fs.collection('hubs/$kHubId/students') // ✅ 허브 경로
+           .where('classId', isEqualTo: classId).snapshots();
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7FAFF),
@@ -205,7 +208,7 @@ class _DisplayClassPageState extends State<DisplayClassPage> {
                                 child: const Text(
                                   'View score details',
                                   textAlign: TextAlign.center,
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                     color: Color(0xFF868C98),
                                     fontSize: 23,
                                     fontWeight: FontWeight.w500,

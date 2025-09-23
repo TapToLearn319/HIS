@@ -1,3 +1,4 @@
+// lib/pages/tools/vote/presenter_vote.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -6,6 +7,8 @@ import 'package:provider/provider.dart';
 import '../../../provider/session_provider.dart';
 import '../../../main.dart';
 import '../../../sidebar_menu.dart';
+// ★ 추가
+import '../../../provider/hub_provider.dart';
 
 class PresenterVotePage extends StatefulWidget {
   const PresenterVotePage({super.key, this.voteId});
@@ -66,12 +69,12 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     setState(() => _loading = false);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final sid = context.read<SessionProvider>().sessionId;
-      if (sid != null && widget.voteId != null) {
-        _load(sid, widget.voteId!);
+      final hubId = context.read<HubProvider>().hubId;
+      if (hubId != null && widget.voteId != null) {
+        _load(hubId, widget.voteId!); // ← hub 스코프에서 로드
       }
-      if (sid != null) {
-        _watchActive(sid);
+      if (hubId != null) {
+        _watchActive(hubId); // ← hub 스코프에서 active 감시
       }
     });
   }
@@ -95,12 +98,12 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     if (!_isRunning) return;
     _isRunning = false;
 
-    final sid = context.read<SessionProvider>().sessionId;
     final id = _activeVoteId ?? widget.voteId;
-    if (sid == null || id == null) return;
+    final hubId = context.read<HubProvider>().hubId;
+    if (hubId == null || id == null) return;
 
     try {
-      final doc = FirebaseFirestore.instance.doc('sessions/$sid/votes/$id');
+      final doc = FirebaseFirestore.instance.doc('hubs/$hubId/votes/$id');
       await doc.set({
         'status': 'closed',
         'endedAt': FieldValue.serverTimestamp(),
@@ -108,7 +111,7 @@ class _PresenterVotePageState extends State<PresenterVotePage>
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      await _updateHub(sid: sid, voteId: null);
+      await _updateHub(sid: null, voteId: null); // sid는 안씀
 
       if (mounted) setState(() => _isRunning = false);
     } catch (e) {
@@ -116,19 +119,22 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     }
   }
 
-  Future<void> _updateHub({required String sid, String? voteId}) async {
-    final ref = FirebaseFirestore.instance.doc('hubs/hub-001');
+  // 시그니처는 유지, 내부에서 HubProvider로 hubId 사용
+  Future<void> _updateHub({required String? sid, String? voteId}) async {
+    final hubId = context.read<HubProvider>().hubId;
+    if (hubId == null) return;
+    final ref = FirebaseFirestore.instance.doc('hubs/$hubId');
     await ref.set({
-      'currentSessionId': sid,
+      'currentSessionId': sid, // 그대로 유지 (표시용이면 사용)
       'currentVoteId': voteId, // 시작 시 voteId, 종료 시 null
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
 
-  Future<void> _load(String sid, String id) async {
+  Future<void> _load(String sid /* hubId */, String id) async {
     setState(() => _loading = true);
     final doc =
-        await FirebaseFirestore.instance.doc('sessions/$sid/votes/$id').get();
+        await FirebaseFirestore.instance.doc('hubs/$sid/votes/$id').get();
     final d = doc.data();
     if (d != null) {
       _titleCtrl.text = (d['title'] ?? '').toString();
@@ -184,27 +190,22 @@ class _PresenterVotePageState extends State<PresenterVotePage>
       // 1) 우선 적용
       _bindings[i] = next;
 
-      // 2) 중복 정리: 이미 next 를 가진 다른 문항들을 재배치
-      //    남은 "비어있는 매핑" 풀을 만든 후, 중복들에게 차례대로 할당
+      // 2) 중복 정리
       final used = <String>{};
       for (int k = 0; k < _bindings.length; k++) {
-        if (k == i) continue; // 방금 셋팅한 것 제외
+        if (k == i) continue;
         used.add('${_bindings[k].button}-${_bindings[k].gesture}');
       }
-      // i가 쓴 매핑은 당연히 사용중
       used.add('${next.button}-${next.gesture}');
 
-      // 사용 가능한 남은 매핑
       final free =
           _allBindings
               .where((b) => !used.contains('${b.button}-${b.gesture}'))
               .toList();
 
-      // 중복을 정리하면서 free에서 하나씩 꺼내 할당
       for (int k = 0; k < _bindings.length; k++) {
         if (k == i) continue;
         final key = '${_bindings[k].button}-${_bindings[k].gesture}';
-        // 현재 k 가 i와 충돌하면 바꿔준다
         if (key == '${next.button}-${next.gesture}') {
           if (free.isNotEmpty) {
             _bindings[k] = free.removeAt(0);
@@ -214,7 +215,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     });
   }
 
-  // 현재 바인딩들에서 아직 안쓰인 첫 매핑을 돌려준다. 없으면 기본값.
   _Binding _firstUnusedBinding({
     _Binding fallback = const _Binding(button: 1, gesture: 'hold'),
   }) {
@@ -225,9 +225,7 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     return fallback;
   }
 
-  // 로드/초기화 후 전체를 유일하게(중복 없게) 정리
   void _ensureUniqueAll() {
-    // 왼쪽부터 순서대로 중복 해소: 앞에서 쓴 것과 겹치면 비어있는 걸로 교체
     final seen = <String>{};
     for (int i = 0; i < _bindings.length; i++) {
       final key = '${_bindings[i].button}-${_bindings[i].gesture}';
@@ -238,10 +236,10 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     }
   }
 
-  void _watchActive(String sid) {
+  void _watchActive(String sid /* hubId */) {
     _activeSub?.cancel();
     _activeSub = FirebaseFirestore.instance
-        .collection('sessions/$sid/votes')
+        .collection('hubs/$sid/votes')
         .where('status', isEqualTo: 'active')
         .snapshots()
         .listen(
@@ -312,14 +310,15 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     try {
       print('[VOTE] handleStartStop 실행됨. 현재 상태: _isRunning=$_isRunning');
 
-      final sid = context.read<SessionProvider>().sessionId;
-      print('[VOTE] 세션ID=$sid');
+      final hubId = context.read<HubProvider>().hubId;
+      final sid = context.read<SessionProvider>().sessionId; // 필요시 허브 문서에 표시용
+      print('[VOTE] hubId=$hubId, 세션ID=$sid');
 
-      if (sid == null) {
+      if (hubId == null) {
         if (mounted) {
           ScaffoldMessenger.of(
             context,
-          ).showSnackBar(const SnackBar(content: Text('세션이 설정되지 않았습니다.')));
+          ).showSnackBar(const SnackBar(content: Text('허브가 설정되지 않았습니다.')));
         }
         return;
       }
@@ -327,18 +326,18 @@ class _PresenterVotePageState extends State<PresenterVotePage>
       if (!_isRunning) {
         // ▶ START
         print('[VOTE] START 시도');
-        final voteId = await _persistVote(sid);
+        final voteId = await _persistVote(hubId);
         print('[VOTE] persistVote 결과 voteId=$voteId');
 
         if (voteId == null) return;
 
-        await _stopAllActive(sid); // 다른 active 모두 종료
+        await _stopAllActive(hubId); // 다른 active 모두 종료
         print('[VOTE] 기존 active 투표 모두 종료 완료');
 
         final doc = FirebaseFirestore.instance.doc(
-          'sessions/$sid/votes/$voteId',
+          'hubs/$hubId/votes/$voteId',
         );
-        print('[VOTE] Firestore doc path = sessions/$sid/votes/$voteId');
+        print('[VOTE] Firestore doc path = hubs/$hubId/votes/$voteId');
 
         // ▶ START 직후
         await doc.set({
@@ -349,7 +348,7 @@ class _PresenterVotePageState extends State<PresenterVotePage>
           'updatedAt': FieldValue.serverTimestamp(),
         }, SetOptions(merge: true));
 
-        // ★ 허브에 현재 투표 반영
+        // ★ 허브에 현재 투표 반영 (sid는 표시용으로 넣어둠)
         await _updateHub(sid: sid, voteId: voteId);
 
         if (!mounted) return;
@@ -376,8 +375,8 @@ class _PresenterVotePageState extends State<PresenterVotePage>
           return;
         }
 
-        final doc = FirebaseFirestore.instance.doc('sessions/$sid/votes/$id');
-        print('[VOTE] Firestore doc path = sessions/$sid/votes/$id');
+        final doc = FirebaseFirestore.instance.doc('hubs/$hubId/votes/$id');
+        print('[VOTE] Firestore doc path = hubs/$hubId/votes/$id');
 
         // ▶ STOP 직후
         await doc.set({
@@ -417,7 +416,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
   }
 
   int _rowScore(Map<String, dynamic> d) {
-    // updatedAt > startedAt > 0
     final ua = _tsFrom(d['updatedAt']);
     if (ua > 0) return ua;
     return _tsFrom(d['startedAt']);
@@ -565,7 +563,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
                                 ? 'assets/logo_bird_stop.png'
                                 : 'assets/logo_bird_start.png',
                             fit: BoxFit.contain,
-                            // stop 이미지가 없을 때도 크래시 안 나도록 안전장치
                             errorBuilder: (_, __, ___) {
                               return Image.asset(
                                 'assets/logo_bird_start.png',
@@ -682,7 +679,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     final ctrl = _optionCtrls[i];
     final bind = _bindings[i];
 
-    // 메뉴 공통 빌더 (안쪽 suffixIcon에서 재사용)
     List<PopupMenuEntry<int>> _menuItems() => const [
       PopupMenuItem(
         enabled: false,
@@ -735,7 +731,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // 입력창 (안쪽에 매핑 텍스트 + 세로 ... 메뉴 포함)
         Expanded(
           child: ConstrainedBox(
             constraints: const BoxConstraints.tightFor(height: 60),
@@ -763,8 +758,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
                     width: 1,
                   ),
                 ),
-
-                // ▼ 텍스트필드 안쪽 오른쪽: [매핑 텍스트] [세로점 메뉴]
                 suffixIcon: SizedBox(
                   width: 170,
                   child: Row(
@@ -786,18 +779,15 @@ class _PresenterVotePageState extends State<PresenterVotePage>
                         ),
                       ),
                       const SizedBox(width: 8),
-
-                      // ==== 디자인 시안 스타일의 팝업 ====
                       Theme(
                         data: Theme.of(context).copyWith(
                           popupMenuTheme: PopupMenuThemeData(
-                            color: const Color(0xFFF6F6F6), // 배경
-                            elevation: 0, // 그림자 제거
+                            color: const Color(0xFFF6F6F6),
+                            elevation: 0,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10), // 라운드 10
+                              borderRadius: BorderRadius.circular(10),
                             ),
                             textStyle: const TextStyle(
-                              // 기본 글꼴
                               color: Color(0xFF8D8D8D),
                               fontSize: 21,
                               fontWeight: FontWeight.w400,
@@ -811,9 +801,7 @@ class _PresenterVotePageState extends State<PresenterVotePage>
                             color: Color(0xFF8D8D8D),
                           ),
                           elevation: 0,
-                          // ← 여기서 항목을 '디자인대로' 직접 구성
                           itemBuilder: (_) {
-                            // 나(현재 행)를 제외하고 이미 사용 중인 매핑은 비활성화 표시
                             final usedExceptMe =
                                 _bindings
                                     .asMap()
@@ -840,31 +828,28 @@ class _PresenterVotePageState extends State<PresenterVotePage>
 
                               return PopupMenuItem<int>(
                                 value: o.value,
-                                enabled: !disabled, // 클릭만 막고
-                                height: 44, // 아이템 높이 고정
+                                enabled: !disabled,
+                                height: 44,
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 12,
                                 ),
                                 child: Row(
                                   children: [
-                                    // 왼쪽 체크 (선택된 항목만)
                                     SizedBox(
                                       width: 24,
                                       child:
                                           selected
                                               ? const Icon(
-                                                Icons.check,
-                                                size: 18,
-                                                color: Colors.black87,
-                                              )
+                                                  Icons.check,
+                                                  size: 18,
+                                                  color: Colors.black87,
+                                                )
                                               : const SizedBox.shrink(),
                                     ),
                                     const SizedBox(width: 6),
-                                    // 텍스트 (우측으로 정렬될 필요는 없고 균일한 여백)
                                     Expanded(
                                       child: Text(
                                         o.label,
-                                        // 비활성화 항목은 취소선으로 표기 (디자인처럼)
                                         style: TextStyle(
                                           decoration:
                                               disabled
@@ -878,10 +863,9 @@ class _PresenterVotePageState extends State<PresenterVotePage>
                               );
                             }).toList();
                           },
-                          onSelected: _onMenuSelected, // 기존 핸들러 재사용
+                          onSelected: _onMenuSelected,
                         ),
                       ),
-                      // ===============================
                     ],
                   ),
                 ),
@@ -894,7 +878,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
             ),
           ),
         ),
-        // 바깥쪽 옛날 … 버튼은 제거했으므로 간격도 제거
       ],
     );
   }
@@ -902,8 +885,8 @@ class _PresenterVotePageState extends State<PresenterVotePage>
   Widget _sectionTitle(String text) {
     return Center(
       child: Container(
-        width: 948, // 블럭 너비
-        alignment: Alignment.centerLeft, // 내부 텍스트는 왼쪽 정렬
+        width: 948,
+        alignment: Alignment.centerLeft,
         child: Text(
           text,
           style: const TextStyle(
@@ -916,7 +899,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     );
   }
 
-  // Poll Settings 카드
   Widget _settingsCard() {
     return Align(
       alignment: Alignment.center,
@@ -966,7 +948,7 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     );
   }
 
-  Future<String?> _persistVote(String sid) async {
+  Future<String?> _persistVote(String sid /* hubId */) async {
     if (_titleCtrl.text.trim().isEmpty) {
       _titleCtrl.text = 'Untitled question';
     }
@@ -999,10 +981,8 @@ class _PresenterVotePageState extends State<PresenterVotePage>
 
     final ref =
         (widget.voteId == null)
-            ? FirebaseFirestore.instance.collection('sessions/$sid/votes').doc()
-            : FirebaseFirestore.instance.doc(
-              'sessions/$sid/votes/${widget.voteId}',
-            );
+            ? FirebaseFirestore.instance.collection('hubs/$sid/votes').doc()
+            : FirebaseFirestore.instance.doc('hubs/$sid/votes/${widget.voteId}');
 
     await ref.set({
       'title': _titleCtrl.text.trim(),
@@ -1017,11 +997,11 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     return ref.id;
   }
 
-  Future<void> _stopAllActive(String sid) async {
+  Future<void> _stopAllActive(String sid /* hubId */) async {
     final fs = FirebaseFirestore.instance;
     final running =
         await fs
-            .collection('sessions/$sid/votes')
+            .collection('hubs/$sid/votes')
             .where('status', isEqualTo: 'active')
             .get();
     if (running.docs.isEmpty) return;
@@ -1077,7 +1057,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // 왼쪽 라벨 — width: 404px, 글씨 스타일 (#001A36, 24px, w500)
         ConstrainedBox(
           constraints: const BoxConstraints.tightFor(width: 404),
           child: Text(
@@ -1089,13 +1068,11 @@ class _PresenterVotePageState extends State<PresenterVotePage>
             ),
           ),
         ),
-        // 선택지 2개
         Row(children: [left, const SizedBox(width: 28), right]),
       ],
     );
   }
 
-  // 노란 원형 인디케이터
   Widget _dot(bool selected) {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 140),
@@ -1112,7 +1089,6 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     );
   }
 
-  // "● label" 형태 선택지
   Widget _choice<T>(String label, bool selected, VoidCallback onTap) {
     return InkWell(
       onTap: onTap,

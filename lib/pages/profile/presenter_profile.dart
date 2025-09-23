@@ -1,6 +1,4 @@
-
-
-
+// lib/pages/profile/presenter_main_page.dart
 // PresenterMainPage — 전체 학생 페이지 (리팩터링)
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -36,27 +34,26 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     final ctrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
-      builder:
-          (_) => AlertDialog(
-            title: const Text('Add student'),
-            content: TextField(
-              controller: ctrl,
-              decoration: const InputDecoration(
-                labelText: 'Student name',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Add'),
-              ),
-            ],
+      builder: (_) => AlertDialog(
+        title: const Text('Add student'),
+        content: TextField(
+          controller: ctrl,
+          decoration: const InputDecoration(
+            labelText: 'Student name',
+            border: OutlineInputBorder(),
           ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
     );
     if (ok != true) return;
 
@@ -64,16 +61,18 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     if (name.isEmpty) return;
 
     final fs = FirebaseFirestore.instance;
-    await fs.collection('students').add({
-      'name': name,
-      'createdAt': FieldValue.serverTimestamp(),
-      // 필요시 초기 필드 추가 가능: 'deviceId': null,
-    });
+    await fs
+        .collection('hubs')
+        .doc(kHubId)
+        .collection('students')
+        .add({
+          'name': name,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
 
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('Added: $name')));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Added: $name')));
   }
 
   @override
@@ -82,20 +81,20 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     final width = MediaQuery.sizeOf(context).width;
 
     // 학생 목록 정렬 + 검색 필터
-    final students =
-        sp.students.entries.map((e) => MapEntry(e.key, e.value)).toList()..sort(
-          (a, b) => (a.value['name'] ?? '').toString().toLowerCase().compareTo(
-            (b.value['name'] ?? '').toString().toLowerCase(),
-          ),
-        );
+    final students = sp.students.entries
+        .map((e) => MapEntry(e.key, e.value))
+        .toList()
+      ..sort((a, b) => (a.value['name'] ?? '')
+          .toString()
+          .toLowerCase()
+          .compareTo((b.value['name'] ?? '').toString().toLowerCase()));
 
-    final filtered =
-        (_query.trim().isEmpty)
-            ? students
-            : students.where((e) {
-              final n = (e.value['name'] ?? '').toString().toLowerCase();
-              return n.contains(_query.trim().toLowerCase());
-            }).toList();
+    final filtered = (_query.trim().isEmpty)
+        ? students
+        : students.where((e) {
+            final n = (e.value['name'] ?? '').toString().toLowerCase();
+            return n.contains(_query.trim().toLowerCase());
+          }).toList();
 
     return AppScaffold(
       selectedIndex: 1,
@@ -107,11 +106,7 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: ElevatedButton.icon(
                 onPressed: _addStudentDialog,
-                icon: const Icon(
-                  Icons.person_add_alt_1,
-                  size: 18,
-                  color: Colors.white,
-                ),
+                icon: const Icon(Icons.person_add_alt_1, size: 18, color: Colors.white),
                 label: const Text(
                   'Add Student',
                   style: TextStyle(
@@ -122,10 +117,7 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF44A0FF),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 8,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
@@ -141,37 +133,11 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
             children: [
               // ── Header ─────────────────────────────────────
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 decoration: const BoxDecoration(color: Color(0xFFF6FAFF)),
                 child: Row(
-                  children: [
-                    const Spacer(),
-                    // SizedBox(
-                    //   width: 280,
-                    //   child: TextField(
-                    //     onChanged: (v) => setState(() => _query = v),
-                    //     decoration: InputDecoration(
-                    //       prefixIcon: const Icon(Icons.search, size: 18),
-                    //       hintText: 'Search Students',
-                    //       isDense: true,
-                    //       contentPadding: const EdgeInsets.symmetric(
-                    //         horizontal: 10,
-                    //         vertical: 10,
-                    //       ),
-                    //       border: OutlineInputBorder(
-                    //         borderRadius: BorderRadius.circular(20),
-                    //         borderSide: const BorderSide(
-                    //           color: Color(0xFFF6FAFF),
-                    //         ),
-                    //       ),
-                    //       filled: true,
-                    //       fillColor: const Color(0xFFF6FAFF),
-                    //     ),
-                    //   ),
-                    // ),
+                  children: const [
+                    Spacer(),
                   ],
                 ),
               ),
@@ -201,13 +167,12 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child:
-                      _tab == 'students'
-                          ? _StudentsGrid(
-                            cols: _colsForWidth(width),
-                            students: filtered,
-                          )
-                          : const _GroupsPlaceholder(),
+                  child: _tab == 'students'
+                      ? _StudentsGrid(
+                          cols: _colsForWidth(width),
+                          students: filtered,
+                        )
+                      : const _GroupsPlaceholder(),
                 ),
               ),
             ],
@@ -232,10 +197,7 @@ class TabChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 선택 시/비선택 시 색상만 바꾸고, 폰트는 동일 스펙 유지
-    final Color color =
-        selected ? const Color(0xFF001A36) : const Color(0xFFA2A2A2);
-
+    final Color color = selected ? const Color(0xFF001A36) : const Color(0xFFA2A2A2);
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: onTap,
@@ -246,10 +208,10 @@ class TabChip extends StatelessWidget {
             Text(
               label,
               style: TextStyle(
-                fontSize: 25.0, // 18.3px
-                fontWeight: FontWeight.w600, // 600
-                color: color, // #001A36(선택) / #9CA3AF(미선택)
-                height: 1.0, // line-height: normal
+                fontSize: 25.0,
+                fontWeight: FontWeight.w600,
+                color: color,
+                height: 1.0,
                 decoration: TextDecoration.none,
               ),
             ),
@@ -292,7 +254,7 @@ class _PointBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 30, // 카드에서 쓰는 29.8px → 반올림
+      width: 30,
       height: 20,
       alignment: Alignment.center,
       decoration: BoxDecoration(
@@ -302,10 +264,10 @@ class _PointBubble extends StatelessWidget {
       child: Text(
         '$value',
         style: const TextStyle(
-          color: Colors.white, // #FFFFFF
-          fontSize: 18, // 18px
-          fontWeight: FontWeight.w500, // 500
-          height: 1.0, // line-height normal
+          color: Colors.white,
+          fontSize: 18,
+          fontWeight: FontWeight.w500,
+          height: 1.0,
         ),
       ),
     );
@@ -319,7 +281,11 @@ class _ClassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: fs.collection('students').snapshots(),
+      stream: fs
+          .collection('hubs')
+          .doc(kHubId)
+          .collection('students')
+          .snapshots(),
       builder: (_, snap) {
         int total = 0;
         if (snap.hasData) {
@@ -333,7 +299,7 @@ class _ClassCard extends StatelessWidget {
           onTap: () => Navigator.pushNamed(context, '/profile/class'),
           child: Stack(
             children: [
-              // 카드 본체 (학생 카드와 동일)
+              // 카드 본체
               Container(
                 width: double.infinity,
                 height: double.infinity,
@@ -362,7 +328,7 @@ class _ClassCard extends StatelessWidget {
                             ),
                             SizedBox(height: 10),
                             SizedBox(
-                              width: 112, // 선택: 동일 고정폭
+                              width: 112,
                               child: Text(
                                 'Class',
                                 textAlign: TextAlign.center,
@@ -394,7 +360,7 @@ const kNameTextStyle = TextStyle(
   color: Color(0xFF001A36),
   fontSize: 25,
   fontWeight: FontWeight.w500,
-  height: 1.0, // line-height: normal
+  height: 1.0,
 );
 
 /// 학생 카드
@@ -406,11 +372,12 @@ class _StudentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = (data['name'] as String?) ?? '(no name)';
-    final pointsStream =
-        FirebaseFirestore.instance
-            .collection('students')
-            .doc(studentId)
-            .snapshots();
+    final pointsStream = FirebaseFirestore.instance
+        .collection('hubs')
+        .doc(kHubId)
+        .collection('students')
+        .doc(studentId)
+        .snapshots();
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: pointsStream,
@@ -419,16 +386,14 @@ class _StudentCard extends StatelessWidget {
 
         return InkWell(
           borderRadius: BorderRadius.circular(10),
-          onTap:
-              () => Navigator.pushNamed(
-                context,
-                '/profile/student',
-                arguments: {'id': studentId},
-              ),
+          onTap: () => Navigator.pushNamed(
+            context,
+            '/profile/student',
+            arguments: {'id': studentId},
+          ),
           child: Stack(
             children: [
               // 카드 본체
-              // 기존: width: 170, height: 170
               Container(
                 width: double.infinity,
                 height: double.infinity,
@@ -456,14 +421,10 @@ class _StudentCard extends StatelessWidget {
                               ),
                             ),
                             const SizedBox(height: 10),
-                            // ⬇️ 학생 이름 추가
                             Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 8),
                               child: SizedBox(
-                                width:
-                                    112, // Figma에서 준 레이아웃(112x26)에 맞춰 고정폭(선택)
+                                width: 112,
                                 child: Text(
                                   name,
                                   maxLines: 1,

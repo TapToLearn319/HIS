@@ -1,9 +1,9 @@
-
-
 // lib/pages/profile/presenter_class_page.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../sidebar_menu.dart';
+
+const String kHubId = 'hub-001'; // 🔧 허브 스코프 경로에 사용
 
 // 학생 페이지와 동일한 타입 모델/섹션 -----------------------
 class ScoreType {
@@ -65,11 +65,11 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
     required String typeName,
     required int delta,
   }) async {
-    final snap =
-        await _fs
-            .collection('students')
-            .where('classId', isEqualTo: classId)
-            .get();
+    // 🔧 학생/로그/클래스 로그 모두 허브 스코프로 변경
+    final snap = await _fs
+        .collection('hubs/$kHubId/students')
+        .where('classId', isEqualTo: classId)
+        .get();
 
     const chunk = 200;
     for (int i = 0; i < snap.docs.length; i += chunk) {
@@ -80,8 +80,9 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
       final batch = _fs.batch();
 
       for (final d in part) {
-        final stuRef = _fs.doc('students/${d.id}');
-        final logRef = _fs.collection('students/${d.id}/pointLogs').doc();
+        final stuRef = _fs.doc('hubs/$kHubId/students/${d.id}');
+        final logRef =
+            _fs.collection('hubs/$kHubId/students/${d.id}/pointLogs').doc();
 
         batch.set(stuRef, {
           'points': FieldValue.increment(delta),
@@ -96,14 +97,17 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
         });
 
         // (선택) 클래스 로그 미러링
-        batch.set(_fs.collection('classes/$classId/pointLogs').doc(), {
-          'studentId': d.id,
-          'studentName': (d.data()['name'] ?? '') as String,
-          'typeId': typeId,
-          'typeName': typeName,
-          'value': delta,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+        batch.set(
+          _fs.collection('hubs/$kHubId/classes/$classId/pointLogs').doc(),
+          {
+            'studentId': d.id,
+            'studentName': (d.data()['name'] ?? '') as String,
+            'typeId': typeId,
+            'typeName': typeName,
+            'value': delta,
+            'createdAt': FieldValue.serverTimestamp(),
+          },
+        );
       }
 
       await batch.commit();
@@ -120,12 +124,11 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
     final classId = _classId(context);
     final className = _className(context);
 
-    // 클래스 총 포인트(학생 points 합)를 배지에 표시
-    final classStuStream =
-        _fs
-            .collection('students')
-            .where('classId', isEqualTo: classId)
-            .snapshots();
+    // 🔧 클래스 총 포인트 합산도 허브 스코프에서 조회
+    final classStuStream = _fs
+        .collection('hubs/$kHubId/students')
+        .where('classId', isEqualTo: classId)
+        .snapshots();
 
     return AppScaffold(
       selectedIndex: 1,
@@ -178,18 +181,16 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
                                       right: 12,
                                       top: 12,
                                       child: StreamBuilder<
-                                        QuerySnapshot<Map<String, dynamic>>
-                                      >(
+                                          QuerySnapshot<Map<String, dynamic>>>(
                                         stream: classStuStream,
                                         builder: (_, snap) {
                                           int sum = 0;
                                           if (snap.hasData) {
                                             for (final d in snap.data!.docs) {
-                                              sum +=
-                                                  ((d.data()['points']
-                                                              as num?) ??
-                                                          0)
-                                                      .toInt();
+                                              sum += ((d.data()['points']
+                                                          as num?) ??
+                                                      0)
+                                                  .toInt();
                                             }
                                           }
                                           return _PointBadge(value: sum);
@@ -248,13 +249,12 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
                           Expanded(
                             flex: 5,
                             child: _ScoreManagementCard(
-                              onPick:
-                                  (id, name, v) => _applyToAll(
-                                    classId: classId,
-                                    typeId: id,
-                                    typeName: name,
-                                    delta: v,
-                                  ),
+                              onPick: (id, name, v) => _applyToAll(
+                                classId: classId,
+                                typeId: id,
+                                typeName: name,
+                                delta: v,
+                              ),
                             ),
                           ),
                         ],
@@ -320,8 +320,6 @@ class _ScoreManagementCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 타이틀 라인 + Back 버튼 정렬을 학생페이지와 동일하게 유지하려면
-              // 상단(페이지 헤더)에서 Back을 넣고 여기선 섹션 타이틀만 노출
               const _SectionTitle('Attitude Score'),
               const SizedBox(height: 12),
               _ScoreSectionGrid(

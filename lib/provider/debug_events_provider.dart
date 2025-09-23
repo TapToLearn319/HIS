@@ -23,35 +23,36 @@ class EventLog {
   });
 
   factory EventLog.fromDoc(DocumentSnapshot<Map<String, dynamic>> d) {
-  final x = d.data() ?? const <String, dynamic>{};
+    final x = d.data() ?? const <String, dynamic>{};
 
-  String? normalizeSlot(dynamic v) {
-    if (v == null) return null;
-    final s = v.toString().trim();
-    if (s == '1' || s == '2') return s;
-    return null; // 그 외 값은 무시
+    String? normalizeSlot(dynamic v) {
+      if (v == null) return null;
+      final s = v.toString().trim();
+      if (s == '1' || s == '2') return s;
+      return null; // 그 외 값은 무시
+    }
+
+    return EventLog(
+      id: d.id,
+      deviceId: (x['deviceId'] ?? '').toString(),
+      clickType: (x['clickType'] ?? '').toString().toLowerCase(),
+      studentId: (x['studentId'] as String?) ?? (x['studentId']?.toString()),
+      slotIndex: normalizeSlot(x['slotIndex']),
+      ts: x['ts'] is Timestamp ? x['ts'] as Timestamp : null,
+      hubTs: (x['hubTs'] as num?)?.toInt(),
+    );
   }
-
-  return EventLog(
-    id: d.id,
-    deviceId: (x['deviceId'] ?? '').toString(),
-    clickType: (x['clickType'] ?? '').toString().toLowerCase(),
-    studentId: (x['studentId'] as String?) ?? (x['studentId']?.toString()),
-    slotIndex: normalizeSlot(x['slotIndex']),        // ✅ 핵심 수정
-    ts: x['ts'] is Timestamp ? x['ts'] as Timestamp : null,
-    hubTs: (x['hubTs'] as num?)?.toInt(),
-  );
-}
 }
 
 class DebugEventsProvider extends ChangeNotifier {
   final FirebaseFirestore _fs;
   DebugEventsProvider(this._fs, {this.limit = 300});
 
+  final int limit;
+
+  String? _hubId;
   String? _sessionId;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _sub;
-
-  final int limit;
 
   final List<EventLog> _events = [];
   List<EventLog> get events => _events;
@@ -59,18 +60,22 @@ class DebugEventsProvider extends ChangeNotifier {
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
+  String? get hubId => _hubId;
+  String? get sessionId => _sessionId;
+
   bool get hasMore => false; // 스트림 방식은 페이지네이션 없음
 
-  /// 세션에 바인딩. 기존 스트림 정리 후 새 스트림 구독.
-  void bindSession(String? sessionId) {
-    if (_sessionId == sessionId) return;
+  /// 허브/세션에 바인딩. 기존 스트림 정리 후 새 스트림 구독.
+  void bindHubSession({required String hubId, required String? sessionId}) {
+    final same = (_hubId == hubId) && (_sessionId == sessionId);
+    if (same) return;
+
+    _hubId = hubId;
     _sessionId = sessionId;
 
-    // 기존 스트림 해제
     _sub?.cancel();
     _sub = null;
 
-    // 목록 초기화
     _events.clear();
     notifyListeners();
 
@@ -79,10 +84,8 @@ class DebugEventsProvider extends ChangeNotifier {
     _isLoading = true;
     notifyListeners();
 
-    // ⚠️ 정렬 필드는 ts(서버 타임스탬프)로 통일
-    //   - hubTs는 숫자형이어도 타입 섞이면 정렬 에러 발생 가능성↑
     final q = _fs
-        .collection('sessions/$_sessionId/events')
+        .collection('hubs/$hubId/sessions/$sessionId/events')
         .orderBy('ts', descending: true)
         .limit(limit);
 
@@ -103,6 +106,13 @@ class DebugEventsProvider extends ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     });
+  }
+
+  /// (하위 호환) 예전 API: 세션만 받는 버전.
+  /// 새 구조에서는 hubId가 필요하므로, 반드시 [bindHubSession]을 사용하세요.
+  @Deprecated('Use bindHubSession(hubId: ..., sessionId: ...) instead.')
+  void bindSession(String? sessionId) {
+    bindHubSession(hubId: _hubId ?? 'hub-001', sessionId: sessionId);
   }
 
   /// 스트림 방식에서는 의미 없음. (호출돼도 아무 일 안 함)

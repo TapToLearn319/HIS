@@ -1,8 +1,9 @@
-// session_provider.dart
 import 'package:flutter/foundation.dart';
 
+/// 세션 스코프 전용
 class SessionProvider extends ChangeNotifier {
   String? _sessionId;
+
   String? get sessionId => _sessionId;
 
   void setSession(String sessionId) {
@@ -11,14 +12,9 @@ class SessionProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void clearSession() {
+  void clear() {
+    if (_sessionId == null) return;
     _sessionId = null;
     notifyListeners();
-  }
-  void clear() {
-    if (_sessionId != null) {
-      _sessionId = null;
-      notifyListeners();
-    }
   }
 }

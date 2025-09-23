@@ -2,34 +2,56 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+/// hubs/{hubId}/devices 기준으로 버튼(디바이스) 목록을 읽어오는 Provider
 class ButtonsProvider extends ChangeNotifier {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseFirestore _fs;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _sub;
 
-  List<String> _serials = [];
-  List<String> get serials => _serials;
+  String? _hubId;
 
-  ButtonsProvider() {
-    // 1) 생성자 호출 확인
-    print('🔔 ButtonsProvider 생성자 호출');
+  /// deviceId 리스트 (= 문서 id)
+  List<String> _deviceIds = [];
+  List<String> get serials => _deviceIds; // 기존 API 호환용
 
-    // 2) 일회성 GET 으로 컬렉션 데이터 확인
-    _checkOnce();
+  ButtonsProvider(this._fs, {String? initialHubId}) {
+    if (initialHubId != null) listenHub(initialHubId);
+  }
 
-    // 3) 실시간 스냅샷 구독 시작
-    _sub = _firestore
-        .collection('buttons')
+  /// 허브 변경 시 재구독
+  void listenHub(String hubId) {
+    if (_hubId == hubId) return;
+    _hubId = hubId;
+
+    print('🔔 ButtonsProvider.listenHub → $hubId');
+
+    _sub?.cancel();
+    _deviceIds = [];
+    notifyListeners();
+
+    _checkOnce(); // 일회성 GET (디버깅용)
+
+    _sub = _fs
+        .collection('hubs')
+        .doc(hubId)
+        .collection('devices')
         .snapshots()
         .listen(
-          (snap) => _onSnapshot(snap),
-          onError: (e) => print('🔴 Buttons snapshot 에러: $e'),
+          _onSnapshot,
+          onError: (e) => print('🔴 devices snapshot 에러: $e'),
         );
   }
 
   Future<void> _checkOnce() async {
+    final hubId = _hubId;
+    if (hubId == null) return;
+
     try {
-      final snap = await _firestore.collection('buttons').get();
-      print('🔔 [일회성 GET] buttons docs: ${snap.docs.length}');
+      final snap = await _fs
+          .collection('hubs')
+          .doc(hubId)
+          .collection('devices')
+          .get();
+      print('🔔 [일회성 GET] hubs/$hubId/devices docs: ${snap.docs.length}');
       for (var doc in snap.docs) {
         print('   • ${doc.id} → ${doc.data()}');
       }
@@ -39,11 +61,11 @@ class ButtonsProvider extends ChangeNotifier {
   }
 
   void _onSnapshot(QuerySnapshot<Map<String, dynamic>> snap) {
-    print('🔔 [실시간 SNAPSHOT] buttons docs: ${snap.docs.length}');
+    print('🔔 [실시간 SNAPSHOT] hubs/$_hubId/devices docs: ${snap.docs.length}');
     for (var doc in snap.docs) {
       print('   • ${doc.id} → ${doc.data()}');
     }
-    _serials = snap.docs.map((d) => d.id).toList();
+    _deviceIds = snap.docs.map((d) => d.id).toList();
     notifyListeners();
   }
 

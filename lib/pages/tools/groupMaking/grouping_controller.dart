@@ -1,5 +1,3 @@
-
-
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as dev;
@@ -8,19 +6,51 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../../main.dart';
 import 'grouping_service.dart';
+// ✅ HubProvider를 직접 임포트 (현재 파일이 lib/…/…/…/… 에 있으므로 4단계 상위)
+import '../../../../provider/hub_provider.dart';
 
 enum GroupingMode { byGroups, bySize }
 
 class GroupingController extends ChangeNotifier {
-  GroupingController({FirebaseFirestore? firestore, GroupingService? service})
-    : _fs = firestore ?? FirebaseFirestore.instance,
-      _service = service ?? const GroupingService();
+  GroupingController({
+    FirebaseFirestore? firestore,
+    GroupingService? service,
+    this.hub, // ✅ 허브 컨텍스트를 직접 받음 (null이면 루트 컬렉션 사용)
+  })  : _fs = firestore ?? FirebaseFirestore.instance,
+        _service = service ?? const GroupingService();
 
   final FirebaseFirestore _fs;
   final GroupingService _service;
 
+  /// ✅ 현재 허브 컨텍스트
+  final HubProvider? hub;
+
+  // ---------------- Firestore 경로 헬퍼 ----------------
+
+  /// 주어진 절대 경로가 있으면 그 경로를, 없으면 fallback 루트 컬렉션을 반환
+  CollectionReference<Map<String, dynamic>> _colByPath(
+    String? absPath,
+    String fallback,
+  ) {
+    if (absPath != null && absPath.isNotEmpty) {
+      return _fs.collection(absPath);
+    }
+    return _fs.collection(fallback);
+  }
+
+  /// students 컬렉션 (허브 스코프 또는 루트)
+  CollectionReference<Map<String, dynamic>> get _studentsCol =>
+      _colByPath(hub?.studentsColPath, 'students');
+
+  /// groupingSessions 컬렉션 (허브 스코프 또는 루트)
+  CollectionReference<Map<String, dynamic>> get _groupingSessionsCol {
+    final String? hubDoc = hub?.hubDocPath; // 'hubs/{hubId}'
+    final String? path = (hubDoc == null) ? null : '$hubDoc/groupingSessions';
+    return _colByPath(path, 'groupingSessions');
+  }
+
   // config
-  final bool useFirestoreHistory = true;    // 히스토리 안남길거면 false
+  final bool useFirestoreHistory = true; // 히스토리 안 남길 거면 false
   static const int _historyLimit = 20;
 
   // state
@@ -36,51 +66,60 @@ class GroupingController extends ChangeNotifier {
   bool _firstStudentsLoad = true;
 
   List<List<String>>? _currentGroups;
-List<List<String>>? get currentGroups => _currentGroups;
+  List<List<String>>? get currentGroups => _currentGroups;
 
-/// 현재 그룹을 통째로 반영(옵션으로 디스플레이에도 즉시 반영)
-void setCurrentGroups(List<List<String>> groups, {bool broadcast = true, String title = 'Find your Team !'}) {
-  // 방어적 복사
-  _currentGroups = [for (final g in groups) List<String>.from(g)];
-  notifyListeners();
-  if (broadcast) {
-    channel.postMessage(jsonEncode({
-      'type': 'grouping_result',
-      'title': title,
-      'groups': _currentGroups,
-    }));
-  }
-}
-
-/// 한 학생을 다른 그룹으로 이동(중복 제거 포함)
-bool moveMemberToGroup(String student, int toGroupIndex, {bool broadcast = true, String title = 'Find your Team !'}) {
-  final groups = _currentGroups;
-  if (groups == null || toGroupIndex < 0 || toGroupIndex >= groups.length) return false;
-
-  // 모든 그룹에서 먼저 제거 (중복 방지)
-  for (final g in groups) {
-    final i = g.indexOf(student);
-    if (i != -1) g.removeAt(i);
+  /// 현재 그룹을 통째로 반영(옵션으로 디스플레이에도 즉시 반영)
+  void setCurrentGroups(
+    List<List<String>> groups, {
+    bool broadcast = true,
+    String title = 'Find your Team !',
+  }) {
+    // 방어적 복사
+    _currentGroups = [for (final g in groups) List<String>.from(g)];
+    notifyListeners();
+    if (broadcast) {
+      channel.postMessage(jsonEncode({
+        'type': 'grouping_result',
+        'title': title,
+        'groups': _currentGroups,
+      }));
+    }
   }
 
-  // 대상 그룹에 추가(이미 제거했으므로 중복 없음)
-  groups[toGroupIndex].add(student);
+  /// 한 학생을 다른 그룹으로 이동(중복 제거 포함)
+  bool moveMemberToGroup(
+    String student,
+    int toGroupIndex, {
+    bool broadcast = true,
+    String title = 'Find your Team !',
+  }) {
+    final groups = _currentGroups;
+    if (groups == null || toGroupIndex < 0 || toGroupIndex >= groups.length) return false;
 
-  notifyListeners();
-  if (broadcast) {
-    channel.postMessage(jsonEncode({
-      'type': 'grouping_result',
-      'title': title,
-      'groups': groups,
-    }));
+    // 모든 그룹에서 먼저 제거 (중복 방지)
+    for (final g in groups) {
+      final i = g.indexOf(student);
+      if (i != -1) g.removeAt(i);
+    }
+
+    // 대상 그룹에 추가(이미 제거했으므로 중복 없음)
+    groups[toGroupIndex].add(student);
+
+    notifyListeners();
+    if (broadcast) {
+      channel.postMessage(jsonEncode({
+        'type': 'grouping_result',
+        'title': title,
+        'groups': groups,
+      }));
+    }
+    return true;
   }
-  return true;
-}
 
   // lifecycle
   void init() {
-    _studentsSub = _fs
-        .collection('students')
+    // ✅ 허브 스코프 반영: hubs/{hubId}/students 또는 루트 students
+    _studentsSub = _studentsCol
         .orderBy('name')
         .snapshots()
         .listen(
@@ -99,15 +138,14 @@ bool moveMemberToGroup(String student, int toGroupIndex, {bool broadcast = true,
   }
 
   void _onStudents(QuerySnapshot<Map<String, dynamic>> snap) {
-    final names =
-        snap.docs
-            .map((d) {
-              final data = d.data();
-              final n = (data['name'] ?? d.id).toString().trim();
-              return n.isEmpty ? d.id : n;
-            })
-            .where((n) => n.isNotEmpty)
-            .toList();
+    final names = snap.docs
+        .map((d) {
+          final data = d.data();
+          final n = (data['name'] ?? d.id).toString().trim();
+          return n.isEmpty ? d.id : n;
+        })
+        .where((n) => n.isNotEmpty)
+        .toList();
 
     allStudents
       ..clear()
@@ -166,9 +204,7 @@ bool moveMemberToGroup(String student, int toGroupIndex, {bool broadcast = true,
   }
 
   List<String> get filtered =>
-      allStudents
-          .where((s) => s.toLowerCase().contains(query.toLowerCase()))
-          .toList();
+      allStudents.where((s) => s.toLowerCase().contains(query.toLowerCase())).toList();
 
   // ===== 그룹 만들기 =====
   Future<void> makeGroups() async {
@@ -206,23 +242,22 @@ bool moveMemberToGroup(String student, int toGroupIndex, {bool broadcast = true,
     // 3) Firestore 세션 저장 (옵션)
     if (useFirestoreHistory) {
       try {
-        await _fs.collection('groupingSessions').add({
+        // ✅ 허브 스코프: hubs/{hubId}/groupingSessions (없으면 루트 groupingSessions)
+        await _groupingSessionsCol.add({
           'createdAt': FieldValue.serverTimestamp(),
           'mode': mode == GroupingMode.byGroups ? 'byGroups' : 'bySize',
           // ⬇️ 배열 안에 배열을 직접 넣지 말고, 배열 안에 Map을 넣습니다.
-          'groups':
-              groups
-                  .asMap()
-                  .entries
-                  .map(
-                    (e) => {
-                      'index': e.key, // 선택 (가독성/정렬용)
-                      'members':
-                          e.value, // 여기는 List<String> 이어도 OK (Map의 필드이므로)
-                    },
-                  )
-                  .toList(),
-          'selected': selectedList, // 이건 List<String>이라 그대로 OK
+          'groups': groups
+              .asMap()
+              .entries
+              .map(
+                (e) => {
+                  'index': e.key, // 선택 (가독성/정렬용)
+                  'members': e.value, // OK (Map의 필드이므로)
+                },
+              )
+              .toList(),
+          'selected': selectedList, // OK
         });
       } catch (e, st) {
         dev.log('[Grouping] save session failed: $e', stackTrace: st);
@@ -262,19 +297,17 @@ bool moveMemberToGroup(String student, int toGroupIndex, {bool broadcast = true,
 
   Future<Map<String, int>> _buildPairPenalty(Set<String> population) async {
     try {
-      final q =
-          await _fs
-              .collection('groupingSessions')
-              .orderBy('createdAt', descending: true)
-              .limit(_historyLimit)
-              .get();
+      // ✅ 허브 스코프: hubs/{hubId}/groupingSessions (없으면 루트)
+      final q = await _groupingSessionsCol
+          .orderBy('createdAt', descending: true)
+          .limit(_historyLimit)
+          .get();
 
       const int maxW = 10;
       const int minW = 1;
 
       // clamp()는 num을 반환하므로 반드시 int로 캐스팅
-      final int steps =
-          q.docs.isEmpty ? 1 : (q.docs.length.clamp(1, maxW) as int);
+      final int steps = q.docs.isEmpty ? 1 : (q.docs.length.clamp(1, maxW) as int);
 
       final int step = ((maxW - minW) ~/ steps);
       final int clampedStep = (step.clamp(0, maxW - 1) as int);
@@ -312,6 +345,7 @@ bool moveMemberToGroup(String student, int toGroupIndex, {bool broadcast = true,
             }
           }
         }
+        idx++;
       }
 
       dev.log(

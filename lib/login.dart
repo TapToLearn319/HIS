@@ -2,6 +2,9 @@
 import 'dart:html' as html;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:provider/provider.dart';                // ★ 추가
+import 'provider/hub_provider.dart';                    // ★ 추가
 import 'package:flutter_arc_text/flutter_arc_text.dart';
 
 class LoginPage extends StatefulWidget {
@@ -11,13 +14,34 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  void _continueAsGuest() {
+  String? _selectedHubId; // ★ 선택된 허브
+
+  Future<void> _continueAsGuest() async {
+    if (_selectedHubId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('허브를 먼저 선택하세요.')),
+      );
+      return;
+    }
+    final hubId = _selectedHubId!;
+
+    // ★ HubProvider에 허브 값 전달
+    context.read<HubProvider>().setHub(hubId);
+
+    // 웹: 선택한 허브를 로컬에 저장 + 디스플레이 창에도 쿼리로 전달
     if (kIsWeb) {
       final origin = html.window.location.origin;
       final path = html.window.location.pathname;
-      final displayUrl = '$origin$path?view=display&route=/tools';
+
+      // 선택값 저장(프리젠터 탭에서 사용)
+      html.window.localStorage['hubId'] = hubId;
+
+      // 디스플레이 창에도 허브 전달
+      final displayUrl = '$origin$path?view=display&route=/tools&hub=$hubId';
       html.window.open(displayUrl, 'displayWindow', 'width=1024,height=768');
     }
+
+    // 프리젠터 라우팅 (메인 앱은 localStorage / query에서 허브를 읽어 사용)
     Navigator.pushReplacementNamed(context, '/tools');
   }
 
@@ -32,28 +56,6 @@ class _LoginPageState extends State<LoginPage> {
     ),
   );
 
-  Widget _underlineField(String label, {bool obscure = false}) {
-    return SizedBox(
-      width: 542,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Text(
-              label,
-              style: const TextStyle(
-                color: _underlineColor,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          TextField(obscureText: obscure, decoration: _dec(label)),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -67,32 +69,20 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  // 원 도형
+  // 고정 UI + 허브 선택 드롭다운 추가
   Widget _buildFixedUI() {
     return Stack(
       children: [
         Positioned(
-          left: -98,
-          top: 175,
-          child: Container(
-            width: 563,
-            height: 563,
-            decoration: const BoxDecoration(
-              color: Color(0XFFDCFE83),
-              shape: BoxShape.circle,
-            ),
+          left: -98, top: 175,
+          child: Container(width: 563, height: 563,
+            decoration: const BoxDecoration(color: Color(0XFFDCFE83), shape: BoxShape.circle),
           ),
         ),
         Positioned(
-          right: -192,
-          top: -262,
-          child: Container(
-            width: 667,
-            height: 667,
-            decoration: const BoxDecoration(
-              color: Color(0xFFC4F6FE),
-              shape: BoxShape.circle,
-            ),
+          right: -192, top: -262,
+          child: Container(width: 667, height: 667,
+            decoration: const BoxDecoration(color: Color(0xFFC4F6FE), shape: BoxShape.circle),
           ),
         ),
 
@@ -101,8 +91,7 @@ class _LoginPageState extends State<LoginPage> {
           child: LayoutBuilder(
             builder: (context, c) {
               final w = c.maxWidth, h = c.maxHeight;
-              final scale =
-                  (w / 1440.0 < h / 720.0) ? (w / 1440.0) : (h / 720.0);
+              final scale = (w / 1440.0 < h / 720.0) ? (w / 1440.0) : (h / 720.0);
 
               final logoW = 647 * scale;
               final logoH = 509 * scale;
@@ -123,9 +112,26 @@ class _LoginPageState extends State<LoginPage> {
                       heightFactor: 0.80,
                       child: Image.asset(
                         'assets/logo_bird_main.png',
-                        width: logoW,
-                        height: logoH,
-                        fit: BoxFit.contain,
+                        width: logoW, height: logoH, fit: BoxFit.contain,
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: gap),
+
+                  // 허브 선택 드롭다운 (고정: hub-001 / hub-002)
+                  SizedBox(
+                    width: btnW,
+                    child: DropdownButtonFormField<String>(
+                      value: _selectedHubId,
+                      items: const [
+                        DropdownMenuItem(value: 'hub-001', child: Text('hub-001')),
+                        DropdownMenuItem(value: 'hub-002', child: Text('hub-002')),
+                      ],
+                      onChanged: (v) => setState(() => _selectedHubId = v),
+                      decoration: const InputDecoration(
+                        labelText: '허브 선택',
+                        border: OutlineInputBorder(),
+                        isDense: true,
                       ),
                     ),
                   ),
@@ -133,53 +139,33 @@ class _LoginPageState extends State<LoginPage> {
 
                   // 시작 버튼
                   SizedBox(
-                    width: btnW,
-                    height: btnH,
+                    width: btnW, height: btnH,
                     child: ElevatedButton(
                       onPressed: _continueAsGuest,
                       style: ButtonStyle(
-                        backgroundColor: const WidgetStatePropertyAll(
-                          Color(0xFF9370F7),
-                        ),
-                        foregroundColor: const WidgetStatePropertyAll(
-                          Colors.white,
-                        ),
-                        shadowColor: const WidgetStatePropertyAll(
-                          Colors.transparent,
-                        ),
-                        overlayColor: WidgetStatePropertyAll(
-                          Colors.white.withOpacity(0.08),
-                        ),
+                        backgroundColor: const WidgetStatePropertyAll(Color(0xFF9370F7)),
+                        foregroundColor: const WidgetStatePropertyAll(Colors.white),
+                        shadowColor: const WidgetStatePropertyAll(Colors.transparent),
+                        overlayColor: WidgetStatePropertyAll(Colors.white.withOpacity(0.08)),
                         elevation: const WidgetStatePropertyAll(0),
-
                         shape: WidgetStatePropertyAll(
-                          RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(radius),
-                          ),
+                          RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
                         ),
                         side: const WidgetStatePropertyAll(BorderSide.none),
                       ),
-                      child: Text(
-                        "Let's begin",
-                        style: TextStyle(
-                          fontSize: fontZ,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      child: Text("Let's begin",
+                        style: TextStyle(fontSize: fontZ, fontWeight: FontWeight.w600),
                       ),
                     ),
                   ),
 
                   SizedBox(height: 10 * scale),
 
-                  // 하단 저작권
                   Opacity(
                     opacity: 0.85,
                     child: Text(
                       "© 2025 Team MyButton. All rights reserved.",
-                      style: TextStyle(
-                        fontSize: 12 * scale,
-                        color: Colors.black54,
-                      ),
+                      style: TextStyle(fontSize: 12 * scale, color: Colors.black54),
                     ),
                   ),
                 ],

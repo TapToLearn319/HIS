@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'grouping_controller.dart';
 
 import '../../../sidebar_menu.dart';
+// ✅ HubProvider 임포트
+import '../../../provider/hub_provider.dart';
 
 class PresenterGroupPage extends StatefulWidget {
   const PresenterGroupPage({super.key});
@@ -20,7 +22,8 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
   @override
   void initState() {
     super.initState();
-    c = GroupingController()..init();
+    // ✅ 허브 스코프로 동작하도록 HubProvider를 컨트롤러에 주입
+    c = GroupingController(hub: context.read<HubProvider>())..init();
     _tab = TabController(length: 2, vsync: this, initialIndex: 0);
     _tab.addListener(() {
       if (_tab.indexIsChanging) return;

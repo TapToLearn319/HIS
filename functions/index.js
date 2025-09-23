@@ -1,22 +1,16 @@
 // functions/index.js
 "use strict";
 
-const {onRequest} = require("firebase-functions/v2/https");
-const {setGlobalOptions} = require("firebase-functions/v2/options");
+const { onRequest } = require("firebase-functions/v2/https");
+const { setGlobalOptions } = require("firebase-functions/v2/options");
 const admin = require("firebase-admin");
 
-if (!admin.apps.length) {
-  admin.initializeApp();
-}
+if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
-setGlobalOptions({region: "us-central1"});
+setGlobalOptions({ region: "us-central1" });
 
-/**
- * Normalize slotIndex to "1" or "2" or null.
- * @param {*} v
- * @return {string|null}
- */
+// "1" | "2" | null
 function normalizeSlot(v) {
   if (v === null || v === undefined) return null;
   const s = String(v);
@@ -24,242 +18,187 @@ function normalizeSlot(v) {
 }
 
 /**
- * Resolve sessionId in priority:
- * 1) client-sent sessionId
- * 2) hubs/{hubId}.currentSessionId
- * 3) devices/{deviceId}.hubId -> hubs/{hubId}.currentSessionId
- * @param {{hubId:string?, deviceId:string?, clientSessionId:string?}} p
- * @return {Promise<string>}
+ * hubs/{hubId}.currentSessionId 로 세션 결정
+ * (clientSessionId가 있으면 우선)
  */
-async function resolveSessionId(p) {
-  const hubId = p.hubId;
-  const deviceId = p.deviceId;
-  const clientSessionId = p.clientSessionId;
-
+async function resolveSessionId({ hubId, deviceId, clientSessionId }) {
   if (clientSessionId) return clientSessionId;
 
-  let resolvedHubId = hubId;
-  if (!resolvedHubId && deviceId) {
-    const devSnap = await db.doc("devices/" + deviceId).get();
-    if (devSnap.exists) {
-      const data = devSnap.data() || {};
-      if (data.hubId) resolvedHubId = data.hubId;
+  if (!hubId) {
+    // 선택: devices/{deviceId}에 hubId가 있다면 fallback
+    if (deviceId) {
+      const d = await db.doc(`devices/${deviceId}`).get();
+      if (d.exists && d.data()?.hubId) hubId = d.data().hubId;
     }
   }
-  if (!resolvedHubId) {
-    throw new Error(
-        "No hubId nor device.hubId provided; cannot resolve sessionId.",
-    );
-  }
+  if (!hubId) throw new Error("No hubId provided; cannot resolve sessionId.");
 
-  const hubSnap = await db.doc("hubs/" + resolvedHubId).get();
-  const hData = hubSnap.exists ? hubSnap.data() || {} : {};
-  const current = hData.currentSessionId || null;
-  if (!current) {
-    throw new Error(
-        "No currentSessionId set for hub " + resolvedHubId + ".",
-    );
-  }
+  const hubSnap = await db.doc(`hubs/${hubId}`).get();
+  const current = hubSnap.exists ? (hubSnap.data()?.currentSessionId || null) : null;
+  if (!current) throw new Error(`No currentSessionId set for hub ${hubId}.`);
   return current;
 }
 
 /**
- * Resolve mapping for a device within a session.
- * Order: session overrides, then global devices (legacy supported).
- * @param {Object} p Params.
- * @param {string} p.sessionId Session id.
- * @param {string} p.deviceId Device id.
- * @param {string=} p.clientStudentId Student id from client.
- * @param {(string|number)=} p.clientSlotIndex Slot index from client.
- * @return {Promise<Object>} Resolves to
- *     {studentId: (string|null), slotIndex: (string|null)}.
+ * 허브 네임스페이스 하위에서 매핑 조회
+ * 우선순위: hubs/{hubId}/deviceOverrides/{deviceId} → hubs/{hubId}/devices/{deviceId} → (글로벌 devices 레거시)
  */
-async function resolveMapping(p) {
-  const sessionId = p.sessionId;
-  const deviceId = p.deviceId;
-  const clientStudentId = p.clientStudentId;
-  const clientSlotIndex = p.clientSlotIndex;
-
+async function resolveMapping({ hubId, deviceId, clientStudentId, clientSlotIndex }) {
   let studentId = clientStudentId || null;
   let slotIndex = normalizeSlot(clientSlotIndex);
 
-  // 1) session-scoped overrides
   if (!studentId || !slotIndex) {
-    const ovRef = db.doc(
-        "sessions/" + sessionId + "/deviceOverrides/" + deviceId,
-    );
-    const ovSnap = await ovRef.get();
-    if (ovSnap.exists) {
-      const ov = ovSnap.data() || {};
-      const noExp = !ov.expiresAt || ov.expiresAt.toMillis() > Date.now();
+    const ov = await db.doc(`hubs/${hubId}/deviceOverrides/${deviceId}`).get();
+    if (ov.exists) {
+      const o = ov.data() || {};
+      const noExp = !o.expiresAt || o.expiresAt.toMillis() > Date.now();
       if (noExp) {
-        if (!studentId && ov.studentId) studentId = ov.studentId;
-        const ovSlot = normalizeSlot(ov.slotIndex);
-        if (!slotIndex && ovSlot) slotIndex = ovSlot;
+        if (!studentId && o.studentId) studentId = o.studentId;
+        const s = normalizeSlot(o.slotIndex);
+        if (!slotIndex && s) slotIndex = s;
       }
     }
   }
 
-  // 2) global devices
   if (!studentId || !slotIndex) {
-    const devRef = db.doc("devices/" + deviceId);
-    const devSnap = await devRef.get();
-    if (devSnap.exists) {
-      const dev = devSnap.data() || {};
-      if (!studentId && dev.studentId) studentId = dev.studentId;
-      const dSlot = normalizeSlot(dev.slotIndex);
-      if (!slotIndex && dSlot) slotIndex = dSlot;
-
-      // legacy support
-      if (!studentId && dev.ownerStudentId) studentId = dev.ownerStudentId;
-      const oldSlot = normalizeSlot(dev.ownerSlotIndex);
-      if (!slotIndex && oldSlot) slotIndex = oldSlot;
+    const dev = await db.doc(`hubs/${hubId}/devices/${deviceId}`).get();
+    if (dev.exists) {
+      const d = dev.data() || {};
+      if (!studentId && d.studentId) studentId = d.studentId;
+      const s = normalizeSlot(d.slotIndex);
+      if (!slotIndex && s) slotIndex = s;
     }
   }
 
-  return {
-    studentId: studentId || null,
-    slotIndex: slotIndex || null,
-  };
+  // 레거시 글로벌
+  if (!studentId || !slotIndex) {
+    const g = await db.doc(`devices/${deviceId}`).get();
+    if (g.exists) {
+      const gd = g.data() || {};
+      if (!studentId && gd.studentId) studentId = gd.studentId;
+      const s = normalizeSlot(gd.slotIndex);
+      if (!slotIndex && s) slotIndex = s;
+
+      if (!studentId && gd.ownerStudentId) studentId = gd.ownerStudentId;
+      const os = normalizeSlot(gd.ownerSlotIndex);
+      if (!slotIndex && os) slotIndex = os;
+    }
+  }
+
+  return { studentId: studentId || null, slotIndex: slotIndex || null };
 }
 
 /**
- * HTTPS endpoint for Flic hub button events.
- * Body must include: deviceId, clickType, eventId.
- * hubId is recommended; otherwise device.hubId can be used.
+ * 업데이트 전용 엔드포인트:
+ * - hubs/{hubId}/liveByDevice/{deviceId} 한 문서만 최신성 비교 후 덮어쓰기
+ * - 첫 이벤트면 문서 생성
+ * - events/ 누적 생성 안 함
  */
-exports.receiveButtonEventV2 = onRequest(async (req, res) => {
+exports.receiveButtonEventUpdateOnly = onRequest(async (req, res) => {
   try {
-    if (req.method !== "POST") {
-      return res.status(405).send("Only POST");
-    }
+    if (req.method !== "POST") return res.status(405).send("Only POST");
 
-    let body;
-    try {
-      body = typeof req.body === "string" ?
-        JSON.parse(req.body) :
-        (req.body || {});
-    } catch (e) {
-      console.log("Invalid JSON:", String(e));
-      return res.status(400).send("Invalid JSON");
-    }
-
-    const hubId = body.hubId;
-    const deviceId = body.deviceId;
-    const clickType = body.clickType;
-    const eventId = body.eventId;
-    // const hubTs = body.hubTs;
+    // 입력 파싱
+    const body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+    const hubId   = body.hubId;
+    const deviceId= body.deviceId;
+    const clickType = body.clickType;           // "click" | "double_click" | "hold"
+    const eventId = body.eventId;               // 멱등 식별자
+    const rawHubTs = body.hubTs;                // number | string
+    const seq = Number(body.seq || 0);          // same-ms ordering
     const clientSessionId = body.sessionId;
     const clientStudentId = body.studentId;
     const clientSlotIndex = body.slotIndex;
-    const source = body.source;
+    const source = body.source || "hub-flic2";
 
-    if (!deviceId || !clickType || !eventId) {
-      return res
-          .status(400)
-          .send("deviceId, clickType, eventId are required.");
+    if (!hubId || !deviceId || !clickType || !eventId) {
+      return res.status(400).send("hubId, deviceId, clickType, eventId are required.");
     }
 
-    let sessionId;
-    try {
-      sessionId = await resolveSessionId({
-        hubId: hubId,
-        deviceId: deviceId,
-        clientSessionId: clientSessionId,
-      });
-    } catch (e) {
-      return res.status(400).send(String(e));
-    }
+    // hubTs to number(ms)
+    const hubTs =
+      typeof rawHubTs === "number" && Number.isFinite(rawHubTs)
+        ? rawHubTs
+        : (typeof rawHubTs === "string" && /^\d+$/.test(rawHubTs) ? Number(rawHubTs) : Date.now());
 
-    const evRef = db.doc(
-        "sessions/" + sessionId + "/events/" + eventId,
-    );
+    // 세션 해석
+    const sessionId = await resolveSessionId({ hubId, deviceId, clientSessionId });
 
-    // idempotent create
-    let created = false;
-    const rawHubTs = body.hubTs;
+    // 매핑 해석(선택 필수 아님)
+    const mapping = await resolveMapping({ hubId, deviceId, clientStudentId, clientSlotIndex });
 
-    // 안전한 숫자 변환
-    const hubTsNum =
-      typeof rawHubTs === "number" && Number.isFinite(rawHubTs) ?
-        rawHubTs :
-        (typeof rawHubTs === "string" && /^\d+$/.test(rawHubTs) ?
-            Number(rawHubTs) :
-            Date.now());
+    // 대상 문서: hubs/{hubId}/liveByDevice/{deviceId}
+    const liveRef = db.doc(`hubs/${hubId}/liveByDevice/${deviceId}`);
 
-    try {
-      await evRef.create({
-        hubId: hubId || null,
-        sessionId,
-        deviceId,
-        clickType,
-        eventId,
-        hubTs: hubTsNum, // ← 반드시 숫자(ms)
-        ts: admin.firestore.FieldValue.serverTimestamp(),
-        source: source || "hub-flic2",
-      });
-      created = true;
-      console.log("event created:", evRef.path);
-    } catch (e) {
-      const code = e && e.code;
-      if (code === 6 || code === "already-exists") {
-        console.log("duplicate event:", evRef.path);
-      } else {
-        throw e;
+    await db.runTransaction(async (tx) => {
+      const cur = await tx.get(liveRef);
+      const nowTs = admin.firestore.Timestamp.now();
+
+      let shouldUpdate = true;
+      let prev = null;
+
+      if (cur.exists) {
+        prev = cur.data() || {};
+        const prevHubTs = typeof prev.lastHubTs === "number" ? prev.lastHubTs : -1;
+        const prevSeq   = typeof prev.lastSeq === "number" ? prev.lastSeq : -1;
+
+        // 최신성 비교: (hubTs, seq)가 더 크면 갱신
+        if (hubTs < prevHubTs) shouldUpdate = false;
+        else if (hubTs === prevHubTs && seq <= prevSeq) shouldUpdate = false;
+
+        // 동일 이벤트 중복이면 무시
+        if (prev.lastEventId && prev.lastEventId === eventId) shouldUpdate = false;
       }
-    }
 
-    const mapping = await resolveMapping({
-      sessionId: sessionId,
-      deviceId: deviceId,
-      clientStudentId: clientStudentId,
-      clientSlotIndex: clientSlotIndex,
+      if (!shouldUpdate) {
+        // 이미 더 최신 상태가 있거나 중복임 → 스킵
+        tx.set(
+          db.doc(`hubs/${hubId}/devices/${deviceId}`),
+          {
+            lastSeenAt: nowTs,
+            lastClickType: clickType,
+          },
+          { merge: true }
+        );
+        return;
+      }
+
+      // 덮어쓸 데이터
+      const next = {
+        deviceId,
+        sessionId,
+        studentId: mapping.studentId,
+        slotIndex: mapping.slotIndex,
+        clickType,
+        lastHubTs: hubTs,
+        lastSeq: seq,
+        lastEventId: eventId,
+        updatedAt: nowTs,
+        // pressCount: admin.firestore.FieldValue.increment(1), // 필요 시 주석 해제
+      };
+
+      // 문서 생성 or 갱신
+      tx.set(liveRef, next, { merge: true });
+
+      // (선택) 허브 네임스페이스의 디바이스 최신화
+      tx.set(
+        db.doc(`hubs/${hubId}/devices/${deviceId}`),
+        {
+          lastSeenAt: nowTs,
+          lastClickType: clickType,
+          // 매핑 고정 값을 유지하고 싶다면 studentId/slotIndex는 처음에만 세팅하도록 별도 로직을 두세요
+        },
+        { merge: true }
+      );
+
+      // (선택) 간단 합계가 필요하면 여기에 stats 갱신을 추가하세요
+      // const totalRef = db.doc(`hubs/${hubId}/sessions/${sessionId}/stats/summary`);
+      // tx.set(totalRef, { total: admin.firestore.FieldValue.increment(1) }, { merge: true });
     });
 
-    await evRef.set(
-        {
-          studentId: mapping.studentId,
-          slotIndex: mapping.slotIndex,
-        },
-        {merge: true},
-    );
-
-    if (created && mapping.studentId && mapping.slotIndex) {
-      const nowTs = admin.firestore.Timestamp.now();
-      const statsRef = db.doc(
-          "sessions/" + sessionId + "/studentStats/" + mapping.studentId,
-      );
-      const totalRef = db.doc(
-          "sessions/" + sessionId + "/stats/summary",
-      );
-
-      await db.runTransaction(async (tx) => {
-        const inc = admin.firestore.FieldValue.increment(1);
-        const s = {};
-        s.total = inc;
-        s["bySlot." + mapping.slotIndex + ".count"] = inc;
-        s["bySlot." + mapping.slotIndex + ".lastTs"] = nowTs;
-        s.lastAction = clickType;
-
-        tx.set(statsRef, s, {merge: true});
-        tx.set(totalRef, {total: inc}, {merge: true});
-      });
-    }
-
-    await db.doc("devices/" + deviceId).set(
-        {
-          lastClickType: clickType,
-          lastSeenAt: admin.firestore.FieldValue.serverTimestamp(),
-          hubId: hubId || admin.firestore.FieldValue.delete(),
-        },
-        {merge: true},
-    );
-
-    return res.status(200).send(
-      created ? "event created + aggregated" : "duplicate event (ok)",
-    );
+    return res.status(200).send("liveByDevice updated");
   } catch (err) {
-    console.error("receiveButtonEventV2 error:", err);
+    console.error("receiveButtonEventUpdateOnly error:", err);
     return res.status(500).send(String(err));
   }
 });

@@ -1,8 +1,8 @@
 // lib/pages/tools/display_random_seat_page.dart
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
-const String kHubId = 'hub-001';
+import 'package:provider/provider.dart';
+import '../../provider/hub_provider.dart';
 
 class DisplayRandomSeatPage extends StatelessWidget {
   const DisplayRandomSeatPage({super.key});
@@ -11,8 +11,14 @@ class DisplayRandomSeatPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
 
-    // 1) 허브의 현재 세션 구독
-    final hubStream = fs.doc('hubs/$kHubId').snapshots();
+    // ✅ HubProvider에서 허브 ID 구독
+    final hubId = context.watch<HubProvider>().hubId;
+    if (hubId == null || hubId.isEmpty) {
+      return const Scaffold(body: _WaitingSeatScreen());
+    }
+
+    // 1) 허브의 현재 세션 구독 (hubs/{hubId})
+    final hubStream = fs.doc('hubs/$hubId').snapshots();
 
     return Scaffold(
       body: SafeArea(
@@ -29,11 +35,13 @@ class DisplayRandomSeatPage extends StatelessWidget {
             }
 
             // 2) 세션 메타(행/열) + 좌석맵 + 학생목록 동시 구독(중첩)
+            //    ✅ 허브 스코프 경로로 변경
             final sessionDocStream =
-                fs.doc('sessions/$sid').snapshots(); // rows/cols(optional)
+                fs.doc('hubs/$hubId/sessions/$sid').snapshots(); // rows/cols(optional)
             final seatMapStream =
-                fs.collection('sessions/$sid/seatMap').snapshots();
-            final studentsStream = fs.collection('students').snapshots();
+                fs.collection('hubs/$hubId/sessions/$sid/seatMap').snapshots();
+            final studentsStream =
+                fs.collection('hubs/$hubId/students').snapshots();
 
             return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
               stream: sessionDocStream,
@@ -49,8 +57,8 @@ class DisplayRandomSeatPage extends StatelessWidget {
                     final Map<String, String?> seatMap = {};
                     if (seatSnap.data != null) {
                       for (final d in seatSnap.data!.docs) {
-                        seatMap[d.id] = (d.data()['studentId'] as String?)
-                            ?.trim();
+                        seatMap[d.id] =
+                            (d.data()['studentId'] as String?)?.trim();
                       }
                     }
 
@@ -101,7 +109,7 @@ class _SeatBoard extends StatelessWidget {
   final int cols;
   final int rows;
   final Map<String, String?> seatMap; // seatNo -> studentId?
-  final Map<String, String> nameOf;   // studentId -> name
+  final Map<String, String> nameOf; // studentId -> name
 
   String _seatKey(int index) => '${index + 1}';
 

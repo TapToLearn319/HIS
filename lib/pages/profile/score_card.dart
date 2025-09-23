@@ -1,5 +1,3 @@
-
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -31,7 +29,11 @@ class _ScoreManagementCardState extends State<ScoreCard> {
     final sid = widget.studentId;
 
     // points 필드를 원자적 증가 + 로그 남기기
-    final ref = fs.collection('students').doc(sid);
+    final ref = fs
+        .collection('hubs')
+        .doc('hub-001')
+        .collection('students')
+        .doc(sid);
     final batch = fs.batch();
 
     batch.set(ref, {'points': FieldValue.increment(s.delta)}, SetOptions(merge: true));
@@ -126,7 +128,7 @@ class _ScoreManagementCardState extends State<ScoreCard> {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: tiles.length,
-            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
               maxCrossAxisExtent: 260,
               crossAxisSpacing: 20,
               mainAxisSpacing: 20,
@@ -158,7 +160,7 @@ class _SkillTile extends StatelessWidget {
       color: const Color(0xFFF2F5FA),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: BorderSide(color: const Color(0xFFDDE4EE)),
+        side: const BorderSide(color: Color(0xFFDDE4EE)),
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(24),

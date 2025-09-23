@@ -1,5 +1,3 @@
-
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -44,9 +42,9 @@ class StudentScoreDetailsPage extends StatelessWidget {
     final studentId = args[_studentIdArgKey] as String;
 
     final fs = FirebaseFirestore.instance;
-    final studentRef = fs.doc('students/$studentId');
+    final studentRef = fs.doc('hubs/hub-001/students/$studentId');
     final logsQuery = fs
-        .collection('students/$studentId/pointLogs')
+        .collection('hubs/hub-001/students/$studentId/pointLogs')
         .orderBy('createdAt', descending: true);
 
     return AppScaffold(
@@ -118,34 +116,30 @@ class StudentScoreDetailsPage extends StatelessWidget {
                           }
 
                           // Firestore → _Log
-                          final logs =
-                              snap.data!.docs.map((d) {
-                                final m = d.data();
-                                final ts =
-                                    (m['createdAt'] as Timestamp?)?.toDate() ??
-                                    DateTime.fromMillisecondsSinceEpoch(0);
-                                return _Log(
-                                  id: d.id,
-                                  typeId: (m['typeId'] as String?) ?? '',
-                                  typeName: (m['typeName'] as String?) ?? '',
-                                  value: (m['value'] as num?)?.toInt() ?? 0,
-                                  ts: ts,
-                                );
-                              }).toList();
+                          final logs = snap.data!.docs.map((d) {
+                            final m = d.data();
+                            final ts = (m['createdAt'] as Timestamp?)?.toDate() ??
+                                DateTime.fromMillisecondsSinceEpoch(0);
+                            return _Log(
+                              id: d.id,
+                              typeId: (m['typeId'] as String?) ?? '',
+                              typeName: (m['typeName'] as String?) ?? '',
+                              value: (m['value'] as num?)?.toInt() ?? 0,
+                              ts: ts,
+                            );
+                          }).toList();
 
                           // 날짜별 그룹
                           final byDate = <String, List<_Log>>{};
                           for (final l in logs) {
                             byDate.putIfAbsent(l.dateKey, () => []).add(l);
                           }
-                          final dateKeys =
-                              byDate.keys.toList()
-                                ..sort((a, b) => b.compareTo(a)); // 최신 날짜 먼저
+                          final dateKeys = byDate.keys.toList()
+                            ..sort((a, b) => b.compareTo(a)); // 최신 날짜 먼저
 
                           return ListView.separated(
                             itemCount: dateKeys.length,
-                            separatorBuilder:
-                                (_, __) => const SizedBox(height: 16),
+                            separatorBuilder: (_, __) => const SizedBox(height: 16),
                             itemBuilder: (_, i) {
                               final dk = dateKeys[i];
                               final items = byDate[dk]!;
@@ -301,29 +295,28 @@ class _ScoreLogTile extends StatelessWidget {
   Future<void> _deleteLog(BuildContext context) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder:
-          (_) => AlertDialog(
-            title: const Text('Delete this log?'),
-            content: const Text(
-              'This will revert the student points accordingly.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('Cancel'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Delete'),
-              ),
-            ],
+      builder: (_) => AlertDialog(
+        title: const Text('Delete this log?'),
+        content: const Text(
+          'This will revert the student points accordingly.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
           ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
     );
     if (ok != true) return;
 
     final fs = FirebaseFirestore.instance;
-    final stuRef = fs.doc('students/$studentId');
-    final logRef = fs.doc('students/$studentId/pointLogs/${log.id}');
+    final stuRef = fs.doc('hubs/hub-001/students/$studentId');
+    final logRef = fs.doc('hubs/hub-001/students/$studentId/pointLogs/${log.id}');
 
     await fs.runTransaction((tx) async {
       final cur = await tx.get(stuRef);
@@ -338,9 +331,7 @@ class _ScoreLogTile extends StatelessWidget {
       tx.delete(logRef);
     });
 
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Deleted.')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Deleted.')));
   }
 }
 

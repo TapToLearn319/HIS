@@ -73,8 +73,8 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
     required int value, // 양수/음수 모두 허용
   }) async {
     final fs = FirebaseFirestore.instance;
-    final stuRef = fs.doc('students/$studentId');
-    final logRef = fs.collection('students/$studentId/pointLogs').doc();
+    final stuRef = fs.doc('hubs/$kHubId/students/$studentId');
+    final logRef = fs.collection('hubs/$kHubId/students/$studentId/pointLogs').doc();
 
     await fs.runTransaction((tx) async {
       final cur = await tx.get(stuRef);
@@ -103,61 +103,34 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
   Timer? _capTimer;
   bool _capturing = false;
 
-  Future<void> _captureToSlot(String slotIndex) async {
-    if (_capturing) return;
-    _capturing = true;
+ Future<void> _captureToSlot(String slotIndex) async {
+  if (_capturing) return;
+  _capturing = true;
 
-    final fs = FirebaseFirestore.instance;
+  final fs = FirebaseFirestore.instance;
+  final liveCol = fs.collection('hubs/$kHubId/liveByDevice');
 
-    // 1) 허브의 현재 세션
-    final hubDoc = await fs.doc('hubs/$kHubId').get();
-    final sid = (hubDoc.data()?['currentSessionId'] as String?)?.trim();
-    if (sid == null || sid.isEmpty) {
-      _capturing = false;
-      _toast('No active session.');
+  bool handled = false;
+  bool dialogOpen = true;
+  bool skippedInitial = false; // ✅ 첫 스냅샷 무시
+
+  _capSub = liveCol.snapshots().listen((snap) async {
+    if (!skippedInitial) {
+      skippedInitial = true;
+      debugPrint('[pair] initial snapshot: ${snap.docs.length} docs (ignored)');
       return;
     }
+    if (handled) return;
+    if (snap.docChanges.isEmpty) return;
 
-    // 2) 기준(이전 이벤트 무시)
-    final startMs = DateTime.now().millisecondsSinceEpoch;
-    String? latestIdBefore;
-    try {
-      final prev = await fs
-          .collection('sessions/$sid/events')
-          .orderBy('ts', descending: true)
-          .limit(1)
-          .get();
-      if (prev.docs.isNotEmpty) latestIdBefore = prev.docs.first.id;
-    } catch (_) {}
+    for (final ch in snap.docChanges) {
+      if (ch.type == DocumentChangeType.removed) continue;
+      if (ch.doc.metadata.hasPendingWrites) continue;
 
-    bool handled = false;
-    bool dialogOpen = true;
-
-    // 3) 새 이벤트 대기 (최신 1개 스트림)
-    _capSub = fs
-        .collection('sessions/$sid/events')
-        .orderBy('ts', descending: true)
-        .limit(1)
-        .snapshots()
-        .listen((snap) async {
-      if (handled || snap.docs.isEmpty) return;
-
-      final d = snap.docs.first;
-      if (latestIdBefore != null && d.id == latestIdBefore) return;
-
-      final x = d.data();
-      final devId = (x['deviceId'] as String?)?.trim();
-      final ts = (x['ts'] is Timestamp)
-          ? (x['ts'] as Timestamp).millisecondsSinceEpoch
-          : 0;
-
-      if (devId == null || devId.isEmpty) return;
-      if (ts < startMs - 1500) return;
-
+      final devId = ch.doc.id;
       handled = true;
 
       try {
-        // 4) 매핑
         await fs.doc('devices/$devId').set({
           'studentId': studentId,
           'slotIndex': slotIndex,
@@ -168,74 +141,63 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
       } catch (e) {
         if (mounted) _toast('Register failed: $e');
       } finally {
-        _capSub?.cancel();
-        _capSub = null;
-        _capTimer?.cancel();
-        _capTimer = null;
+        _capSub?.cancel(); _capSub = null;
+        _capTimer?.cancel(); _capTimer = null;
         _capturing = false;
 
         if (mounted && dialogOpen) {
-          try {
-            Navigator.of(context, rootNavigator: true).pop(true);
-          } catch (_) {}
+          try { Navigator.of(context, rootNavigator: true).pop(true); } catch (_) {}
         }
       }
-    }, onError: (e, st) {
-      if (mounted) _toast('Pairing stream error: $e');
-    });
+      break;
+    }
+  }, onError: (e, st) {
+    if (mounted) _toast('Pairing stream error: $e');
+  });
 
-    // 4) 대기 다이얼로그
-    final waitFuture = showDialog<bool>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        title: Text('Waiting for button… (slot $slotIndex)'),
-        content: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(height: 8),
-            CircularProgressIndicator(),
-            SizedBox(height: 12),
-            Text('Press the Flic now.'),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
+  final waitFuture = showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => AlertDialog(
+      title: Text('Waiting for button… (slot $slotIndex)'),
+      content: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(height: 8),
+          CircularProgressIndicator(),
+          SizedBox(height: 12),
+          Text('Press the Flic now.'),
         ],
       ),
-    );
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+      ],
+    ),
+  );
 
-    // 5) 타임아웃
-    _capTimer = Timer(const Duration(seconds: 25), () {
-      if (handled) return;
-      if (mounted && dialogOpen) {
-        try {
-          Navigator.of(context, rootNavigator: true).pop(false);
-        } catch (_) {}
-      }
-    });
+  _capTimer = Timer(const Duration(seconds: 25), () {
+    if (handled) return;
+    if (mounted && dialogOpen) {
+      try { Navigator.of(context, rootNavigator: true).pop(false); } catch (_) {}
+    }
+  });
 
-    final res = await waitFuture;
-    dialogOpen = false;
+  final res = await waitFuture;
+  dialogOpen = false;
 
-    if (!handled) {
-      // 취소/타임아웃
-      _capSub?.cancel();
-      _capTimer?.cancel();
-      _capSub = null;
-      _capTimer = null;
-      _capturing = false;
+  if (!handled) {
+    _capSub?.cancel(); _capSub = null;
+    _capTimer?.cancel(); _capTimer = null;
+    _capturing = false;
 
-      if (res == false && mounted) {
-        _toast('Canceled.');
-      } else if (mounted) {
-        _toast('Timed out.');
-      }
+    if (res == false && mounted) {
+      _toast('Canceled.');
+    } else if (mounted) {
+      _toast('Timed out.');
     }
   }
+}
+
 
   // ─── 학생 삭제
   Future<void> _deleteStudent() async {
@@ -285,10 +247,10 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
       await batch1.commit();
 
       // 2) pointLogs 삭제
-      await _deleteCollection(fs, 'students/$studentId/pointLogs', 300);
+      await _deleteCollection(fs, 'hubs/$kHubId/students/$studentId/pointLogs', 300);
 
       // 3) student 문서 삭제
-      await fs.doc('students/$studentId').delete();
+      await fs.doc('hubs/$kHubId/students/$studentId').delete();
 
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop(); // 로딩 닫기
@@ -311,7 +273,7 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
   @override
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
-    final stuStream = fs.doc('students/$studentId').snapshots();
+    final stuStream = fs.doc('hubs/$kHubId/students/$studentId').snapshots();
 
     return AppScaffold(
       // ← 사이드바 포함 레이아웃

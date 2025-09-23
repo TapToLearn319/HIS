@@ -4,9 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
 enum VoteType { binary, multiple }
-
 enum VoteStatus { draft, active, closed }
-
 enum ShowResultMode { realtime, afterEnd }
 
 @immutable
@@ -62,21 +60,21 @@ class Vote {
   }
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'title': title,
-    'type': type == VoteType.multiple ? 'multiple' : 'binary',
-    'options': options,
-    'status': switch (status) {
-      VoteStatus.active => 'active',
-      VoteStatus.closed => 'closed',
-      _ => 'draft',
-    },
-    'settings': {
-      'show': showResult == ShowResultMode.afterEnd ? 'after' : 'realtime',
-      'anonymous': anonymous,
-      'multi': (type == VoteType.binary) ? false : multiSelect,
-    },
-  };
+        'id': id,
+        'title': title,
+        'type': type == VoteType.multiple ? 'multiple' : 'binary',
+        'options': options,
+        'status': switch (status) {
+          VoteStatus.active => 'active',
+          VoteStatus.closed => 'closed',
+          _ => 'draft',
+        },
+        'settings': {
+          'show': showResult == ShowResultMode.afterEnd ? 'after' : 'realtime',
+          'anonymous': anonymous,
+          'multi': (type == VoteType.binary) ? false : multiSelect,
+        },
+      };
 
   /// -------- 편의 메서드 ----------
   Vote copyWith({
@@ -134,13 +132,13 @@ class Vote {
       }
     }
 
-    // status: 문자열 우선, 과거 active(bool) 폴백
+    // status (과거 active(bool) 폴백 지원)
     final String? rawStatus = d['status']?.toString();
-    final bool? activeBool = (d['active'] is bool) ? d['active'] as bool : null;
-    final VoteStatus status =
-        (rawStatus != null)
-            ? _voteStatusFromString(rawStatus)
-            : (activeBool == true ? VoteStatus.active : VoteStatus.draft);
+    final bool? activeBool =
+        (d['active'] is bool) ? d['active'] as bool : null;
+    final VoteStatus status = (rawStatus != null)
+        ? _voteStatusFromString(rawStatus)
+        : (activeBool == true ? VoteStatus.active : VoteStatus.draft);
 
     // settings
     final settings = (d['settings'] as Map?) ?? const {};
@@ -160,22 +158,22 @@ class Vote {
   }
 }
 
-/// ===== Store (리스트/CRUD) =====
+/// ===== Store (허브 스코프 리스트/CRUD) =====
 class VoteStore extends ChangeNotifier {
-  final String sessionId;
+  final String hubId;
   final CollectionReference<Map<String, dynamic>> _col;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _sub;
 
   final List<Vote> _items = [];
   List<Vote> get items => List.unmodifiable(_items);
 
-  VoteStore({required this.sessionId})
-    : _col = FirebaseFirestore.instance.collection(
-        'sessions/$sessionId/votes',
-      ) {
-    _sub = _col.orderBy('createdAt', descending: true).snapshots().listen((
-      snap,
-    ) {
+  VoteStore({required this.hubId})
+      : _col =
+            FirebaseFirestore.instance.collection('hubs/$hubId/votes') {
+    _sub = _col
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .listen((snap) {
       _items
         ..clear()
         ..addAll(snap.docs.map(Vote.fromDoc));
@@ -183,7 +181,7 @@ class VoteStore extends ChangeNotifier {
     });
   }
 
-  /// 생성: 기본 settings 포함(필요시 파라미터로 조정 가능)
+  /// 생성: 허브 스코프에 저장
   Future<void> createVote({
     required String title,
     required VoteType type,
@@ -192,26 +190,24 @@ class VoteStore extends ChangeNotifier {
     bool anonymous = true,
     bool multiSelect = false,
   }) async {
-    final normalizedOptions =
-        (type == VoteType.binary)
-            ? const ['찬성', '반대']
-            : options
-                .map((e) => e.toString())
-                .where((s) => s.trim().isNotEmpty)
-                .toList();
+    final normalizedOptions = (type == VoteType.binary)
+        ? const ['찬성', '반대']
+        : options
+            .map((e) => e.toString())
+            .where((s) => s.trim().isNotEmpty)
+            .toList();
 
-    final data =
-        Vote(
-            id: '_new',
-            title: title,
-            type: type,
-            options: normalizedOptions,
-            status: VoteStatus.draft,
-            showResult: showResult,
-            anonymous: anonymous,
-            multiSelect: (type == VoteType.binary) ? false : multiSelect,
-          ).toMap()
-          ..putIfAbsent('createdAt', () => FieldValue.serverTimestamp());
+    final data = Vote(
+      id: '_new',
+      title: title,
+      type: type,
+      options: normalizedOptions,
+      status: VoteStatus.draft,
+      showResult: showResult,
+      anonymous: anonymous,
+      multiSelect: (type == VoteType.binary) ? false : multiSelect,
+    ).toMap()
+      ..putIfAbsent('createdAt', () => FieldValue.serverTimestamp());
 
     await _col.add(data);
   }
@@ -225,21 +221,23 @@ class VoteStore extends ChangeNotifier {
     await _col.doc(id).delete();
   }
 
-  /// 시작: 웹 집계용 startedAtMs도 같이 기록
+  /// 시작: startedAtMs 추가 기록 (허브 타임라인/디스플레이 필터용)
   Future<void> startVote(String id) async {
     await _col.doc(id).set({
       'status': _voteStatusToString(VoteStatus.active),
       'startedAt': FieldValue.serverTimestamp(),
-      'startedAtMs': DateTime.now().millisecondsSinceEpoch, // ★ 웹/허브 타임라인용
+      'startedAtMs': DateTime.now().millisecondsSinceEpoch,
       'endedAt': null,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
 
+  /// 종료: endedAtMs 추가 기록
   Future<void> closeVote(String id) async {
     await _col.doc(id).set({
       'status': _voteStatusToString(VoteStatus.closed),
       'endedAt': FieldValue.serverTimestamp(),
+      'endedAtMs': DateTime.now().millisecondsSinceEpoch,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
@@ -271,8 +269,10 @@ class VoteStore extends ChangeNotifier {
       orElse: () => throw Exception('vote not found'),
     );
 
-    final desired =
-        edited.options.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    final desired = edited.options
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
 
     final mapByNorm = {
       for (final o in existing) _norm((o['title'] ?? '').toString()): o,

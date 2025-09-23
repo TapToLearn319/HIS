@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../../main.dart';
 import '../../../provider/session_provider.dart';
+import '../../../provider/hub_provider.dart'; // ⬅️ 추가
 import 'vote_edit.dart';
 import 'vote_models.dart';
 
@@ -14,13 +15,20 @@ class VoteManagerPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sid = context.watch<SessionProvider>().sessionId;
+    final hubId = context.watch<HubProvider>().hubId; // ⬅️ 추가
     if (sid == null) {
       return const Scaffold(
         body: Center(child: Text('No session. Please set a session first.')),
       );
     }
+    if (hubId == null || hubId.isEmpty) {
+      return const Scaffold(
+        body: Center(child: Text('No hub. Please set a hub first.')),
+      );
+    }
     return ChangeNotifierProvider(
-      create: (_) => VoteStore(sessionId: sid),
+      // create: (_) => VoteStore(sessionId: sid),
+      create: (_) => VoteStore(hubId: hubId), // ⬅️ 허브 기반으로 변경
       child: const _VoteManagerScaffold(),
     );
   }
@@ -50,6 +58,7 @@ class _VoteManagerScaffoldState extends State<_VoteManagerScaffold> {
   Widget build(BuildContext context) {
     final store = context.watch<VoteStore>();
     final sid = context.read<SessionProvider>().sessionId!;
+    final hubId = context.read<HubProvider>().hubId!; // ⬅️ 추가
 
     final items = store.items.where((v) {
       if (_keyword.isEmpty) return true;
@@ -162,9 +171,9 @@ class _VoteManagerScaffoldState extends State<_VoteManagerScaffold> {
                           }
                           setState(() => _busy = true);
                           try {
-                            await _stopAllActive(sid);
+                            await _stopAllActive(hubId); // ⬅️ 허브 기준으로 변경
                             await store.startVote(v.id);
-                            _broadcastStart(sid, v);
+                            _broadcastStart(sid, v); // 방송 포맷은 그대로 두었음
                           } finally {
                             if (mounted) setState(() => _busy = false);
                           }
@@ -217,10 +226,10 @@ class _VoteManagerScaffoldState extends State<_VoteManagerScaffold> {
     _quickAddCtrl.clear();
   }
 
-  Future<void> _stopAllActive(String sid) async {
+  Future<void> _stopAllActive(String hubId) async { // ⬅️ 시그니처/경로 허브 기준
     final fs = FirebaseFirestore.instance;
     final running =
-        await fs.collection('sessions/$sid/votes').where('status', isEqualTo: 'active').get();
+        await fs.collection('hubs/$hubId/votes').where('status', isEqualTo: 'active').get();
     final batch = fs.batch();
     final now = FieldValue.serverTimestamp();
     for (final d in running.docs) {

@@ -1,6 +1,8 @@
 // lib/pages/quiz/display_quiz_page.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../provider/hub_provider.dart';
 
 /// 대기 화면 커스터마이즈
 const Color kWaitingBgColor = Color.fromARGB(255, 246, 250, 255);
@@ -30,9 +32,19 @@ class _DisplayQuizPageState extends State<DisplayQuizPage> {
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
 
+    // 허브 경로
+    final hubPath = context.watch<HubProvider>().hubDocPath;
+    print('🔎 Display hubId=${context.read<HubProvider?>()?.hubId}, hubPath=${context.read<HubProvider?>()?.hubDocPath}');
+
+    if (hubPath == null) {
+      // 허브 미선택 시 대기화면
+      
+      return const Scaffold(body: _WaitingScreen());
+    }
+
     // 단일 정렬(인덱스 부담↓), 최신 것부터 50개만
     final stream = fs
-        .collection('quizTopics')
+        .collection('$hubPath/quizTopics')
         .orderBy('createdAt', descending: true)
         .limit(50)
         .snapshots();
@@ -53,15 +65,10 @@ class _DisplayQuizPageState extends State<DisplayQuizPage> {
             return const _WaitingScreen();
           }
 
-          // 1) running 중인 토픽 우선 (⚠️ 디스플레이 켜진 이후에 시작/갱신된 것만 반영)
-          final runningRaw = docs.where((d) => (d.data()['status'] as String?) == 'running');
-          final running = runningRaw.where((d) {
-            final x = d.data();
-            final started = x['questionStartedAt'] as Timestamp?;
-            final updated = x['updatedAt'] as Timestamp?;
-            // 시작/갱신 중 하나라도 디스플레이 오픈 후면 "신규 진행"으로 간주
-            return _isFreshFrom(started) || _isFreshFrom(updated);
-          }).toList()
+          // 1) running 중인 토픽 중 "가장 최근" 것을 무조건 표시 (fresh 필터 제거)
+          final running = docs
+              .where((d) => (d.data()['status'] as String?) == 'running')
+              .toList()
             ..sort((a, b) {
               final sa = a.data()['questionStartedAt'] as Timestamp?;
               final sb = b.data()['questionStartedAt'] as Timestamp?;
@@ -190,8 +197,17 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
   @override
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
-    final quizRef = fs.doc('quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}');
-    final resRef = fs.doc('quizTopics/${widget.topicId}/results/${widget.currentQuizId}');
+
+    // 허브 경로 확보
+    final hubPath = context.read<HubProvider>().hubDocPath;
+    if (hubPath == null) {
+      return const _WaitingScreen();
+    }
+
+    final quizRef =
+        fs.doc('$hubPath/quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}');
+    final resRef =
+        fs.doc('$hubPath/quizTopics/${widget.topicId}/results/${widget.currentQuizId}');
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: quizRef.snapshots(),
@@ -618,8 +634,16 @@ class _SummaryView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
-    final quizzesStream =
-        fs.collection('quizTopics/$topicId/quizzes').orderBy('createdAt').snapshots();
+
+    final hubPath = context.watch<HubProvider>().hubDocPath;
+    if (hubPath == null) {
+      return const _WaitingScreen();
+    }
+
+    final quizzesStream = fs
+        .collection('$hubPath/quizTopics/$topicId/quizzes')
+        .orderBy('createdAt')
+        .snapshots();
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: quizzesStream,
@@ -662,7 +686,7 @@ class _SummaryView extends StatelessWidget {
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 18),
                         child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                          stream: fs.doc('quizTopics/$topicId/results/$quizId').snapshots(),
+                          stream: fs.doc('$hubPath/quizTopics/$topicId/results/$quizId').snapshots(),
                           builder: (context, rsnap) {
                             final counts = (rsnap.data?.data()?['counts'] as List?)
                                     ?.map((e) => (e as num).toInt())
@@ -694,8 +718,7 @@ class _SummaryView extends StatelessWidget {
                                       return Padding(
                                         padding: const EdgeInsets.only(bottom: 12),
                                         child: _resultRow(
-                                          label:
-                                              '${String.fromCharCode(65 + ci)}. ${choices[ci]}',
+                                          label: '${String.fromCharCode(65 + ci)}. ${choices[ci]}',
                                           value: counts.length > ci ? counts[ci] : 0,
                                           total: total,
                                           isCorrect: correct != null && ci == correct,
