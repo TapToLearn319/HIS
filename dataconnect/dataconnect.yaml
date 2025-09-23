@@ -1,0 +1,12 @@
+specVersion: "v1"
+serviceId: "HIS-main"
+location: "asia-northeast1"
+schema:
+  source: "./schema"
+  datasource:
+    postgresql:
+      database: "fdcdb"
+      cloudSql:
+        instanceId: "his-main-fdc"
+      # schemaValidation: "COMPATIBLE"
+connectorDirs: ["./connector"]

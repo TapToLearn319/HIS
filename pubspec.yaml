@@ -37,27 +37,6 @@ flutter:
   generate: true
   uses-material-design: true
   assets:
-    - assets/flicbutton.png
-    - assets/logo_bird.png
-    - assets/logo_bird_start.png
-    - assets/logo_bird_stop.png
-    - assets/logo_bird_standby.png
-    - assets/logo_bird_save.png
-    - assets/logo_bird_create.png
-    - assets/logo_bird_main.png
-    - assets/logo_bird_make.png
-    - assets/logo_bird_begin.png
-    - assets/logo_bird_done.png
-
-    - assets/score/logo_bird_focused.png
-    - assets/score/logo_bird_questioning.png
-    - assets/score/logo_bird_presentation.png
-    - assets/score/logo_bird_cooperate.png
-    - assets/score/logo_bird_perseverance.png
-    - assets/score/logo_bird_positive-energy.png
-    - assets/score/logo_bird_quiz.png
-    - assets/score/logo_bird_voting.png
-    - assets/score/logo_bird_team-activites.png
-
-    - assets/test/logo_bird_next.png
-    - assets/test/logo_bird_done.png
+    - assets/
+    - assets/score/
+    - assets/test/
