@@ -10,7 +10,7 @@ if (!admin.apps.length) {
 }
 const db = admin.firestore();
 
-setGlobalOptions({region: "us-central1"});
+setGlobalOptions({region: "asia-northeast3"});
 
 /**
  * Normalize slotIndex to "1" or "2" or null.
