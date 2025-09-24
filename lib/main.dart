@@ -219,8 +219,10 @@ Future<void> main() async {
           create: (_) => DebugEventsProvider(FirebaseFirestore.instance),
         ),
         ChangeNotifierProvider(
-          create: (_) =>
-              StudentsProvider(FirebaseFirestore.instance)..listenHub(hubId),
+          create:
+              (_) =>
+                  StudentsProvider(FirebaseFirestore.instance)
+                    ..listenHub(hubId),
         ),
         ChangeNotifierProvider(create: (_) => AppSettingsProvider()),
         // ★ HubProvider 초기값을 세팅 + 이후 변경은 브로드캐스트로 전파
