@@ -3,9 +3,8 @@ import 'dart:html' as html;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:provider/provider.dart';                // ★ 추가
-import 'provider/hub_provider.dart';                    // ★ 추가
-import 'package:flutter_arc_text/flutter_arc_text.dart';
+import 'package:provider/provider.dart';
+import 'provider/hub_provider.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({Key? key}) : super(key: key);
@@ -14,47 +13,44 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  String? _selectedHubId; // ★ 선택된 허브
+  String? _selectedHubId;
+
+  // 드롭다운/필드 공통 색(시스템 테마 무시, 항상 밝게/선명하게)
+  static const _labelColor = Color(0xFF0F172A); // slate-900
+  static const _textColor = Color(0xFF111827); // neutral-900
+  static const _hintColor = Color(0xFF6B7280); // gray-500
+  static const _bgColor = Colors.white;
+  static const _borderColor = Color(0xFFBFD6FF); // 밝은 파랑 보더
+  static const _focusBorderColor = Color(0xFF7CA6FF); // 포커스 파랑
+  static const _dropdownIconColor = Color(0xFF1F2937); // gray-800
+  static const _menuItemHover = Color(0xFFF2F6FF); // 아주 옅은 파랑
+
+  // 버튼 색 유지
+  static const _ctaColor = Color(0xFF9370F7);
 
   Future<void> _continueAsGuest() async {
     if (_selectedHubId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('허브를 먼저 선택하세요.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('허브를 먼저 선택하세요.')));
       return;
     }
     final hubId = _selectedHubId!;
 
-    // ★ HubProvider에 허브 값 전달
     context.read<HubProvider>().setHub(hubId);
 
-    // 웹: 선택한 허브를 로컬에 저장 + 디스플레이 창에도 쿼리로 전달
     if (kIsWeb) {
       final origin = html.window.location.origin;
       final path = html.window.location.pathname;
 
-      // 선택값 저장(프리젠터 탭에서 사용)
       html.window.localStorage['hubId'] = hubId;
 
-      // 디스플레이 창에도 허브 전달
       final displayUrl = '$origin$path?view=display&route=/tools&hub=$hubId';
       html.window.open(displayUrl, 'displayWindow', 'width=1024,height=768');
     }
 
-    // 프리젠터 라우팅 (메인 앱은 localStorage / query에서 허브를 읽어 사용)
     Navigator.pushReplacementNamed(context, '/tools');
   }
-
-  static const _underlineColor = Color(0xFF354070);
-  InputDecoration _dec(String label) => const InputDecoration(
-    labelText: '',
-    enabledBorder: UnderlineInputBorder(
-      borderSide: BorderSide(color: _underlineColor, width: 1.5),
-    ),
-    focusedBorder: UnderlineInputBorder(
-      borderSide: BorderSide(color: _underlineColor, width: 1.5),
-    ),
-  );
 
   @override
   Widget build(BuildContext context) {
@@ -69,20 +65,34 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  // 고정 UI + 허브 선택 드롭다운 추가
+  // 고정 UI + 허브 선택 드롭다운
   Widget _buildFixedUI() {
     return Stack(
       children: [
+        // 좌측 큰 원
         Positioned(
-          left: -98, top: 175,
-          child: Container(width: 563, height: 563,
-            decoration: const BoxDecoration(color: Color(0XFFDCFE83), shape: BoxShape.circle),
+          left: -98,
+          top: 175,
+          child: Container(
+            width: 563,
+            height: 563,
+            decoration: const BoxDecoration(
+              color: Color(0XFFDCFE83),
+              shape: BoxShape.circle,
+            ),
           ),
         ),
+        // 우측 큰 원
         Positioned(
-          right: -192, top: -262,
-          child: Container(width: 667, height: 667,
-            decoration: const BoxDecoration(color: Color(0xFFC4F6FE), shape: BoxShape.circle),
+          right: -192,
+          top: -262,
+          child: Container(
+            width: 667,
+            height: 667,
+            decoration: const BoxDecoration(
+              color: Color(0xFFC4F6FE),
+              shape: BoxShape.circle,
+            ),
           ),
         ),
 
@@ -91,7 +101,8 @@ class _LoginPageState extends State<LoginPage> {
           child: LayoutBuilder(
             builder: (context, c) {
               final w = c.maxWidth, h = c.maxHeight;
-              final scale = (w / 1440.0 < h / 720.0) ? (w / 1440.0) : (h / 720.0);
+              final scale =
+                  (w / 1440.0 < h / 720.0) ? (w / 1440.0) : (h / 720.0);
 
               final logoW = 647 * scale;
               final logoH = 509 * scale;
@@ -101,74 +112,178 @@ class _LoginPageState extends State<LoginPage> {
               final radius = 28 * scale;
               final fontZ = 18 * scale;
 
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // 로고
-                  ClipRect(
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      heightFactor: 0.80,
-                      child: Image.asset(
-                        'assets/logo_bird_main.png',
-                        width: logoW, height: logoH, fit: BoxFit.contain,
-                      ),
+              // 필드/드롭다운만 로컬 테마로 강제(항상 밝은 톤)
+              final localTheme = Theme.of(context).copyWith(
+                inputDecorationTheme: InputDecorationTheme(
+                  filled: true,
+                  fillColor: _bgColor,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
+                  labelStyle: const TextStyle(
+                    color: _labelColor,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  hintStyle: const TextStyle(color: _hintColor),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: _borderColor,
+                      width: 1.4,
                     ),
                   ),
-                  SizedBox(height: gap),
-
-                  // 허브 선택 드롭다운 (고정: hub-001 / hub-002)
-                  SizedBox(
-                    width: btnW,
-                    child: DropdownButtonFormField<String>(
-                      value: _selectedHubId,
-                      items: const [
-                        DropdownMenuItem(value: 'hub-001', child: Text('hub-001')),
-                        DropdownMenuItem(value: 'hub-002', child: Text('hub-002')),
-                      ],
-                      onChanged: (v) => setState(() => _selectedHubId = v),
-                      decoration: const InputDecoration(
-                        labelText: '허브 선택',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: _borderColor,
+                      width: 1.4,
                     ),
                   ),
-                  SizedBox(height: gap),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: const BorderSide(
+                      color: _focusBorderColor,
+                      width: 1.8,
+                    ),
+                  ),
+                ),
+                // 드롭다운 메뉴(팝업)도 밝은 톤으로 강제
+                canvasColor: _bgColor, // 구형 위젯 호환
+                dropdownMenuTheme: const DropdownMenuThemeData(
+                  menuStyle: MenuStyle(
+                    backgroundColor: WidgetStatePropertyAll(_bgColor),
+                    surfaceTintColor: WidgetStatePropertyAll(_bgColor),
+                    elevation: WidgetStatePropertyAll(8),
+                    shadowColor: WidgetStatePropertyAll(Colors.black26),
+                  ),
+                  inputDecorationTheme: InputDecorationTheme(
+                    filled: true,
+                    fillColor: _bgColor,
+                  ),
+                ),
+              );
 
-                  // 시작 버튼
-                  SizedBox(
-                    width: btnW, height: btnH,
-                    child: ElevatedButton(
-                      onPressed: _continueAsGuest,
-                      style: ButtonStyle(
-                        backgroundColor: const WidgetStatePropertyAll(Color(0xFF9370F7)),
-                        foregroundColor: const WidgetStatePropertyAll(Colors.white),
-                        shadowColor: const WidgetStatePropertyAll(Colors.transparent),
-                        overlayColor: WidgetStatePropertyAll(Colors.white.withOpacity(0.08)),
-                        elevation: const WidgetStatePropertyAll(0),
-                        shape: WidgetStatePropertyAll(
-                          RoundedRectangleBorder(borderRadius: BorderRadius.circular(radius)),
+              return Theme(
+                data: localTheme,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    // 로고
+                    ClipRect(
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        heightFactor: 0.80,
+                        child: Image.asset(
+                          'assets/logo_bird_main.png',
+                          width: logoW,
+                          height: logoH,
+                          fit: BoxFit.contain,
                         ),
-                        side: const WidgetStatePropertyAll(BorderSide.none),
-                      ),
-                      child: Text("Let's begin",
-                        style: TextStyle(fontSize: fontZ, fontWeight: FontWeight.w600),
                       ),
                     ),
-                  ),
+                    SizedBox(height: gap),
 
-                  SizedBox(height: 10 * scale),
-
-                  Opacity(
-                    opacity: 0.85,
-                    child: Text(
-                      "© 2025 Team MyButton. All rights reserved.",
-                      style: TextStyle(fontSize: 12 * scale, color: Colors.black54),
+                    // 허브 선택 드롭다운
+                    SizedBox(
+                      width: btnW,
+                      child: DropdownButtonFormField<String>(
+                        value: _selectedHubId,
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'hub-001',
+                            child: Text(
+                              'hub-001',
+                              style: TextStyle(
+                                color: _textColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          DropdownMenuItem(
+                            value: 'hub-002',
+                            child: Text(
+                              'hub-002',
+                              style: TextStyle(
+                                color: _textColor,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                        onChanged: (v) => setState(() => _selectedHubId = v),
+                        icon: const Icon(
+                          Icons.expand_more,
+                          color: _dropdownIconColor,
+                        ),
+                        dropdownColor: _bgColor, // 메뉴 배경을 항상 밝게
+                        style: const TextStyle(
+                          color: _textColor,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        decoration: const InputDecoration(
+                          labelText: '허브 선택',
+                          // hintText: '허브를 선택하세요',
+                        ),
+                        menuMaxHeight: 220,
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                     ),
-                  ),
-                ],
+                    SizedBox(height: gap),
+
+                    // 시작 버튼
+                    SizedBox(
+                      width: btnW,
+                      height: btnH,
+                      child: ElevatedButton(
+                        onPressed: _continueAsGuest,
+                        style: ButtonStyle(
+                          backgroundColor: const WidgetStatePropertyAll(
+                            _ctaColor,
+                          ),
+                          foregroundColor: const WidgetStatePropertyAll(
+                            Colors.white,
+                          ),
+                          shadowColor: const WidgetStatePropertyAll(
+                            Colors.transparent,
+                          ),
+                          overlayColor: WidgetStatePropertyAll(
+                            Colors.white.withOpacity(0.08),
+                          ),
+                          elevation: const WidgetStatePropertyAll(0),
+                          shape: WidgetStatePropertyAll(
+                            RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(radius),
+                            ),
+                          ),
+                          side: const WidgetStatePropertyAll(BorderSide.none),
+                        ),
+                        child: Text(
+                          "Let's begin",
+                          style: TextStyle(
+                            fontSize: fontZ,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    SizedBox(height: 10 * scale),
+
+                    Opacity(
+                      opacity: 0.85,
+                      child: Text(
+                        "© 2025 Team MyButton. All rights reserved.",
+                        style: TextStyle(
+                          fontSize: 12 * scale,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               );
             },
           ),

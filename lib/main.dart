@@ -5,6 +5,8 @@ import 'package:project/pages/ai_chat/presenter_ai_char.dart';
 import 'package:project/pages/profile/class_score_detail.dart';
 import 'package:project/pages/profile/student_score_detail.dart';
 import 'package:project/pages/random_seat/display_random_seat.dart';
+import 'package:project/pages/random_seat/random_seat_files.dart';
+import 'package:project/pages/random_seat/random_seat_create.dart';
 import 'package:project/pages/random_seat/presenter_random_seat.dart';
 import 'package:project/pages/tools/groupMaking/display_group_page.dart';
 import 'package:project/pages/tools/groupMaking/presenter_group_page.dart';
@@ -217,8 +219,10 @@ Future<void> main() async {
           create: (_) => DebugEventsProvider(FirebaseFirestore.instance),
         ),
         ChangeNotifierProvider(
-          create: (_) =>
-              StudentsProvider(FirebaseFirestore.instance)..listenHub(hubId),
+          create:
+              (_) =>
+                  StudentsProvider(FirebaseFirestore.instance)
+                    ..listenHub(hubId),
         ),
         ChangeNotifierProvider(create: (_) => AppSettingsProvider()),
         // ★ HubProvider 초기값을 세팅 + 이후 변경은 브로드캐스트로 전파
@@ -274,10 +278,13 @@ class PresenterApp extends StatelessWidget {
         '/tools/grouping': (_) => PresenterGroupPage(),
         '/tools/voting': (_) => PresenterVotePage(),
         '/tools/attendance': (_) => PresenterHomePage(),
-        '/tools/random_seat': (_) => RandomSeatPage(),
         '/tools/button_test': (_) => ButtonTestPage(),
         '/profile/student/details': (_) => const StudentScoreDetailsPage(),
         '/profile/class/details': (_) => const ClassScoreDetailsPage(),
+        '/tools/random_seat': (_) => const RandomSeatFilesPage(),
+        '/random-seat/files'    : (_) => const RandomSeatFilesPage(),
+        '/random-seat/create'   : (_) => const RandomSeatCreatePage(),
+        '/random-seat/presenter': (_) => const RandomSeatPage(),
       },
     );
   }
