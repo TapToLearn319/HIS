@@ -10,10 +10,10 @@ const String kHubId = 'hub-001';
 const double _avatarW = 290;
 const double _avatarH = 268;
 
-const double _imgSize  = 100;
-const double _gap      = 12;
-const double _emojiSz  = 40;
-const double _labelSz  = 24;
+const double _imgSize = 100;
+const double _gap = 12;
+const double _emojiSz = 40;
+const double _labelSz = 24;
 
 class ScoreType {
   final String id; // 내부용 키
@@ -32,18 +32,72 @@ class ScoreType {
 }
 
 const List<ScoreType> kAttitudeTypes = [
-  ScoreType(id: 'focused', label: 'Focused', emoji: '❗️', value: 1, asset: 'assets/score/logo_bird_focused.png'),
-  ScoreType(id: 'questioning', label: 'Questioning', emoji: '💬', value: 1, asset: 'assets/score/logo_bird_questioning.png'),
-  ScoreType(id: 'presentation', label: 'Presentation', emoji: '✋', value: 1, asset: 'assets/score/logo_bird_presentation.png'),
-  ScoreType(id: 'cooperate', label: 'Cooperate', emoji: '👥', value: 1, asset: 'assets/score/logo_bird_cooperate.png'),
-  ScoreType(id: 'perseverance', label: 'Perseverance', emoji: '🚶', value: 1, asset: 'assets/score/logo_bird_perseverance.png'),
-  ScoreType(id: 'positive', label: 'Positive energy', emoji: '🙂', value: 1, asset: 'assets/score/logo_bird_positive-energy.png'),
+  ScoreType(
+    id: 'focused',
+    label: 'Focused',
+    emoji: '❗️',
+    value: 1,
+    asset: 'assets/score/logo_bird_focused.png',
+  ),
+  ScoreType(
+    id: 'questioning',
+    label: 'Questioning',
+    emoji: '💬',
+    value: 1,
+    asset: 'assets/score/logo_bird_questioning.png',
+  ),
+  ScoreType(
+    id: 'presentation',
+    label: 'Presentation',
+    emoji: '✋',
+    value: 1,
+    asset: 'assets/score/logo_bird_presentation.png',
+  ),
+  ScoreType(
+    id: 'cooperate',
+    label: 'Cooperate',
+    emoji: '👥',
+    value: 1,
+    asset: 'assets/score/logo_bird_cooperate.png',
+  ),
+  ScoreType(
+    id: 'perseverance',
+    label: 'Perseverance',
+    emoji: '🚶',
+    value: 1,
+    asset: 'assets/score/logo_bird_perseverance.png',
+  ),
+  ScoreType(
+    id: 'positive',
+    label: 'Positive energy',
+    emoji: '🙂',
+    value: 1,
+    asset: 'assets/score/logo_bird_positive-energy.png',
+  ),
 ];
 
 const List<ScoreType> kActivityTypes = [
-  ScoreType(id: 'quiz', label: 'Quiz', emoji: '👥', value: 3, asset: 'assets/score/logo_bird_quiz.png'),
-  ScoreType(id: 'voting', label: 'Voting', emoji: '🚶', value: 4, asset: 'assets/score/logo_bird_voting.png'),
-  ScoreType(id: 'team', label: 'Team Activities', emoji: '🙂', value: 5, asset: 'assets/score/logo_bird_team-activites.png'),
+  ScoreType(
+    id: 'quiz',
+    label: 'Quiz',
+    emoji: '👥',
+    value: 3,
+    asset: 'assets/score/logo_bird_quiz.png',
+  ),
+  ScoreType(
+    id: 'voting',
+    label: 'Voting',
+    emoji: '🚶',
+    value: 4,
+    asset: 'assets/score/logo_bird_voting.png',
+  ),
+  ScoreType(
+    id: 'team',
+    label: 'Team Activities',
+    emoji: '🙂',
+    value: 5,
+    asset: 'assets/score/logo_bird_team-activites.png',
+  ),
 ];
 
 class PresenterStudentPage extends StatefulWidget {
@@ -74,7 +128,8 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
   }) async {
     final fs = FirebaseFirestore.instance;
     final stuRef = fs.doc('hubs/$kHubId/students/$studentId');
-    final logRef = fs.collection('hubs/$kHubId/students/$studentId/pointLogs').doc();
+    final logRef =
+        fs.collection('hubs/$kHubId/students/$studentId/pointLogs').doc();
 
     await fs.runTransaction((tx) async {
       final cur = await tx.get(stuRef);
@@ -103,101 +158,117 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
   Timer? _capTimer;
   bool _capturing = false;
 
- Future<void> _captureToSlot(String slotIndex) async {
-  if (_capturing) return;
-  _capturing = true;
+  Future<void> _captureToSlot(String slotIndex) async {
+    if (_capturing) return;
+    _capturing = true;
 
-  final fs = FirebaseFirestore.instance;
-  final liveCol = fs.collection('hubs/$kHubId/liveByDevice');
+    final fs = FirebaseFirestore.instance;
+    final liveCol = fs.collection('hubs/$kHubId/liveByDevice');
 
-  bool handled = false;
-  bool dialogOpen = true;
-  bool skippedInitial = false; // ✅ 첫 스냅샷 무시
+    bool handled = false;
+    bool dialogOpen = true;
+    bool skippedInitial = false; // ✅ 첫 스냅샷 무시
 
-  _capSub = liveCol.snapshots().listen((snap) async {
-    if (!skippedInitial) {
-      skippedInitial = true;
-      debugPrint('[pair] initial snapshot: ${snap.docs.length} docs (ignored)');
-      return;
-    }
-    if (handled) return;
-    if (snap.docChanges.isEmpty) return;
-
-    for (final ch in snap.docChanges) {
-      if (ch.type == DocumentChangeType.removed) continue;
-      if (ch.doc.metadata.hasPendingWrites) continue;
-
-      final devId = ch.doc.id;
-      handled = true;
-
-      try {
-        await fs.doc('devices/$devId').set({
-          'studentId': studentId,
-          'slotIndex': slotIndex,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-
-        if (mounted) _toast('Linked $devId (slot $slotIndex)');
-      } catch (e) {
-        if (mounted) _toast('Register failed: $e');
-      } finally {
-        _capSub?.cancel(); _capSub = null;
-        _capTimer?.cancel(); _capTimer = null;
-        _capturing = false;
-
-        if (mounted && dialogOpen) {
-          try { Navigator.of(context, rootNavigator: true).pop(true); } catch (_) {}
+    _capSub = liveCol.snapshots().listen(
+      (snap) async {
+        if (!skippedInitial) {
+          skippedInitial = true;
+          debugPrint(
+            '[pair] initial snapshot: ${snap.docs.length} docs (ignored)',
+          );
+          return;
         }
+        if (handled) return;
+        if (snap.docChanges.isEmpty) return;
+
+        for (final ch in snap.docChanges) {
+          if (ch.type == DocumentChangeType.removed) continue;
+          if (ch.doc.metadata.hasPendingWrites) continue;
+
+          final devId = ch.doc.id;
+          handled = true;
+
+          try {
+            await fs.doc('devices/$devId').set({
+              'studentId': studentId,
+              'slotIndex': slotIndex,
+              'updatedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+
+            if (mounted) _toast('Linked $devId (slot $slotIndex)');
+          } catch (e) {
+            if (mounted) _toast('Register failed: $e');
+          } finally {
+            _capSub?.cancel();
+            _capSub = null;
+            _capTimer?.cancel();
+            _capTimer = null;
+            _capturing = false;
+
+            if (mounted && dialogOpen) {
+              try {
+                Navigator.of(context, rootNavigator: true).pop(true);
+              } catch (_) {}
+            }
+          }
+          break;
+        }
+      },
+      onError: (e, st) {
+        if (mounted) _toast('Pairing stream error: $e');
+      },
+    );
+
+    final waitFuture = showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder:
+          (_) => AlertDialog(
+            title: Text('Waiting for button… (slot $slotIndex)'),
+            content: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(height: 8),
+                CircularProgressIndicator(),
+                SizedBox(height: 12),
+                Text('Press the Flic now.'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+    );
+
+    _capTimer = Timer(const Duration(seconds: 25), () {
+      if (handled) return;
+      if (mounted && dialogOpen) {
+        try {
+          Navigator.of(context, rootNavigator: true).pop(false);
+        } catch (_) {}
       }
-      break;
-    }
-  }, onError: (e, st) {
-    if (mounted) _toast('Pairing stream error: $e');
-  });
+    });
 
-  final waitFuture = showDialog<bool>(
-    context: context,
-    barrierDismissible: false,
-    builder: (_) => AlertDialog(
-      title: Text('Waiting for button… (slot $slotIndex)'),
-      content: const Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(height: 8),
-          CircularProgressIndicator(),
-          SizedBox(height: 12),
-          Text('Press the Flic now.'),
-        ],
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-      ],
-    ),
-  );
+    final res = await waitFuture;
+    dialogOpen = false;
 
-  _capTimer = Timer(const Duration(seconds: 25), () {
-    if (handled) return;
-    if (mounted && dialogOpen) {
-      try { Navigator.of(context, rootNavigator: true).pop(false); } catch (_) {}
-    }
-  });
+    if (!handled) {
+      _capSub?.cancel();
+      _capSub = null;
+      _capTimer?.cancel();
+      _capTimer = null;
+      _capturing = false;
 
-  final res = await waitFuture;
-  dialogOpen = false;
-
-  if (!handled) {
-    _capSub?.cancel(); _capSub = null;
-    _capTimer?.cancel(); _capTimer = null;
-    _capturing = false;
-
-    if (res == false && mounted) {
-      _toast('Canceled.');
-    } else if (mounted) {
-      _toast('Timed out.');
+      if (res == false && mounted) {
+        _toast('Canceled.');
+      } else if (mounted) {
+        _toast('Timed out.');
+      }
     }
   }
-}
-
 
   // ─── 학생 삭제
   Future<void> _deleteStudent() async {
@@ -205,21 +276,25 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
 
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete this student?'),
-        content: const Text(
-          'All points and logs will be removed, and paired devices will be unlinked. '
-          'This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete'),
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Delete this student?'),
+            content: const Text(
+              'All points and logs will be removed, and paired devices will be unlinked. '
+              'This action cannot be undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                child: const Text('Delete'),
+              ),
+            ],
           ),
-        ],
-      ),
     );
     if (ok != true) return;
 
@@ -233,9 +308,11 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
 
     try {
       // 1) devices 언링크
-      final devSnap = await fs.collection('devices')
-          .where('studentId', isEqualTo: studentId)
-          .get();
+      final devSnap =
+          await fs
+              .collection('devices')
+              .where('studentId', isEqualTo: studentId)
+              .get();
       final batch1 = fs.batch();
       for (final d in devSnap.docs) {
         batch1.set(d.reference, {
@@ -247,7 +324,11 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
       await batch1.commit();
 
       // 2) pointLogs 삭제
-      await _deleteCollection(fs, 'hubs/$kHubId/students/$studentId/pointLogs', 300);
+      await _deleteCollection(
+        fs,
+        'hubs/$kHubId/students/$studentId/pointLogs',
+        300,
+      );
 
       // 3) student 문서 삭제
       await fs.doc('hubs/$kHubId/students/$studentId').delete();
@@ -288,128 +369,157 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
                   (snap.data?.data()?['name'] as String?) ?? '(no name)';
               final pts = (snap.data?.data()?['points'] as num?)?.toInt() ?? 0;
 
+              // ⬇️ StreamBuilder 안 return 부분 교체
               return Padding(
                 padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-                child: Column(
-                  children: [
-                    // ── Header
-                    Row(children: [const Spacer()]),
-                    const SizedBox(height: 24),
+                child: LayoutBuilder(
+                  builder: (context, box) {
+                    const bp = 1000.0; // 브레이크포인트
+                    final isNarrow = box.maxWidth < bp;
 
-                    // ── Main (좌: 아바타/버튼매핑, 우: 점수 카드)
-                    Expanded(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    // 공통: 왼쪽 패널(아바타/매핑/삭제)
+                    Widget leftPanel = SingleChildScrollView(
+                      // ✅ 세로 오버플로우 방지
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // 좌측 영역
-                          Expanded(
-                            flex: 5,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                Stack(
-                                  children: [
-                                    SizedBox(
-                                      width: _avatarW,
-                                      height: _avatarH,
-                                      child: const DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          color: Color(0xFFF6FAFF),
-                                          image: DecorationImage(
-                                            image: AssetImage(
-                                              'assets/logo_bird.png',
-                                            ),
-                                            fit: BoxFit.contain,
-                                            alignment: Alignment.center,
-                                          ),
+                          Stack(
+                            children: [
+                              ConstrainedBox(
+                                // ✅ 고정값 대신 최대치 제한
+                                constraints: const BoxConstraints(
+                                  maxWidth: _avatarW,
+                                  maxHeight: _avatarH,
+                                ),
+                                child: const SizedBox(
+                                  width: _avatarW,
+                                  height: _avatarH,
+                                  child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                      color: Color(0xFFF6FAFF),
+                                      image: DecorationImage(
+                                        image: AssetImage(
+                                          'assets/logo_bird.png',
                                         ),
+                                        fit: BoxFit.contain,
+                                        alignment: Alignment.center,
                                       ),
                                     ),
-                                    Positioned(
-                                      right: 12,
-                                      top: 12,
-                                      child: _PointBadge(value: pts),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 18),
-                                SizedBox(
-                                  width: 218,
-                                  child: Text(
-                                    name,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Color(0xFF001A36),
-                                      fontSize: 39,
-                                      fontWeight: FontWeight.w500,
-                                      height: 1.0,
-                                    ),
                                   ),
                                 ),
-                                const SizedBox(height: 8),
-                                TextButton(
-                                  onPressed: () {
-                                    Navigator.pushNamed(
-                                      context,
-                                      '/profile/student/details',
-                                      arguments: {'id': studentId},
-                                    );
-                                  },
-                                  child: const Text(
-                                    'View score details',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: Color(0xFF868C98),
-                                      fontSize: 23,
-                                      fontWeight: FontWeight.w500,
-                                      decoration: TextDecoration.underline,
-                                      decorationStyle: TextDecorationStyle.solid,
-                                      decorationColor: Color(0xFF868C98),
-                                      height: 1.0,
-                                    ),
-                                  ),
-                                ),
-
-                                const SizedBox(height: 66),
-
-                                // 버튼 연결 UI
-                                _DeviceMappingRow(
-                                  studentId: studentId,
-                                  onLink1: () => _captureToSlot('1'),
-                                  onLink2: () => _captureToSlot('2'),
-                                ),
-
-                                const SizedBox(height: 16),
-
-                                // ⬇️ 학생 삭제 버튼 (가운데, 빨간 휴지통)
-                                Center(
-                                  child: IconButton(
-                                    tooltip: 'Delete student',
-                                    onPressed: _deleteStudent,
-                                    icon: const Icon(Icons.delete, color: Colors.red, size: 32),
-                                  ),
-                                ),
-                              ],
+                              ),
+                              Positioned(
+                                right: 12,
+                                top: 12,
+                                child: _PointBadge(value: pts),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 260),
+                            child: Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: Color(0xFF001A36),
+                                fontSize: 39,
+                                fontWeight: FontWeight.w500,
+                                height: 1.0,
+                              ),
                             ),
                           ),
-                          const SizedBox(width: 24),
-                          // 우측 영역
-                          Expanded(
-                            flex: 5,
-                            child: _ScoreManagementCard(
-                              onPick: (id, label, v) => _applyScore(
-                                typeId: id,
-                                typeName: label,
-                                value: v,
+                          const SizedBox(height: 8),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pushNamed(
+                                context,
+                                '/profile/student/details',
+                                arguments: {'id': studentId},
+                              );
+                            },
+                            child: const Text(
+                              'View score details',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Color(0xFF868C98),
+                                fontSize: 23,
+                                fontWeight: FontWeight.w500,
+                                decoration: TextDecoration.underline,
+                                decorationStyle: TextDecorationStyle.solid,
+                                decorationColor: Color(0xFF868C98),
+                                height: 1.0,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 32),
+
+                          // 버튼 연결
+                          _DeviceMappingRow(
+                            studentId: studentId,
+                            onLink1: () => _captureToSlot('1'),
+                            onLink2: () => _captureToSlot('2'),
+                          ),
+                          const SizedBox(height: 12),
+
+                          // 삭제
+                          Center(
+                            child: IconButton(
+                              tooltip: 'Delete student',
+                              onPressed: _deleteStudent,
+                              icon: const Icon(
+                                Icons.delete,
+                                color: Colors.red,
+                                size: 32,
                               ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  ],
+                    );
+
+                    // 공통: 오른쪽(점수 카드) — 그대로 사용
+                    final rightPanel = _ScoreManagementCard(
+                      onPick:
+                          (id, label, v) => _applyScore(
+                            typeId: id,
+                            typeName: label,
+                            value: v,
+                          ),
+                    );
+
+                    if (isNarrow) {
+                      // 📱 좁을 때: 세로 스택 + 스크롤
+                      return ListView(
+                        children: [
+                          const SizedBox(height: 24),
+                          leftPanel,
+                          const SizedBox(height: 24),
+                          rightPanel,
+                        ],
+                      );
+                    }
+
+                    // 🖥️ 넓을 때: 기존 2열
+                    return Column(
+                      children: [
+                        Row(children: const [Spacer()]),
+                        const SizedBox(height: 24),
+                        Expanded(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(flex: 5, child: leftPanel),
+                              const SizedBox(width: 24),
+                              Expanded(flex: 5, child: rightPanel),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               );
             },
@@ -489,7 +599,11 @@ class _DeviceMappingRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: fs.collection('devices').where('studentId', isEqualTo: studentId).snapshots(),
+      stream:
+          fs
+              .collection('devices')
+              .where('studentId', isEqualTo: studentId)
+              .snapshots(),
       builder: (_, snap) {
         String? s1, s2;
         if (snap.hasData) {
@@ -734,84 +848,133 @@ class _ScoreTileMini extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        // 카드 본문
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFFD2D2D2)),
-          ),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                SizedBox(
-  width: _imgSize,
-  height: _imgSize,
-  child: asset != null
-      ? Image.asset(asset!, fit: BoxFit.contain)
-      : Center(child: Text(emoji, style: const TextStyle(fontSize: _emojiSz))),
-),
-const SizedBox(height: _gap),
-Text(
-  label,
-  maxLines: 2,
-  textAlign: TextAlign.center,
-  overflow: TextOverflow.ellipsis,
-  style: const TextStyle(
-    fontSize: _labelSz,
-    fontWeight: FontWeight.w700,
-    color: Color(0xFF1F2A44),
-    height: 1.2, // 살짝 키움
-  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+    return LayoutBuilder(
+      builder: (context, c) {
+        // 기준 타일 크기(디자인 기준)
+        const baseW = 142.0;
+        const baseH = 140.0;
 
-        // +1 배지 (우상단)
-        Positioned(
-          right: 10,
-          top: 10,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(999),
-            onTap: onPlus,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        // 실제 타일 크기에 따른 스케일
+        final sW = (c.maxWidth / baseW).clamp(0.7, 1.4);
+        final sH = (c.maxHeight / baseH).clamp(0.7, 1.4);
+        final s = sW < sH ? sW : sH; // 가장 보수적으로
+
+        // 요소 사이즈(스케일 적용)
+        final imgSize = (100.0 * s).clamp(56.0, 120.0);
+        final emojiSize = (40.0 * s).clamp(22.0, 48.0);
+        final labelSize = (24.0 * s).clamp(12.0, 22.0);
+        final gap = (12.0 * s).clamp(6.0, 14.0);
+
+        final badgePadH = (8.0 * s).clamp(5.0, 10.0);
+        final badgePadV = (4.0 * s).clamp(2.0, 6.0);
+        final badgeFont = (13.0 * s).clamp(10.0, 14.0);
+
+        final minusIcon = (24.0 * s).clamp(18.0, 24.0);
+        final minusBox = (28.0 * s).clamp(22.0, 32.0);
+
+        return Stack(
+          children: [
+            // 카드 본문
+            Container(
               decoration: BoxDecoration(
-                color: const Color(0xFFE9F8ED),
-                borderRadius: BorderRadius.circular(999),
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10 * s),
+                border: Border.all(color: const Color(0xFFD2D2D2)),
               ),
-              child: Text(
-                badgeText,
-                style: TextStyle(
-                  color: Color(0xFF128C4A),
-                  fontWeight: FontWeight.w800,
+              child: Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: (8.0 * s)),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: imgSize,
+                        height: imgSize,
+                        child:
+                            asset != null
+                                ? Image.asset(asset!, fit: BoxFit.contain)
+                                : Center(
+                                  child: Text(
+                                    emoji,
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(fontSize: emojiSize),
+                                  ),
+                                ),
+                      ),
+                      SizedBox(height: gap),
+
+                      // 기존 FittedBox 부분 제거 후 교체
+                      Flexible(
+                        child: Text(
+                          label,
+                          maxLines: 2, // 최대 두 줄
+                          softWrap: true,
+                          overflow: TextOverflow.ellipsis, // 너무 길면 말줄임
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: labelSize,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF1F2A44),
+                            height: 1.2, // 줄간격 살짝 확보
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ),
 
-        // -1 버튼 (우하단)
-        Positioned(
-          right: 10,
-          bottom: 10,
-          child: IconButton(
-            tooltip: '-1',
-            onPressed: onMinus,
-            icon: const Icon(Icons.remove_circle_outline),
-            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-            padding: EdgeInsets.zero,
-            iconSize: 24,
-            color: const Color(0xFF374151),
-          ),
-        ),
-      ],
+            // + 배지 (우상단)
+            Positioned(
+              right: 8 * s,
+              top: 8 * s,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(999),
+                onTap: onPlus,
+                child: Container(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: badgePadH,
+                    vertical: badgePadV,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE9F8ED),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    badgeText,
+                    style: TextStyle(
+                      color: const Color(0xFF128C4A),
+                      fontWeight: FontWeight.w800,
+                      fontSize: badgeFont,
+                      height: 1.0,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+            // - 버튼 (우하단)
+            Positioned(
+              right: 8 * s,
+              bottom: 8 * s,
+              child: IconButton(
+                tooltip: '-1',
+                onPressed: onMinus,
+                icon: const Icon(Icons.remove_circle_outline),
+                constraints: BoxConstraints.tightFor(
+                  width: minusBox,
+                  height: minusBox,
+                ),
+                padding: EdgeInsets.zero,
+                iconSize: minusIcon,
+                color: const Color(0xFF374151),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -827,8 +990,9 @@ class _AddSkillTile extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
         onTap: () {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('스킬 추가는 곧 제공됩니다 😊')));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('스킬 추가는 곧 제공됩니다 😊')));
         },
         child: Container(
           decoration: BoxDecoration(
@@ -853,7 +1017,7 @@ class _AddSkillTile extends StatelessWidget {
               ],
             ),
           ),
-        ), 
+        ),
       ),
     );
   }

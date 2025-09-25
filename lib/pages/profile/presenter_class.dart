@@ -3,43 +3,101 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../sidebar_menu.dart';
 
-const String kHubId = 'hub-001'; // 🔧 허브 스코프 경로에 사용
+const String kHubId = 'hub-001'; // 허브 스코프 경로에 사용
 
-// 학생 페이지와 동일한 타입 모델/섹션 -----------------------
+// ───────────────────── 모델 ─────────────────────
 class ScoreType {
   final String id;
   final String label;
   final String emoji;
   final int value;
+  final String? asset; // ✅ 이미지 경로(있으면 이미지, 없으면 emoji 사용)
+
   const ScoreType({
     required this.id,
     required this.label,
     required this.emoji,
     required this.value,
+    this.asset,
   });
 }
 
+// 학생 페이지와 동일한 아이콘/에셋 매핑
 const List<ScoreType> kAttitudeTypes = [
-  ScoreType(id: 'focused', label: 'Focused', emoji: '❗️', value: 1),
-  ScoreType(id: 'questioning', label: 'Questioning', emoji: '💬', value: 1),
-  ScoreType(id: 'presentation', label: 'Presentation', emoji: '✋', value: 1),
-  ScoreType(id: 'cooperate', label: 'Cooperate', emoji: '👥', value: 1),
-  ScoreType(id: 'perseverance', label: 'Perseverance', emoji: '🚶', value: 1),
-  ScoreType(id: 'positive', label: 'Positive energy', emoji: '🙂', value: 1),
+  ScoreType(
+    id: 'focused',
+    label: 'Focused',
+    emoji: '❗️',
+    value: 1,
+    asset: 'assets/score/logo_bird_focused.png',
+  ),
+  ScoreType(
+    id: 'questioning',
+    label: 'Questioning',
+    emoji: '💬',
+    value: 1,
+    asset: 'assets/score/logo_bird_questioning.png',
+  ),
+  ScoreType(
+    id: 'presentation',
+    label: 'Presentation',
+    emoji: '✋',
+    value: 1,
+    asset: 'assets/score/logo_bird_presentation.png',
+  ),
+  ScoreType(
+    id: 'cooperate',
+    label: 'Cooperate',
+    emoji: '👥',
+    value: 1,
+    asset: 'assets/score/logo_bird_cooperate.png',
+  ),
+  ScoreType(
+    id: 'perseverance',
+    label: 'Perseverance',
+    emoji: '🚶',
+    value: 1,
+    asset: 'assets/score/logo_bird_perseverance.png',
+  ),
+  ScoreType(
+    id: 'positive',
+    label: 'Positive energy',
+    emoji: '🙂',
+    value: 1,
+    asset: 'assets/score/logo_bird_positive-energy.png',
+  ),
 ];
 
 const List<ScoreType> kActivityTypes = [
-  ScoreType(id: 'focused2', label: 'Focused', emoji: '❗️', value: 1),
-  ScoreType(id: 'questioning2', label: 'Questioning', emoji: '💬', value: 1),
-  ScoreType(id: 'presentation2', label: 'Presentation', emoji: '✋', value: 1),
-  ScoreType(id: 'cooperate2', label: 'Cooperate', emoji: '👥', value: 1),
-  ScoreType(id: 'perseverance2', label: 'Perseverance', emoji: '🚶', value: 1),
-  ScoreType(id: 'positive2', label: 'Positive energy', emoji: '🙂', value: 1),
+  ScoreType(
+    id: 'quiz',
+    label: 'Quiz',
+    emoji: '👥',
+    value: 3,
+    asset: 'assets/score/logo_bird_quiz.png',
+  ),
+  ScoreType(
+    id: 'voting',
+    label: 'Voting',
+    emoji: '🚶',
+    value: 4,
+    asset: 'assets/score/logo_bird_voting.png',
+  ),
+  ScoreType(
+    id: 'team',
+    label: 'Team Activities',
+    emoji: '🙂',
+    value: 5,
+    asset: 'assets/score/logo_bird_team-activites.png',
+  ),
 ];
 
-// 학생 페이지와 동일한 아바타 크기
+// 학생 페이지와 동일한 사이즈
 const double _avatarW = 290;
 const double _avatarH = 268;
+const double _tileImgSize = 100;
+const double _tileGap = 12;
+const double _tileLabelSize = 24;
 
 class PresenterClassPage extends StatefulWidget {
   const PresenterClassPage({super.key});
@@ -54,6 +112,7 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
       ((ModalRoute.of(context)?.settings.arguments ?? {}) as Map?)?['classId']
           as String? ??
       'class-001';
+
   String _className(BuildContext context) =>
       ((ModalRoute.of(context)?.settings.arguments ?? {}) as Map?)?['className']
           as String? ??
@@ -65,58 +124,105 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
     required String typeName,
     required int delta,
   }) async {
-    // 🔧 학생/로그/클래스 로그 모두 허브 스코프로 변경
-    final snap = await _fs
+    final fs = _fs;
+
+    // 1) 브라우저/앱에서 눈에 보이는 피드백
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('반 전체에 ${delta > 0 ? '+$delta' : '$delta'} 적용 중…'),
+      ),
+    );
+
+    // 2) 페이지네이션 쿼리 준비
+    const pageSize = 500; // 읽기 페이지 크기
+    const batchMax = 400; // 쓰기 배치 안전 한도
+    Query<Map<String, dynamic>> baseQ = fs
         .collection('hubs/$kHubId/students')
         .where('classId', isEqualTo: classId)
-        .get();
+        .orderBy(FieldPath.documentId);
 
-    const chunk = 200;
-    for (int i = 0; i < snap.docs.length; i += chunk) {
-      final part = snap.docs.sublist(
-        i,
-        (i + chunk > snap.docs.length) ? snap.docs.length : i + chunk,
-      );
-      final batch = _fs.batch();
+    DocumentSnapshot? lastDoc;
+    int updated = 0;
 
-      for (final d in part) {
-        final stuRef = _fs.doc('hubs/$kHubId/students/${d.id}');
-        final logRef =
-            _fs.collection('hubs/$kHubId/students/${d.id}/pointLogs').doc();
+    while (true) {
+      var q = baseQ.limit(pageSize);
+      if (lastDoc != null) q = q.startAfterDocument(lastDoc);
 
-        batch.set(stuRef, {
+      final snap = await q.get();
+      if (snap.docs.isEmpty) break;
+
+      // 3) 이 페이지 처리: 여러 배치로 쪼개 커밋
+      WriteBatch? batch;
+      int inBatch = 0;
+
+      Future<void> commitBatch() async {
+        if (batch != null && inBatch > 0) {
+          await batch!.commit();
+          batch = null;
+          inBatch = 0;
+        }
+      }
+
+      for (final d in snap.docs) {
+        // 필요 시 새 배치
+        batch ??= fs.batch();
+
+        final stuRef = fs.doc('hubs/$kHubId/students/${d.id}');
+        final stuLogRef =
+            fs.collection('hubs/$kHubId/students/${d.id}/pointLogs').doc();
+        final classLogRef =
+            fs.collection('hubs/$kHubId/classes/$classId/pointLogs').doc();
+
+        batch!.update(stuRef, {
           'points': FieldValue.increment(delta),
           'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+        });
 
-        batch.set(logRef, {
+        batch!.set(stuLogRef, {
           'typeId': typeId,
           'typeName': typeName,
           'value': delta,
           'createdAt': FieldValue.serverTimestamp(),
         });
 
-        // (선택) 클래스 로그 미러링
-        batch.set(
-          _fs.collection('hubs/$kHubId/classes/$classId/pointLogs').doc(),
-          {
-            'studentId': d.id,
-            'studentName': (d.data()['name'] ?? '') as String,
-            'typeId': typeId,
-            'typeName': typeName,
-            'value': delta,
-            'createdAt': FieldValue.serverTimestamp(),
-          },
-        );
+        batch!.set(classLogRef, {
+          'studentId': d.id,
+          'studentName': (d.data()['name'] ?? '') as String,
+          'typeId': typeId,
+          'typeName': typeName,
+          'value': delta,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+        inBatch++;
+        updated++;
+
+        if (inBatch >= batchMax) {
+          await commitBatch();
+        }
       }
 
-      await batch.commit();
+      await commitBatch();
+
+      lastDoc = snap.docs.last;
     }
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('반 전체 ${delta > 0 ? '+$delta' : '$delta'} 적용 완료')),
-    );
+    if (updated == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('해당 반의 학생을 찾지 못했어요. 학생 문서의 classId 값을 확인하세요.'),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '반 전체 $updated명에게 ${delta > 0 ? '+$delta' : '$delta'} 적용 완료',
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -124,145 +230,147 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
     final classId = _classId(context);
     final className = _className(context);
 
-    // 🔧 클래스 총 포인트 합산도 허브 스코프에서 조회
-    final classStuStream = _fs
-        .collection('hubs/$kHubId/students')
-        .where('classId', isEqualTo: classId)
-        .snapshots();
+    final classStuStream =
+        _fs
+            .collection('hubs/$kHubId/students')
+            .where('classId', isEqualTo: classId)
+            .snapshots();
 
     return AppScaffold(
       selectedIndex: 1,
       body: Scaffold(
         backgroundColor: const Color(0xFFF7FAFF),
         body: SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 980),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-                child: Column(
-                  children: [
-                    // ── 상단: 타이틀 + Back 버튼 (우측 정렬)
-                    Row(children: [const Spacer(), const _BackButton()]),
-                    const SizedBox(height: 24),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+            child: LayoutBuilder(
+              builder: (context, box) {
+                const bp = 1000.0; // 학생페이지와 동일 브레이크포인트
+                final isNarrow = box.maxWidth < bp;
 
-                    // ── 메인: 좌(이미지/타이틀/디테일 링크) / 우(점수 카드)
-                    Expanded(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                // ── 좌측 패널(아바타/클래스명)
+                final leftPanel = SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Stack(
                         children: [
-                          // 좌측: 이미지 + 클래스명 + 디테일 링크
-                          Expanded(
-                            flex: 5,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              children: [
-                                // 이미지 + 포인트 배지 (학생 페이지와 동일 스타일)
-                                Stack(
-                                  children: [
-                                    SizedBox(
-                                      width: _avatarW,
-                                      height: _avatarH,
-                                      child: const DecoratedBox(
-                                        decoration: BoxDecoration(
-                                          color: Color(0xFFF6FAFF),
-                                          image: DecorationImage(
-                                            image: AssetImage(
-                                              'assets/logo_bird.png',
-                                            ),
-                                            fit: BoxFit.contain,
-                                            alignment: Alignment.center,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                    // 클래스 총 포인트 합계 배지
-                                    Positioned(
-                                      right: 12,
-                                      top: 12,
-                                      child: StreamBuilder<
-                                          QuerySnapshot<Map<String, dynamic>>>(
-                                        stream: classStuStream,
-                                        builder: (_, snap) {
-                                          int sum = 0;
-                                          if (snap.hasData) {
-                                            for (final d in snap.data!.docs) {
-                                              sum += ((d.data()['points']
-                                                          as num?) ??
-                                                      0)
-                                                  .toInt();
-                                            }
-                                          }
-                                          return _PointBadge(value: sum);
-                                        },
-                                      ),
-                                    ),
-                                  ],
+                          const SizedBox(
+                            width: _avatarW,
+                            height: _avatarH,
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Color(0xFFF6FAFF),
+                                image: DecorationImage(
+                                  image: AssetImage('assets/logo_bird.png'),
+                                  fit: BoxFit.contain,
+                                  alignment: Alignment.center,
                                 ),
-                                const SizedBox(height: 18),
-                                SizedBox(
-                                  width: 218,
-                                  child: Text(
-                                    className,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      color: Color(0xFF001A36),
-                                      fontSize: 39,
-                                      fontWeight: FontWeight.w500,
-                                      height: 1.0,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                // 학생 페이지와 동일한 디테일 페이지 링크 (클래스 전용 라우트)
-                                TextButton(
-                                  onPressed: () {
-                                    // TODO: 클래스 디테일 라우트 연결
-                                    // Navigator.pushNamed(context, '/profile/class/details', arguments: {'classId': classId, 'className': className});
-                                  },
-                                  child: const Text(
-                                    'View score details',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      color: Color(0xFF868C98),
-                                      fontSize: 23,
-                                      fontWeight: FontWeight.w500,
-                                      decoration: TextDecoration.underline,
-                                      decorationStyle:
-                                          TextDecorationStyle.solid,
-                                      decorationColor: Color(0xFF868C98),
-                                      height: 1.0,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 66),
-                                // ⚠️ 학생버튼 연동은 클래스 페이지에 없음 (요청하신 대로)
-                              ],
+                              ),
                             ),
                           ),
-
-                          const SizedBox(width: 24),
-
-                          // 우측: 점수 관리(Attitude / Activity)
-                          Expanded(
-                            flex: 5,
-                            child: _ScoreManagementCard(
-                              onPick: (id, name, v) => _applyToAll(
-                                classId: classId,
-                                typeId: id,
-                                typeName: name,
-                                delta: v,
-                              ),
+                          Positioned(
+                            right: 12,
+                            top: 12,
+                            child: StreamBuilder<
+                              QuerySnapshot<Map<String, dynamic>>
+                            >(
+                              stream: classStuStream,
+                              builder: (_, snap) {
+                                int sum = 0;
+                                if (snap.hasData) {
+                                  for (final d in snap.data!.docs) {
+                                    sum +=
+                                        ((d.data()['points'] as num?) ?? 0)
+                                            .toInt();
+                                  }
+                                }
+                                return _PointBadge(value: sum);
+                              },
                             ),
                           ),
                         ],
                       ),
+                      const SizedBox(height: 18),
+                      SizedBox(
+                        width: 260,
+                        child: Text(
+                          className,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Color(0xFF001A36),
+                            fontSize: 39,
+                            fontWeight: FontWeight.w500,
+                            height: 1.0,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const TextButton(
+                        onPressed: null, // 필요 시 라우팅 연결
+                        child: Text(
+                          'View score details',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Color(0xFF868C98),
+                            fontSize: 23,
+                            fontWeight: FontWeight.w500,
+                            decoration: TextDecoration.underline,
+                            decorationColor: Color(0xFF868C98),
+                            height: 1.0,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 32),
+                    ],
+                  ),
+                );
+
+                // 포인트 배지 위젯에 copyWith는 없으니, 위의 StreamBuilder 부분을 아래처럼 교체하세요:
+                //   return _PointBadge(value: sum);
+
+                // ── 우측 패널(그리드) – 학생페이지와 같은 카드 컴포넌트 사용
+                final rightPanel = _ScoreManagementCard(
+                  onPick:
+                      (id, name, v) => _applyToAll(
+                        classId: classId,
+                        typeId: id,
+                        typeName: name,
+                        delta: v,
+                      ),
+                );
+
+                if (isNarrow) {
+                  // 좁은 화면: 세로 스택
+                  return ListView(
+                    children: [
+                      const SizedBox(height: 24),
+                      leftPanel,
+                      const SizedBox(height: 24),
+                      rightPanel,
+                    ],
+                  );
+                }
+
+                // 넓은 화면: 2열
+                return Column(
+                  children: [
+                    const SizedBox(height: 24),
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(flex: 5, child: leftPanel),
+                          const SizedBox(width: 24),
+                          Expanded(flex: 5, child: rightPanel),
+                        ],
+                      ),
                     ),
                   ],
-                ),
-              ),
+                );
+              },
             ),
           ),
         ),
@@ -271,11 +379,12 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
   }
 }
 
-/* ─────────────────── Small widgets ─────────────────── */
+// ───────────────────── 위젯들 ─────────────────────
 
 class _PointBadge extends StatelessWidget {
   const _PointBadge({required this.value});
   final int value;
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -320,7 +429,14 @@ class _ScoreManagementCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const _SectionTitle('Attitude Score'),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: const [
+                  _SectionTitle('Attitude Score'),
+                  Spacer(),
+                  _BackButton(),
+                ],
+              ),
               const SizedBox(height: 12),
               _ScoreSectionGrid(
                 columns: cols,
@@ -352,14 +468,16 @@ class _ScoreManagementCard extends StatelessWidget {
 class _SectionTitle extends StatelessWidget {
   const _SectionTitle(this.text, {super.key});
   final String text;
+
   @override
   Widget build(BuildContext context) {
     return Text(
       text,
       style: const TextStyle(
-        fontSize: 20,
-        fontWeight: FontWeight.w800,
-        color: Color(0xFF0B1B33),
+        color: Color(0xFF001A36),
+        fontSize: 24,
+        fontWeight: FontWeight.w500,
+        height: 1.0,
       ),
     );
   }
@@ -405,6 +523,8 @@ class _ScoreSectionGrid extends StatelessWidget {
         return _ScoreTileMini(
           emoji: t.emoji,
           label: t.label,
+          asset: t.asset,
+          badgeText: t.id == 'voting' ? '+N' : '+${t.value.abs()}',
           onPlus: () => onPick(t.id, t.label, t.value.abs()),
           onMinus: () => onPick(t.id, t.label, -t.value.abs()),
         );
@@ -419,11 +539,15 @@ class _ScoreTileMini extends StatelessWidget {
     required this.label,
     required this.onPlus,
     required this.onMinus,
+    this.asset,
+    this.badgeText = '+1',
     super.key,
   });
 
   final String emoji;
   final String label;
+  final String? asset;
+  final String badgeText;
   final VoidCallback onPlus;
   final VoidCallback onMinus;
 
@@ -439,35 +563,48 @@ class _ScoreTileMini extends StatelessWidget {
             border: Border.all(color: const Color(0xFFD2D2D2)),
           ),
           child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // 중앙 아이콘 (28×28)
-                const SizedBox(width: 28, height: 28, child: SizedBox.shrink()),
-                Positioned.fill(
-                  child: Center(
-                    child: Text(emoji, style: const TextStyle(fontSize: 24)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: _tileImgSize,
+                    height: _tileImgSize,
+                    child:
+                        asset != null
+                            ? Image.asset(asset!, fit: BoxFit.contain)
+                            : Center(
+                              child: Text(
+                                emoji,
+                                style: const TextStyle(fontSize: 40),
+                              ),
+                            ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  label,
-                  maxLines: 2,
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1F2A44),
+                  const SizedBox(height: _tileGap),
+                  Flexible(
+                    child: Text(
+                      label,
+                      maxLines: 2,
+                      softWrap: true,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: _tileLabelSize,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1F2A44),
+                        height: 1.2,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
 
-        // +1 (우상단)
+        // +N / +1
         Positioned(
           right: 10,
           top: 10,
@@ -480,9 +617,9 @@ class _ScoreTileMini extends StatelessWidget {
                 color: const Color(0xFFE9F8ED),
                 borderRadius: BorderRadius.circular(999),
               ),
-              child: const Text(
-                '+1',
-                style: TextStyle(
+              child: Text(
+                badgeText,
+                style: const TextStyle(
                   color: Color(0xFF128C4A),
                   fontWeight: FontWeight.w800,
                 ),
@@ -490,7 +627,7 @@ class _ScoreTileMini extends StatelessWidget {
             ),
           ),
         ),
-        // -1 (우하단)
+        // -1
         Positioned(
           right: 10,
           bottom: 10,
@@ -555,6 +692,7 @@ class _AddSkillTile extends StatelessWidget {
 
 class _BackButton extends StatelessWidget {
   const _BackButton({super.key});
+
   @override
   Widget build(BuildContext context) {
     return ElevatedButton.icon(
