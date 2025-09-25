@@ -10,7 +10,7 @@ const String kHubId = 'hub-001';
 const double _avatarW = 290;
 const double _avatarH = 268;
 
-const double _imgSize  = 180;
+const double _imgSize  = 100;
 const double _gap      = 12;
 const double _emojiSz  = 40;
 const double _labelSz  = 24;

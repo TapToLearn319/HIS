@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../sidebar_menu.dart';
-import 'presenter_student_log_page.dart' show kAttitudeTypes, kActivityTypes;
+import 'presenter_student_page.dart' show kAttitudeTypes, kActivityTypes;
 
 /// 점수 로그 1건의 뷰 모델
 class _Log {

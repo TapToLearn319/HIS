@@ -34,7 +34,7 @@ const _dateNumTextStyle = TextStyle(
 );
 
 // ===== 테스트 단계 정의 ===== (1번 single, 2번 single, 1번 hold, 2번 hold, 1-2-1 single)
-enum _StepKind { single1st, single2nd, hold1st, hold2nd, onetwoone }
+enum _StepKind { single1st, single2nd, hold1st, hold2nd }
 String stepKey(_StepKind s) {
   switch (s) {
     case _StepKind.single1st:
@@ -45,8 +45,8 @@ String stepKey(_StepKind s) {
       return 'hold1st';
     case _StepKind.hold2nd:
       return 'hold2nd';
-    case _StepKind.onetwoone:
-      return 'onetwoone';
+    // case _StepKind.onetwoone:
+    //   return 'onetwoone';
   }
 }
 
@@ -60,8 +60,8 @@ String _headlineOf(_StepKind step) {
       return 'Press the 1st Button for more than 2 seconds';
     case _StepKind.hold2nd:
       return 'Press the 2nd Button for more than 2 seconds';
-    case _StepKind.onetwoone:
-      return 'Press the [1st - 2nd - 1st]';
+    // case _StepKind.onetwoone:
+    //   return 'Press the [1st - 2nd - 1st]';
   }
 }
 
@@ -123,11 +123,11 @@ class _ButtonTestPageState extends State<ButtonTestPage> {
         next = _StepKind.hold2nd;
         break;
       case _StepKind.hold2nd:
-        next = _StepKind.onetwoone;
+        next = _StepKind.hold2nd;
         break;
-      case _StepKind.onetwoone:
-        next = _StepKind.onetwoone; // 마지막은 유지
-        break;
+      // case _StepKind.onetwoone:
+      //   next = _StepKind.onetwoone; // 마지막은 유지
+      //   break;
     }
 
     // 2) 이벤트 삭제 대신, 기준 ts 를 현재로 갱신
@@ -177,14 +177,14 @@ class _ButtonTestPageState extends State<ButtonTestPage> {
         return eventsAsc.any((e) => e.slot == '1' && e.action == 'hold');
       case _StepKind.hold2nd:
         return eventsAsc.any((e) => e.slot == '2' && e.action == 'hold');
-      case _StepKind.onetwoone:
-        final singles = <String>[];
-        for (final e in eventsAsc) {
-          if (e.action == 'single') singles.add(e.slot);
-        }
-        if (singles.length < 3) return false;
-        final last3 = singles.sublist(singles.length - 3);
-        return last3[0] == '1' && last3[1] == '2' && last3[2] == '1';
+      // case _StepKind.onetwoone:
+      //   final singles = <String>[];
+      //   for (final e in eventsAsc) {
+      //     if (e.action == 'single') singles.add(e.slot);
+      //   }
+      //   if (singles.length < 3) return false;
+      //   final last3 = singles.sublist(singles.length - 3);
+      //   return last3[0] == '1' && last3[1] == '2' && last3[2] == '1';
     }
   }
 
@@ -461,7 +461,7 @@ class _Body extends StatelessWidget {
                                 final padH = 28.0 * scale;
                                 final padV = 24.0 * scale;
 
-                                final isLastStep = step == _StepKind.onetwoone;
+                                final isLastStep = step == _StepKind.hold2nd;
 
                                 return Center(
                                   child: SizedBox(

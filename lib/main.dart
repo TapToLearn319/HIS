@@ -19,7 +19,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'provider/app_settings_provider.dart';
 
-import 'pages/profile/presenter_student_log_page.dart';
+import 'pages/profile/presenter_student_page.dart';
 import 'pages/profile/presenter_class.dart';
 
 import 'l10n/app_localizations.dart';
