@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../provider/hub_provider.dart';
 // 같은 폴더에 둘 파일들
 import 'topic_list_and_dialogs.dart'; // _TopicList, _CreateTopicFab에서 사용
+import 'package:project/sidebar_menu.dart';
 
 // ====================== Global Consts ======================
 
@@ -24,24 +25,26 @@ class PresenterQuizPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return AppScaffold(
+      body: Scaffold(
       backgroundColor: const Color.fromARGB(255, 246, 250, 255),
       appBar: AppBar(
-        backgroundColor: const Color.fromARGB(255, 255, 255, 255),
-        leading: IconButton(
-          tooltip: 'Back',
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text('Quiz (Presenter)'),
-      ),
+                  elevation: 0,
+                  backgroundColor: const Color(0xFFF6FAFF),
+                  leading: IconButton(
+                    tooltip: 'Back',
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => Navigator.maybePop(context),
+                  ),
+                ),
       body: Stack(
         children: const [
           TopicList(),     // ← topic_list_and_dialogs.dart 로 이동
           CreateTopicFab() // ← topic_list_and_dialogs.dart 로 이동
         ],
       ),
-    );
+    ),
+       selectedIndex: 0);
   }
 }
 

@@ -214,9 +214,19 @@ class _RandomSeatPageState extends State<RandomSeatPage> {
     final fileId = _fileId;
 
     return AppScaffold(
-      selectedIndex: 1,
+      selectedIndex: 0,
+      
       body: Scaffold(
         backgroundColor: _kAppBg,
+        appBar: AppBar(
+                  elevation: 0,
+                  backgroundColor: const Color(0xFFF6FAFF),
+                  leading: IconButton(
+                    tooltip: 'Back',
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => Navigator.maybePop(context),
+                  ),
+                ),
         body:
             (hubId == null || fileId == null)
                 ? const Center(child: Text('파일을 찾을 수 없습니다.'))

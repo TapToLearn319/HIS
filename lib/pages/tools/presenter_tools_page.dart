@@ -128,56 +128,70 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
   }
 
   Future<void> _ensureSessionAndBindSeatMap() async {
-    final fs = FirebaseFirestore.instance;
-    final session = context.read<SessionProvider>();
-    final seatMap = context.read<SeatMapProvider>();
+  final fs = FirebaseFirestore.instance;
+  final session = context.read<SessionProvider>();
+  final seatMap = context.read<SeatMapProvider>();
 
-    // 1) 세션 있으면 seatMap만 보장
-    if (session.sessionId != null) {
-      try {
-        await seatMap.bindSession(session.sessionId!);
-      } catch (_) {}
-      return;
-    }
+  // 0) 허브 currentSessionId가 이미 있으면 그것만 신뢰하고 바인딩, 덮어쓰지 않음
+  final hubRef = fs.doc('hubs/$kHubId');
+  final hubSnap = await hubRef.get();
+  final hubSid = hubSnap.data()?['currentSessionId'] as String?;
+  if (hubSid != null && hubSid.isNotEmpty) {
+    if (session.sessionId != hubSid) session.setSession(hubSid);
+    try { await seatMap.bindSession(hubSid); } catch (_) {}
+    return;
+  }
 
-    // 2) 최근 세션 선택 (없으면 새로 생성)
-    String? sid;
-    try {
-      final snap = await fs.collection('sessions').get();
-      if (snap.docs.isNotEmpty) {
-        final docs = [...snap.docs];
-        docs.sort((a, b) {
-          final ta = a.data()['updatedAt'] as Timestamp?;
-          final tb = b.data()['updatedAt'] as Timestamp?;
-          final va = ta?.millisecondsSinceEpoch ?? 0;
-          final vb = tb?.millisecondsSinceEpoch ?? 0;
-          return vb.compareTo(va);
-        });
-        sid = docs.first.id;
-      }
-    } catch (_) {
-      sid = null;
-    }
-    sid ??= _defaultSessionId();
-
-    // 3) 세션 문서 보장
-    await fs.doc('sessions/$sid').set({
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'note': 'auto (tools entry)',
-    }, SetOptions(merge: true));
-
-    // 4) Provider 바인딩 + hub 동기화
-    session.setSession(sid);
-    try {
-      await seatMap.bindSession(sid); // ← 여기에서 seatMap이 바로 실시간 구독 시작
-    } catch (_) {}
-
-    await fs.doc('hubs/$kHubId').set({
+  // 1) Provider에 세션이 이미 있으면 그걸 허브에 "최초 세팅"만 함
+  if (session.sessionId != null) {
+    final sid = session.sessionId!;
+    try { await seatMap.bindSession(sid); } catch (_) {}
+    await hubRef.set({
       'currentSessionId': sid,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+    return;
   }
+
+  // 2) 허브 스코프에서 최신 세션 시도 → 없으면 루트(sessions) 폴백 → 그래도 없으면 새로 생성
+  String? sid;
+  try {
+    final hubSess = await fs
+        .collection('hubs/$kHubId/sessions')
+        .orderBy('updatedAt', descending: true)
+        .limit(1)
+        .get();
+    if (hubSess.docs.isNotEmpty) sid = hubSess.docs.first.id;
+  } catch (_) {}
+
+  if (sid == null) {
+    try {
+      final rootSess = await fs
+          .collection('sessions')
+          .orderBy('updatedAt', descending: true)
+          .limit(1)
+          .get();
+      if (rootSess.docs.isNotEmpty) sid = rootSess.docs.first.id;
+    } catch (_) {}
+  }
+
+  sid ??= _defaultSessionId();
+
+  // 허브 스코프 세션 문서 보장(없으면 생성)
+  await fs.doc('hubs/$kHubId/sessions/$sid').set({
+    'createdAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+    'note': 'auto (tools entry)',
+  }, SetOptions(merge: true));
+
+  // Provider 바인딩 + seatMap 구독 + 허브에 "최초 기록"
+  session.setSession(sid);
+  try { await seatMap.bindSession(sid); } catch (_) {}
+  await hubRef.set({
+    'currentSessionId': sid,
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+}
 
   String _defaultSessionId() {
     final now = DateTime.now();

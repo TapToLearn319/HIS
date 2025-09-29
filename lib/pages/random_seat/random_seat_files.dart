@@ -18,8 +18,17 @@ class RandomSeatFilesPage extends StatelessWidget {
     final hubId = context.watch<HubProvider>().hubId;
 
     return AppScaffold(
-      selectedIndex: 1,
+      selectedIndex: 0,
       body: Scaffold(
+        appBar: AppBar(
+                  elevation: 0,
+                  backgroundColor: const Color(0xFFF6FAFF),
+                  leading: IconButton(
+                    tooltip: 'Back',
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => Navigator.maybePop(context),
+                  ),
+                ),
         backgroundColor: _kAppBg,
         body: SafeArea(
           child: Padding(

@@ -426,7 +426,7 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     final sid = context.watch<SessionProvider>().sessionId;
 
     return AppScaffold(
-      selectedIndex: 1,
+      selectedIndex: 0,
       body: WillPopScope(
         onWillPop: () async {
           await _autoCloseIfRunning();
@@ -435,10 +435,14 @@ class _PresenterVotePageState extends State<PresenterVotePage>
         child: Scaffold(
           backgroundColor: const Color(0xFFF6FAFF),
           appBar: AppBar(
-            backgroundColor: Color(0xFFF6FAFF),
-            elevation: 0.5,
-            automaticallyImplyLeading: false,
-          ),
+                  elevation: 0,
+                  backgroundColor: const Color(0xFFF6FAFF),
+                  leading: IconButton(
+                    tooltip: 'Back',
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => Navigator.maybePop(context),
+                  ),
+                ),
           body: Stack(
             children: [
               if (_loading)

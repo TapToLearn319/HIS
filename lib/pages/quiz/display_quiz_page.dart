@@ -89,8 +89,7 @@ class _DisplayQuizPageState extends State<DisplayQuizPage> {
             final startMs = (x['questionStartedAtMs'] is num)
                 ? (x['questionStartedAtMs'] as num).toInt()
                 : ((x['questionStartedAt'] is Timestamp)
-                    ? (x['questionStartedAt'] as Timestamp)
-                        .millisecondsSinceEpoch
+                    ? (x['questionStartedAt'] as Timestamp).millisecondsSinceEpoch
                     : null);
 
             // 가능하면 세션ID도 넘겨서 필터 정확도↑
@@ -219,176 +218,293 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
       return const _WaitingScreen();
     }
 
-    final quizRef =
-        fs.doc('$hubPath/quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}');
+    // 총 학생 수 스트림 (항상 바깥에서 감싸서 두 단계 모두에서 사용)
+    final studentsStream = fs.collection('$hubPath/students').snapshots();
 
-    if (widget.phase == 'question') {
-      // 문제 단계는 기존처럼 문제/트리거만 표시
-      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: quizRef.snapshots(),
-        builder: (context, quizSnap) {
-          Map<String, dynamic>? qx = quizSnap.data?.data();
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: studentsStream,
+      builder: (context, stuSnap) {
+        final totalStudents = stuSnap.data?.docs.length ?? 0;
 
-          if (qx != null) {
-            _quizCache[widget.currentQuizId] = qx;
-            _lastQuizIdShown = widget.currentQuizId;
-          }
-          qx ??= _quizCache[widget.currentQuizId] ??
-              (_lastQuizIdShown != null ? _quizCache[_lastQuizIdShown] : null);
+        final quizRef =
+            fs.doc('$hubPath/quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}');
 
-          if (qx == null) return const _WaitingScreen();
+        if (widget.phase == 'question') {
+          // 문제 단계: 문제 + 트리거 + 실시간 "누른 학생수" + "총원"
+          return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+            stream: quizRef.snapshots(),
+            builder: (context, quizSnap) {
+              Map<String, dynamic>? qx = quizSnap.data?.data();
 
-          final question = (qx['question'] as String?) ?? '';
-          final List<String> choices =
-              (qx['choices'] as List?)?.map((e) => e.toString()).toList() ?? const [];
-          final List<String> triggers =
-              (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+              if (qx != null) {
+                _quizCache[widget.currentQuizId] = qx;
+                _lastQuizIdShown = widget.currentQuizId;
+              }
+              qx ??= _quizCache[widget.currentQuizId] ??
+                  (_lastQuizIdShown != null ? _quizCache[_lastQuizIdShown] : null);
 
-          return _centerWrapper(
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  widget.title.isEmpty ? 'Quiz' : widget.title,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 26,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  question,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 34,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF0B1324),
-                    height: 1.25,
-                  ),
-                ),
-                const SizedBox(height: 22),
-                _ChoiceListPlain(choices: choices, triggers: triggers, shrink: true),
-              ],
-            ),
+              if (qx == null) return const _WaitingScreen();
+
+              final question = (qx['question'] as String?) ?? '';
+              final List<String> choices =
+                  (qx['choices'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+              final List<String> triggers =
+                  (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+
+              // liveByDevice를 중첩 스트림으로 붙여 "누른 학생 수" 계산
+              final liveStream = fs.collection('$hubPath/liveByDevice').snapshots();
+
+              return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: liveStream,
+                builder: (context, liveSnap) {
+                  final docs = liveSnap.data?.docs ?? const [];
+
+                  // 학생별 최신 선택만 반영 → 참여한 학생 수 카운트
+                  final Map<String, _Hit> lastByStudent = {};
+
+                  for (final d in docs) {
+                    final x = d.data();
+
+                    // 세션 필터 (세션 지정 시)
+                    if (widget.sessionId != null &&
+                        (x['sessionId']?.toString() ?? '') != widget.sessionId) {
+                      continue;
+                    }
+
+                    // 시작 시각 이후만
+                    final hubTs =
+                        (x['lastHubTs'] is num) ? (x['lastHubTs'] as num).toInt() : 0;
+                    if (hubTs <= (widget.startMs ?? 0)) continue;
+
+                    final studentId = (x['studentId'] ?? '').toString();
+                    if (studentId.isEmpty) continue;
+
+                    final slot = (x['slotIndex'] ?? '').toString(); // '1' | '2'
+                    if (slot != '1' && slot != '2') continue;
+
+                    final clickType =
+                        (x['clickType'] ?? 'click').toString().toLowerCase();
+                    if (clickType != 'click' && clickType != 'hold') continue;
+
+                    final trigKey = _triggerKey(slot: slot, clickType: clickType);
+
+                    // 이번 문제의 트리거 목록에 없는 신호는 무시
+                    if (!triggers.contains(trigKey)) continue;
+
+                    final cur = lastByStudent[studentId];
+                    if (cur == null || hubTs >= cur.hubTs) {
+                      lastByStudent[studentId] = _Hit(trigger: trigKey, hubTs: hubTs);
+                    }
+                  }
+
+                  final pressedCount = lastByStudent.length;
+
+                  return _centerWrapper(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // ✅ 상단 통계 (총원 / 참여)
+                        _statsPill(total: totalStudents, pressed: pressedCount),
+
+                        const SizedBox(height: 14),
+                        Text(
+                          widget.title.isEmpty ? 'Quiz' : widget.title,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          question,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 34,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0B1324),
+                            height: 1.25,
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+                        _ChoiceListPlain(choices: choices, triggers: triggers, shrink: true),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
           );
-        },
-      );
-    }
-
-    // ▼▼▼ 리빌 단계: results 대신 hubs/{hubId}/liveByDevice에서 실시간 집계 ▼▼▼
-    final liveStream =
-    fs.collection('$hubPath/liveByDevice').snapshots();
-
-return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-  stream: liveStream,
-  builder: (context, liveSnap) {
-    // 퀴즈 본문은 캐시/스트림 병행으로 확보
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: quizRef.snapshots(),
-      builder: (context, quizSnap) {
-        Map<String, dynamic>? qx = quizSnap.data?.data();
-        qx ??= _quizCache[widget.currentQuizId];
-        if (qx == null) return const _WaitingScreen();
-
-        final question = (qx['question'] as String?) ?? '';
-        final List<String> choices =
-            (qx['choices'] as List?)?.map((e) => e.toString()).toList() ?? const [];
-        final List<String> triggers =
-            (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ?? const [];
-        final int? correct = (qx['correctIndex'] as num?)?.toInt();
-
-        // liveByDevice 문서들
-        final docs = liveSnap.data?.docs ?? const [];
-
-        // 학생별 최신 선택만 반영
-        final Map<String, _Hit> lastByStudent = {};
-
-        for (final d in docs) {
-          final x = d.data();
-
-          // 세션 필터 (세션 지정 시)
-          if (widget.sessionId != null &&
-              (x['sessionId']?.toString() ?? '') != widget.sessionId) {
-            continue;
-          }
-
-          // 시작 시각 이후만
-          final hubTs = (x['lastHubTs'] is num) ? (x['lastHubTs'] as num).toInt() : 0;
-          if (hubTs <= (widget.startMs ?? 0)) continue;
-
-          final studentId = (x['studentId'] ?? '').toString();
-          if (studentId.isEmpty) continue;
-
-          final slot = (x['slotIndex'] ?? '').toString(); // '1' | '2'
-          if (slot != '1' && slot != '2') continue;
-
-          final clickType = (x['clickType'] ?? 'click').toString().toLowerCase();
-          if (clickType != 'click' && clickType != 'hold') continue;
-
-          final trigKey = _triggerKey(slot: slot, clickType: clickType);
-
-          // 이번 문제의 트리거 목록에 없는 신호는 무시
-          if (!triggers.contains(trigKey)) continue;
-
-          final cur = lastByStudent[studentId];
-          if (cur == null || hubTs >= cur.hubTs) {
-            lastByStudent[studentId] = _Hit(trigger: trigKey, hubTs: hubTs);
-          }
         }
 
-        // 트리거 → 보기 인덱스 매핑
-        final Map<String, int> trigToIndex = {
-          for (int i = 0; i < triggers.length; i++) triggers[i]: i
-        };
+        // ▼▼▼ 리빌 단계: results 대신 hubs/{hubId}/liveByDevice에서 실시간 집계 ▼▼▼
+        final liveStream = fs.collection('$hubPath/liveByDevice').snapshots();
 
-        final counts = List<int>.filled(choices.length, 0);
-        for (final h in lastByStudent.values) {
-          final idx = trigToIndex[h.trigger];
-          if (idx != null && idx >= 0 && idx < counts.length) counts[idx] += 1;
-        }
+        return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: liveStream,
+          builder: (context, liveSnap) {
+            // 퀴즈 본문은 캐시/스트림 병행으로 확보
+            return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: quizRef.snapshots(),
+              builder: (context, quizSnap) {
+                Map<String, dynamic>? qx = quizSnap.data?.data();
+                qx ??= _quizCache[widget.currentQuizId];
+                if (qx == null) return const _WaitingScreen();
 
-        return _centerWrapper(
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                widget.title.isEmpty ? 'Quiz' : widget.title,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                question,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 34,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0B1324),
-                  height: 1.25,
-                ),
-              ),
-              const SizedBox(height: 22),
-              _ChoiceListReveal(
-                choices: choices,
-                triggers: triggers,
-                counts: counts,          // ★ 실시간 집계 결과
-                correct: correct,
-                compact: kCompactReveal,
-                shrink: true,
-              ),
-            ],
-          ),
+                final question = (qx['question'] as String?) ?? '';
+                final List<String> choices =
+                    (qx['choices'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+                final List<String> triggers =
+                    (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+
+                // (정답은 항상 숨김이므로 correct는 전달만 하고 UI에서 무시 처리)
+                final int? correct = (qx['correctIndex'] as num?)?.toInt();
+
+                // liveByDevice 문서들
+                final docs = liveSnap.data?.docs ?? const [];
+
+                // 학생별 최신 선택만 반영
+                final Map<String, _Hit> lastByStudent = {};
+
+                for (final d in docs) {
+                  final x = d.data();
+
+                  // 세션 필터 (세션 지정 시)
+                  if (widget.sessionId != null &&
+                      (x['sessionId']?.toString() ?? '') != widget.sessionId) {
+                    continue;
+                  }
+
+                  // 시작 시각 이후만
+                  final hubTs =
+                      (x['lastHubTs'] is num) ? (x['lastHubTs'] as num).toInt() : 0;
+                  if (hubTs <= (widget.startMs ?? 0)) continue;
+
+                  final studentId = (x['studentId'] ?? '').toString();
+                  if (studentId.isEmpty) continue;
+
+                  final slot = (x['slotIndex'] ?? '').toString(); // '1' | '2'
+                  if (slot != '1' && slot != '2') continue;
+
+                  final clickType = (x['clickType'] ?? 'click').toString().toLowerCase();
+                  if (clickType != 'click' && clickType != 'hold') continue;
+
+                  final trigKey = _triggerKey(slot: slot, clickType: clickType);
+
+                  // 이번 문제의 트리거 목록에 없는 신호는 무시
+                  if (!triggers.contains(trigKey)) continue;
+
+                  final cur = lastByStudent[studentId];
+                  if (cur == null || hubTs >= cur.hubTs) {
+                    lastByStudent[studentId] = _Hit(trigger: trigKey, hubTs: hubTs);
+                  }
+                }
+
+                // 트리거 → 보기 인덱스 매핑
+                final Map<String, int> trigToIndex = {
+                  for (int i = 0; i < triggers.length; i++) triggers[i]: i
+                };
+
+                final counts = List<int>.filled(choices.length, 0);
+                for (final h in lastByStudent.values) {
+                  final idx = trigToIndex[h.trigger];
+                  if (idx != null && idx >= 0 && idx < counts.length) counts[idx] += 1;
+                }
+
+                final pressedCount = lastByStudent.length;
+
+                return _centerWrapper(
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // ✅ 상단 통계 (총원 / 참여)
+                      _statsPill(total: totalStudents, pressed: pressedCount),
+
+                      const SizedBox(height: 14),
+                      Text(
+                        widget.title.isEmpty ? 'Quiz' : widget.title,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        question,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 34,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0B1324),
+                          height: 1.25,
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      _ChoiceListReveal(
+                        choices: choices,
+                        triggers: triggers,
+                        counts: counts,          // ★ 실시간 집계 결과
+                        correct: correct,        // ★ 항상 숨김 처리(아래 클래스에서 무시)
+                        compact: kCompactReveal,
+                        shrink: true,
+
+                        // ✅ 항상 정답 숨김 + 트리거는 항상 표시
+                        hideCorrect: true,
+                        forceShowTrigger: true,
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
         );
       },
     );
-  },
-);
+  }
+
+  Widget _statsPill({required int total, required int pressed}) {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0EA5E9).withOpacity(0.10),
+          border: Border.all(color: const Color(0xFF0EA5E9).withOpacity(0.6)),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.people_alt, size: 18, color: Color(0xFF0369A1)),
+            const SizedBox(width: 8),
+            Text(
+              '총원 $total',
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF075985),
+                fontSize: 14,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text('•', style: TextStyle(color: Color(0xFF075985))),
+            const SizedBox(width: 10),
+            const Icon(Icons.touch_app, size: 18, color: Color(0xFF0369A1)),
+            const SizedBox(width: 8),
+            Text(
+              '참여 $pressed',
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF075985),
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _centerWrapper(Widget child) {
@@ -501,8 +617,7 @@ class _ChoiceListPlain extends StatelessWidget {
     );
   }
 }
-
-/// 리빌 단계
+/// 리빌 단계 (항상 정답 숨김 가능 + 트리거 표시 옵션)
 class _ChoiceListReveal extends StatelessWidget {
   const _ChoiceListReveal({
     required this.choices,
@@ -511,6 +626,8 @@ class _ChoiceListReveal extends StatelessWidget {
     required this.correct,
     this.compact = false,
     this.shrink = false,
+    this.hideCorrect = false,       // ← true면 정답 강조 완전 비활성
+    this.forceShowTrigger = false,  // ← true면 compact여도 트리거 항상 표시
   });
 
   final List<String> choices;
@@ -520,9 +637,13 @@ class _ChoiceListReveal extends StatelessWidget {
   final bool compact;
   final bool shrink;
 
+  final bool hideCorrect;
+  final bool forceShowTrigger;
+
   @override
   Widget build(BuildContext context) {
     final total = counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
+
     return GridView.builder(
       padding: const EdgeInsets.all(14),
       shrinkWrap: shrink,
@@ -537,16 +658,21 @@ class _ChoiceListReveal extends StatelessWidget {
       itemBuilder: (_, i) {
         final v = (i < counts.length) ? counts[i] : 0;
         final ratio = total == 0 ? 0.0 : (v / total);
-        final isCorrect = correct != null && i == correct;
-        final barColor = isCorrect ? Colors.green : const Color(0xFF64748B);
+
+        final isCorrect = (correct != null && i == correct) && !hideCorrect;
+        final barColor = isCorrect
+            ? Colors.green
+            : const Color(0xFF64748B); // 정답 숨김 시에도 중립 컬러 유지
 
         final trig = (i < triggers.length) ? triggers[i] : null;
-        final showTrig = !compact;
+        final showTrig = forceShowTrigger || !compact;
 
         return Card(
           elevation: 0,
           shape: RoundedRectangleBorder(
-            side: BorderSide(color: isCorrect ? Colors.green : const Color(0xFFDAE2EE)),
+            side: BorderSide(
+              color: isCorrect ? Colors.green : const Color(0xFFDAE2EE),
+            ),
             borderRadius: BorderRadius.circular(16),
           ),
           child: Padding(
@@ -560,7 +686,8 @@ class _ChoiceListReveal extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 24,
-                      backgroundColor: isCorrect ? Colors.green : const Color(0xFF111827),
+                      backgroundColor:
+                          isCorrect ? Colors.green : const Color(0xFF111827),
                       child: Text(
                         String.fromCharCode(65 + i),
                         style: const TextStyle(
@@ -580,7 +707,9 @@ class _ChoiceListReveal extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 26,
                           fontWeight: FontWeight.w700,
-                          color: isCorrect ? Colors.green.shade800 : const Color(0xFF0B1324),
+                          color: isCorrect
+                              ? Colors.green.shade800
+                              : const Color(0xFF0B1324),
                           height: 1.25,
                         ),
                       ),
@@ -588,7 +717,8 @@ class _ChoiceListReveal extends StatelessWidget {
                     if (isCorrect)
                       const Padding(
                         padding: EdgeInsets.only(left: 10),
-                        child: Icon(Icons.check_circle, color: Colors.green, size: 28),
+                        child:
+                            Icon(Icons.check_circle, color: Colors.green, size: 28),
                       ),
                   ],
                 ),
@@ -611,15 +741,24 @@ class _ChoiceListReveal extends StatelessWidget {
                     const SizedBox(width: 4),
                     const Text(
                       '응답:',
-                      style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF334155), fontSize: 16),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF334155),
+                        fontSize: 16,
+                      ),
                     ),
                     Text(
                       '$v명',
-                      style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF334155), fontSize: 16),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF334155),
+                        fontSize: 16,
+                      ),
                     ),
                     Text(
                       total == 0 ? '0%' : '${(ratio * 100).toStringAsFixed(0)}%',
-                      style: const TextStyle(color: Color(0xFF64748B), fontSize: 16),
+                      style:
+                          const TextStyle(color: Color(0xFF64748B), fontSize: 16),
                     ),
                     const SizedBox(width: 4),
                   ],
@@ -770,19 +909,23 @@ class _SummaryView extends StatelessWidget {
                       final quizId = qDoc.id;
                       final question = (q['question'] as String?) ?? '';
                       final List<String> choices =
-                          (q['choices'] as List?)?.map((e) => e.toString()).toList() ?? const [];
+                          (q['choices'] as List?)?.map((e) => e.toString()).toList() ??
+                              const [];
                       final int? correct = (q['correctIndex'] as num?)?.toInt();
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 18),
                         child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                          stream: fs.doc('$hubPath/quizTopics/$topicId/results/$quizId').snapshots(),
+                          stream:
+                              fs.doc('$hubPath/quizTopics/$topicId/results/$quizId')
+                                  .snapshots(),
                           builder: (context, rsnap) {
                             final counts = (rsnap.data?.data()?['counts'] as List?)
                                     ?.map((e) => (e as num).toInt())
                                     .toList() ??
                                 List<int>.filled(choices.length, 0);
-                            final total = counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
+                            final total =
+                                counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
 
                             return Card(
                               elevation: 0,
@@ -791,7 +934,8 @@ class _SummaryView extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(18),
                               ),
                               child: Padding(
-                                padding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
+                                padding:
+                                    const EdgeInsets.fromLTRB(24, 20, 24, 20),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -806,13 +950,17 @@ class _SummaryView extends StatelessWidget {
                                     const SizedBox(height: 14),
                                     ...List.generate(choices.length, (ci) {
                                       return Padding(
-                                        padding: const EdgeInsets.only(bottom: 12),
+                                        padding:
+                                            const EdgeInsets.only(bottom: 12),
                                         child: _resultRow(
                                           label:
                                               '${String.fromCharCode(65 + ci)}. ${choices[ci]}',
-                                          value: counts.length > ci ? counts[ci] : 0,
+                                          value: counts.length > ci
+                                              ? counts[ci]
+                                              : 0,
                                           total: total,
-                                          isCorrect: correct != null && ci == correct,
+                                          isCorrect:
+                                              correct != null && ci == correct,
                                         ),
                                       );
                                     }),
@@ -851,7 +999,8 @@ class _SummaryView extends StatelessWidget {
             if (isCorrect)
               const Padding(
                 padding: EdgeInsets.only(right: 8),
-                child: Icon(Icons.check_circle, color: Colors.green, size: 26),
+                child: Icon(Icons.check_circle,
+                    color: Colors.green, size: 26),
               ),
             Expanded(
               child: Text(
@@ -859,7 +1008,9 @@ class _SummaryView extends StatelessWidget {
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: 20,
-                  color: isCorrect ? Colors.green.shade700 : const Color(0xFF0B1324),
+                  color: isCorrect
+                      ? Colors.green.shade700
+                      : const Color(0xFF0B1324),
                   height: 1.2,
                 ),
               ),

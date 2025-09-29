@@ -66,7 +66,7 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
             final scale = (w / 1440.0 < h / 720.0) ? (w / 1440.0) : (h / 720.0);
 
             return AppScaffold(
-              selectedIndex: 1,
+              selectedIndex: 0,
               body: Scaffold(
                 appBar: AppBar(
                   elevation: 0,

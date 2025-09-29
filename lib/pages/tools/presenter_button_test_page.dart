@@ -193,8 +193,17 @@ class _ButtonTestPageState extends State<ButtonTestPage> {
     final sessionId = context.watch<SessionProvider>().sessionId;
 
     return AppScaffold(
-      selectedIndex: 2,
+      selectedIndex: 0,
       body: Scaffold(
+        appBar: AppBar(
+                  elevation: 0,
+                  backgroundColor: const Color(0xFFF6FAFF),
+                  leading: IconButton(
+                    tooltip: 'Back',
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => Navigator.maybePop(context),
+                  ),
+                ),
         backgroundColor: _kAppBg,
         body: SafeArea(
           child: Padding(

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'package:shared_preferences/shared_preferences.dart';
 // Providers
 import '../../provider/session_provider.dart';
 import '../../provider/hub_provider.dart';
@@ -57,6 +57,18 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     });
   }
 
+  static const String _kLastSessionKey = 'presenter_last_session_id';
+
+Future<void> _saveLastSessionId(String hubId, String sid) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString('$_kLastSessionKey:$hubId', sid);
+}
+
+Future<String?> _loadLastSessionId(String hubId) async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getString('$_kLastSessionKey:$hubId');
+}
+
   // ── ⬇️ 추가: 화면 입장 이후만 인정하기 위한 기준 시각(세션별)
   int? _enterMs;
   String? _enterSessionId;
@@ -101,44 +113,58 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
 
   // ===== 세션 보장 =====
   Future<void> _ensureSessionOnStart() async {
-    _log('ensureSessionOnStart: begin');
-    final hubId = context.read<HubProvider>().hubId;
-    if (hubId == null) {
-      _log('ensureSessionOnStart: hubId is null');
+  _log('ensureSessionOnStart: begin');
+  final hubId = context.read<HubProvider>().hubId;
+  if (hubId == null) {
+    _log('ensureSessionOnStart: hubId is null');
+    return;
+  }
+
+  final session = context.read<SessionProvider>();
+  final currentSid = session.sessionId;
+  try {
+    if (currentSid != null) {
+      await FirebaseFirestore.instance
+          .doc('hubs/$hubId/sessions/$currentSid')
+          .set({
+        'classRunning': false,
+        'runIntervals': [],
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
       return;
     }
 
-    final session = context.read<SessionProvider>();
-    final currentSid = session.sessionId;
-    try {
-      if (currentSid != null) {
-        await FirebaseFirestore.instance
-            .doc('hubs/$hubId/sessions/$currentSid')
-            .set({
-          'classRunning': false,
-          'runIntervals': [], // 열린 구간 초기화
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-        return;
+    // ✅ (추가) 로컬에 저장된 "마지막 사용 세션"을 우선 시도
+    final lastSid = await _loadLastSessionId(hubId);
+    if (lastSid != null && lastSid.isNotEmpty) {
+      final lastRef = FirebaseFirestore.instance.doc('hubs/$hubId/sessions/$lastSid');
+      final lastDoc = await lastRef.get();
+      if (lastDoc.exists) {
+        await _switchSessionAndBind(context, lastSid);
+        await lastRef.set({'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+        return; // 복구 성공 시 여기서 종료
       }
-      final ids = await _listRecentSessionIds(limit: 50);
-      if (ids.isEmpty) {
-        await _openSessionMenu(context);
-        return;
-      }
-      final sid = ids.first;
-      await _switchSessionAndBind(context, sid);
-      await FirebaseFirestore.instance.doc('hubs/$hubId/sessions/$sid').set({
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-    } catch (e, st) {
-      _log('ensureSessionOnStart ERROR: $e\n$st');
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Failed: $e')));
-      await _openSessionMenu(context);
     }
+
+    // (기존) 최근 세션 목록에서 첫 번째 로드
+    final ids = await _listRecentSessionIds(limit: 50);
+    if (ids.isEmpty) {
+      await _openSessionMenu(context);
+      return;
+    }
+    final sid = ids.first;
+    await _switchSessionAndBind(context, sid);
+    await FirebaseFirestore.instance.doc('hubs/$hubId/sessions/$sid').set({
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  } catch (e, st) {
+    _log('ensureSessionOnStart ERROR: $e\n$st');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('Failed: $e')));
+    await _openSessionMenu(context);
   }
+}
 
   // 이벤트/라이브 타임스탬프 공통 파싱
   int _eventMs(Map<String, dynamic> x) {
@@ -859,6 +885,8 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
       'currentSessionId': sid,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+
+    await _saveLastSessionId(hubId, sid);
   }
 
   // ---------- helpers ----------
