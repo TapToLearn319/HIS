@@ -31,6 +31,7 @@ import 'pages/home/presenter_home_page.dart';
 import 'pages/home/display_home_page.dart';
 import 'pages/quiz/presenter_quiz_page.dart';
 import 'pages/quiz/display_quiz_page.dart';
+import 'pages/quiz/create_topic_page.dart';
 // import 'pages/game/presenter_game_page.dart';
 // import 'pages/game/display_game_page.dart';
 import 'pages/tools/presenter_tools_page.dart';
@@ -267,6 +268,7 @@ class PresenterApp extends StatelessWidget {
         '/login': (_) => LoginPage(),
         '/home': (_) => PresenterHomePage(),
         '/tools/quiz': (_) => PresenterQuizPage(),
+        '/quiz/create-topic': (_) => const CreateTopicPage(),
         // '/game': (_) => PresenterGamePage(),
         '/tools': (_) => PresenterToolsPage(),
         '/AI': (_) => PresenterAIChatPage(),
