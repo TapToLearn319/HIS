@@ -4,7 +4,8 @@ import 'package:flutter/material.dart';
 
 import 'package:provider/provider.dart';
 import '../../provider/hub_provider.dart';
-import 'topic_detail.dart'; // TopicDetailPage
+import 'topic_detail.dart';
+import 'create_topic_page.dart';
 
 // ───────────────────────── Create Topic FAB ─────────────────────────
 
@@ -15,22 +16,29 @@ class CreateTopicFab extends StatelessWidget {
     final c = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Create topic'),
-        content: TextField(
-          controller: c,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Topic title',
-            border: OutlineInputBorder(),
-            hintText: '예: 3-1 분수 덧셈',
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Create topic'),
+            content: TextField(
+              controller: c,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Topic title',
+                border: OutlineInputBorder(),
+                hintText: '예: 3-1 분수 덧셈',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Create'),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Create')),
-        ],
-      ),
     );
     if (ok == true) {
       final title = c.text.trim();
@@ -76,7 +84,15 @@ class CreateTopicFab extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
               hoverColor: Colors.black.withOpacity(0.05),
               splashColor: Colors.black.withOpacity(0.1),
-              onTap: () => _createTopicDialog(context),
+              onTap: () async {
+                final ok = await Navigator.pushNamed(
+                  context,
+                  '/quiz/create-topic',
+                );
+                if (ok == true && context.mounted) {
+                  _snack(context, 'Topic created!');
+                }
+              },
               child: Tooltip(
                 message: 'Create topic',
                 child: Padding(
@@ -84,11 +100,12 @@ class CreateTopicFab extends StatelessWidget {
                   child: Image.asset(
                     'assets/logo_bird_create.png',
                     fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => const Icon(
-                      Icons.add_circle,
-                      size: 48,
-                      color: Colors.indigo,
-                    ),
+                    errorBuilder:
+                        (_, __, ___) => const Icon(
+                          Icons.add_circle,
+                          size: 48,
+                          color: Colors.indigo,
+                        ),
                   ),
                 ),
               ),
@@ -111,21 +128,28 @@ Future<void> _renameTopicDialog(
   final c = TextEditingController(text: initialTitle);
   final ok = await showDialog<bool>(
     context: context,
-    builder: (_) => AlertDialog(
-      title: const Text('Edit topic'),
-      content: TextField(
-        controller: c,
-        autofocus: true,
-        decoration: const InputDecoration(
-          labelText: 'Topic title',
-          border: OutlineInputBorder(),
+    builder:
+        (_) => AlertDialog(
+          title: const Text('Edit topic'),
+          content: TextField(
+            controller: c,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'Topic title',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Save'),
+            ),
+          ],
         ),
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
-      ],
-    ),
   );
   if (ok == true) {
     final title = c.text.trim();
@@ -155,7 +179,7 @@ Future<void> _deleteTopicWithSubcollections(
 }) async {
   final hubPath = context.read<HubProvider>().hubDocPath; // hubs/{hubId}
   if (hubPath == null) {
-    _snack(context, '허브를 먼저 선택하세요.');
+    if (context.mounted) _snack(context, '허브를 먼저 선택하세요.');
     return;
   }
 
@@ -177,58 +201,79 @@ Future<void> _deleteTopicWithSubcollections(
   );
   if (ok != true) return;
 
-  // 진행 중이면 안전하게 종료 처리
-  if (running) {
-    await fs.doc('$hubPath/quizTopics/$topicId').set({
-      'status': 'stopped',
-      'phase': 'finished',
-      'currentIndex': null,
-      'currentQuizId': null,
-      'endedAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'showSummaryOnDisplay': false,
-    }, SetOptions(merge: true));
-  }
+  // root navigator를 미리 캡쳐 (context가 dispose돼도 사용 가능)
+  final rootNav = Navigator.of(context, rootNavigator: true);
 
-  // 로딩 오버레이
-  showDialog(
+  // 로딩 다이얼로그를 띄우고, 닫힘 여부 추적
+  var dialogClosed = false;
+  // ignore: unawaited_futures
+  showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => const Center(child: CircularProgressIndicator()),
     useRootNavigator: true,
-  );
+    builder: (_) => const Center(child: CircularProgressIndicator()),
+  ).then((_) => dialogClosed = true);
 
   try {
-    await _deleteCollection(fs, '$hubPath/quizTopics/$topicId/quizzes', 300);
-    await _deleteCollection(fs, '$hubPath/quizTopics/$topicId/results', 300);
+    if (running) {
+      await fs.doc('$hubPath/quizTopics/$topicId').set({
+        'status': 'stopped',
+        'phase': 'finished',
+        'currentIndex': null,
+        'currentQuizId': null,
+        'endedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'showSummaryOnDisplay': false,
+      }, SetOptions(merge: true));
+    }
+
+    // 하위 컬렉션 페이징 삭제
+    await _deleteCollectionPaged(fs, '$hubPath/quizTopics/$topicId/quizzes', pageSize: 300);
+    await _deleteCollectionPaged(fs, '$hubPath/quizTopics/$topicId/results', pageSize: 300);
+
+    // 마지막으로 토픽 문서 삭제
     await fs.doc('$hubPath/quizTopics/$topicId').delete();
 
-    Navigator.of(context, rootNavigator: true).pop();
-    _snack(context, 'Topic deleted.');
+    if (context.mounted) _snack(context, 'Topic deleted.');
   } catch (e) {
-    Navigator.of(context, rootNavigator: true).pop();
-    _snack(context, 'Delete failed: $e');
+    if (context.mounted) _snack(context, 'Delete failed: $e');
+  } finally {
+    // 다이얼로그가 아직 열려 있으면 한 번만 닫기
+    if (!dialogClosed && rootNav.mounted) {
+      try {
+        rootNav.pop();
+      } catch (_) {
+        // 이미 닫혀 있거나 route stack 변화로 pop 불가한 경우 무시
+      }
+    }
   }
 }
 
-Future<void> _deleteCollection(
+Future<void> _deleteCollectionPaged(
   FirebaseFirestore fs,
-  String path,
-  int batchSize,
-) async {
+  String path, {
+  int pageSize = 300,
+}) async {
+  DocumentSnapshot? last;
   while (true) {
-    final snap = await fs.collection(path).limit(batchSize).get();
+    var q = fs.collection(path).orderBy(FieldPath.documentId).limit(pageSize);
+    if (last != null) q = q.startAfterDocument(last);
+
+    final snap = await q.get();
     if (snap.docs.isEmpty) break;
+
     final batch = fs.batch();
     for (final d in snap.docs) {
       batch.delete(d.reference);
     }
     await batch.commit();
-    if (snap.docs.length < batchSize) break;
+
+    last = snap.docs.last;
+    if (snap.docs.length < pageSize) break;
   }
 }
 
-// ───────────────────────── Topic List (grid) ─────────────────────────
+// ───────────────────────── Topic list ─────────────────────────
 
 class TopicList extends StatelessWidget {
   const TopicList({super.key});
@@ -236,9 +281,7 @@ class TopicList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
-
-    final hub = context.watch<HubProvider>();
-    final hubPath = hub.hubDocPath; // hubs/{hubId}
+    final hubPath = context.watch<HubProvider>().hubDocPath; // hubs/{hubId}
 
     if (hubPath == null) {
       return const _EmptyState(
@@ -248,20 +291,47 @@ class TopicList extends StatelessWidget {
     }
 
     final stream =
-        fs.collection('$hubPath/quizTopics').orderBy('createdAt', descending: true).snapshots();
+        fs
+            .collection('$hubPath/quizTopics')
+            .orderBy('createdAt', descending: false)
+            .snapshots();
 
-    String _fmtDate(Timestamp? ts) {
-      final dt = ts?.toDate();
-      if (dt == null) return '-';
-      final y = dt.year.toString().padLeft(4, '0');
-      final m = dt.month.toString().padLeft(2, '0');
-      final d = dt.day.toString().padLeft(2, '0');
-      return '$y-$m-$d';
+    Future<int> _quizCount(String topicId) async {
+      final qs =
+          await fs.collection('$hubPath/quizTopics/$topicId/quizzes').get();
+      return qs.size;
     }
 
-    Future<int> _quizCount(String hubPath, String topicId) async {
-      final qs = await fs.collection('$hubPath/quizTopics/$topicId/quizzes').get();
-      return qs.size;
+    Future<void> _startTopic(BuildContext context, String topicId) async {
+      final qSnap =
+          await fs
+              .collection('$hubPath/quizTopics/$topicId/quizzes')
+              .orderBy('createdAt')
+              .get();
+      if (qSnap.docs.isEmpty) {
+        _snack(context, '먼저 문제를 추가해 주세요.');
+        return;
+      }
+      final first = qSnap.docs.first;
+      await fs.doc('$hubPath/quizTopics/$topicId').set({
+        'status': 'running',
+        'phase': 'question',
+        'currentIndex': 0,
+        'currentQuizId': first.id,
+        'questionStartedAt': FieldValue.serverTimestamp(),
+        'questionStartedAtMs': DateTime.now().millisecondsSinceEpoch,
+        'startedAt': FieldValue.serverTimestamp(),
+        'endedAt': null,
+        'updatedAt': FieldValue.serverTimestamp(),
+        'showSummaryOnDisplay': false,
+      }, SetOptions(merge: true));
+
+      if (context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => TopicDetailPage(topicId: topicId)),
+        );
+      }
     }
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
@@ -270,174 +340,356 @@ class TopicList extends StatelessWidget {
         if (snap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (!snap.hasData || snap.data!.docs.isEmpty) {
-          return const _EmptyState(
-            title: 'No topics yet',
-            subtitle: '오른쪽 아래 버튼으로 토픽을 만들어 주세요.',
-          );
-        }
+        final topics = snap.data?.docs ?? const [];
 
-        final topics = snap.data!.docs;
-        return Center(
-          child: FractionallySizedBox(
-            widthFactor: 0.95,
-            child: GridView.builder(
-              padding: const EdgeInsets.all(16),
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 440,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                childAspectRatio: 4 / 3,
-              ),
-              itemCount: topics.length,
-              itemBuilder: (_, i) {
-                final d = topics[i];
-                final x = d.data();
-                final title = (x['title'] as String?) ?? '(untitled)';
-                final createdAt = x['createdAt'] as Timestamp?;
+        return LayoutBuilder(
+          builder: (context, c) {
+            final w = c.maxWidth;
 
-                return Card(
-                  color: Colors.white,
-                  elevation: 2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    side: const BorderSide(color: Color(0xFFDAE2EE)),
-                  ),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(14),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => TopicDetailPage(topicId: d.id)),
-                      );
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 16, 18, 12),
-                      child: Column(
+            double gutter;
+            if (w >= 1600) {
+              gutter = 16;
+            } else if (w >= 1280) {
+              gutter = 14;
+            } else if (w >= 1024) {
+              gutter = 12;
+            } else if (w >= 768) {
+              gutter = 10;
+            } else {
+              gutter = 8;
+            }
+
+            // 사실상 화면 가로 대부분을 쓰도록 상한을 크게 → 수정
+            double maxContentWidth;
+            if (w < 768) {
+              // 모바일: 거의 전체 사용
+              maxContentWidth = w - gutter * 2;
+            } else if (w < 1200) {
+              // 태블릿/창모드: 화면의 80% 정도만
+              maxContentWidth = w * 0.8;
+            } else {
+              // 데스크톱: 최대 1000px 고정
+              maxContentWidth = 1000;
+            }
+            final s = _uiScale(context); // 스케일
+
+            return Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxContentWidth),
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(0, 24, 0, 48),
+                  itemCount: topics.length + 1,
+                  separatorBuilder: (_, __) => const SizedBox(height: 16),
+                  itemBuilder: (context, i) {
+                    // Create a Quiz
+                    if (i == topics.length) {
+                      return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // 제목 + 메뉴
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  title,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 20,
-                                    color: Color(0xFF0B1324),
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              PopupMenuButton<String>(
-                                tooltip: 'Topic actions',
-                                onSelected: (v) async {
-                                  if (v == 'edit') {
-                                    await _renameTopicDialog(
-                                      context,
-                                      fs,
-                                      topicId: d.id,
-                                      initialTitle: title,
-                                    );
-                                  } else if (v == 'delete') {
-                                    await _deleteTopicWithSubcollections(
-                                      context,
-                                      fs,
-                                      topicId: d.id,
-                                      status: (x['status'] as String?),
-                                    );
-                                  }
-                                },
-                                itemBuilder: (_) => const [
-                                  PopupMenuItem(
-                                    value: 'edit',
-                                    child: ListTile(
-                                      leading: Icon(Icons.edit),
-                                      title: Text('Edit topic'),
-                                    ),
-                                  ),
-                                  PopupMenuItem(
-                                    value: 'delete',
-                                    child: ListTile(
-                                      leading: Icon(Icons.delete, color: Colors.red),
-                                      title: Text('Delete topic'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
+                          _RowHeader(text: 'Create a Quiz', scale: s),
                           const SizedBox(height: 6),
-                          const Divider(color: Colors.black, thickness: 1),
-
-                          const SizedBox(height: 12),
-                          // 퀴즈 개수
-                          FutureBuilder<int>(
-                            future: _quizCount(hubPath, d.id),
-                            builder: (context, snapCount) {
-                              final cnt = snapCount.data ?? 0;
-                              return Row(
-                                children: [
-                                  const Icon(Icons.view_module_outlined, size: 20),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '퀴즈 $cnt개',
-                                    style: const TextStyle(fontSize: 16),
-                                  ),
-                                ],
+                          _InputLikeTile(
+                            title: 'Add',
+                            scale: s,
+                            titleStyle: const TextStyle(
+                              color: Color(0xFFA2A2A2),
+                              fontSize: 24,
+                              fontWeight: FontWeight.w400,
+                              height: 34 / 24,
+                            ),
+                            leading: Icon(
+                              Icons.add_circle_outline,
+                              size: (31 * s).clamp(31, 44).toDouble(),
+                              color: const Color(0xFFA2A2A2),
+                            ),
+                            onTap: () async {
+                              final created = await Navigator.pushNamed(
+                                context,
+                                '/quiz/create-topic',
                               );
+                              if (created == true && context.mounted) {
+                                _snack(context, 'Topic created.');
+                              }
                             },
                           ),
-                          const SizedBox(height: 12),
-
-                          // 생성일
-                          Row(
-                            children: [
-                              const Icon(Icons.calendar_today_outlined, size: 20),
-                              const SizedBox(width: 8),
-                              Text(
-                                _fmtDate(createdAt),
-                                style: const TextStyle(fontSize: 16),
-                              ),
-                            ],
-                          ),
-
-                          const Spacer(),
-
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: TextButton(
-                              style: TextButton.styleFrom(
-                                minimumSize: const Size(0, 36),
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                              ),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => TopicDetailPage(topicId: d.id)),
-                                );
-                              },
-                              child: const Text(
-                                'more ›',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
                         ],
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
+                      );
+                    }
+
+                    final d = topics[i];
+                    final x = d.data();
+                    final title =
+                        (x['title'] as String?)?.trim().isNotEmpty == true
+                            ? (x['title'] as String).trim()
+                            : 'Quiz ${i + 1}';
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        FutureBuilder<int>(
+                          future: _quizCount(d.id),
+                          builder: (context, cntSnap) {
+                            final cnt = cntSnap.data ?? 0;
+                            return _RowHeader(
+                              text: 'Quiz ${i + 1}',
+                              scale: s,
+                              onDelete:
+                                  () => _deleteTopicWithSubcollections(
+                                    context,
+                                    fs,
+                                    topicId: d.id,
+                                    status: (x['status'] as String?),
+                                  ),
+                              trailing: _StartButton(
+                                enabled: cnt != 0,
+                                scale: s,
+                                onPressed: () => _startTopic(context, d.id),
+                              ),
+                            );
+                          },
+                        ),
+                        SizedBox(height: (12 * s).clamp(12, 18).toDouble()),
+                        _InputLikeTile(
+                          title: title,
+                          scale: s,
+                          trailing: _MorePill(scale: s),
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => TopicDetailPage(topicId: d.id),
+                              ),
+                            );
+                          },
+                          onMore: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => TopicDetailPage(topicId: d.id),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            );
+          },
         );
       },
+    );
+  }
+}
+
+// ───────────────────────── Scale helpers & small widgets ─────────────────────────
+
+double _uiScale(BuildContext context) {
+  final w = MediaQuery.of(context).size.width;
+  if (w >= 1920) return 1.40;
+  if (w >= 1680) return 1.30;
+  if (w >= 1440) return 1.20;
+  if (w >= 1280) return 1.12;
+  if (w >= 1120) return 1.06;
+  return 1.00;
+}
+
+class _StartButton extends StatelessWidget {
+  const _StartButton({
+    required this.enabled,
+    required this.onPressed,
+    required this.scale,
+  });
+
+  final bool enabled;
+  final VoidCallback? onPressed;
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) {
+    final h = (61 * scale).clamp(61, 96).toDouble();
+    final fs = (24 * scale).clamp(24, 36).toDouble();
+    return TextButton.icon(
+      onPressed: enabled ? onPressed : null,
+      icon: Icon(
+        Icons.play_arrow,
+        size: (18 * scale).clamp(18, 28).toDouble(),
+        color: Colors.black,
+      ),
+      label: Text(
+        'START !',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: Colors.black,
+          fontSize: fs,
+          fontWeight: FontWeight.w500,
+          height: 1.0,
+        ),
+      ),
+      style: TextButton.styleFrom(
+        padding: EdgeInsets.symmetric(horizontal: (8 * scale).clamp(8, 16)),
+        minimumSize: Size(0, h),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        foregroundColor: Colors.black,
+        disabledForegroundColor: const Color(0xFFA2A2A2),
+      ),
+    );
+  }
+}
+
+class _MorePill extends StatelessWidget {
+  const _MorePill({required this.scale});
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) {
+    final h = (61 * scale).clamp(61, 96).toDouble();
+    final w = (74 * scale).clamp(74, 120).toDouble();
+    final fs = (24 * scale).clamp(24, 36).toDouble();
+    return Container(
+      constraints: BoxConstraints.tightFor(width: w, height: h),
+      alignment: Alignment.center,
+      child: Text(
+        'more',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: const Color(0xFFA2A2A2),
+          fontSize: fs,
+          fontWeight: FontWeight.w400,
+          height: 34 / 24,
+        ),
+      ),
+    );
+  }
+}
+
+/* ───────────── 작은 컴포넌트들 ───────────── */
+
+class _RowHeader extends StatelessWidget {
+  const _RowHeader({
+    required this.text,
+    this.onDelete,
+    this.trailing,
+    required this.scale,
+  });
+
+  final String text;
+  final VoidCallback? onDelete;
+  final Widget? trailing;
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) {
+    final fs = (24 * scale).clamp(24, 36).toDouble();
+    final iconSize = (18 * scale).clamp(18, 28).toDouble();
+    final h = (34 * scale).clamp(34, 48).toDouble();
+
+    return SizedBox(
+      height: h,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: fs,
+              fontWeight: FontWeight.w500,
+              color: const Color(0xFF001A36),
+              height: 1.0,
+            ),
+          ),
+          if (onDelete != null) ...[
+            SizedBox(width: (6 * scale).clamp(6, 10).toDouble()),
+            IconButton(
+              icon: Icon(
+                Icons.close,
+                size: iconSize,
+                color: const Color(0xFF001A36),
+              ),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              tooltip: 'Delete',
+              onPressed: onDelete,
+            ),
+          ],
+          const Spacer(),
+          if (trailing != null) trailing!,
+        ],
+      ),
+    );
+  }
+}
+
+class _InputLikeTile extends StatelessWidget {
+  const _InputLikeTile({
+    required this.title,
+    this.titleStyle,
+    this.leading,
+    this.trailing,
+    this.onTap,
+    this.onMore,
+    required this.scale,
+  });
+
+  final String title;
+  final TextStyle? titleStyle;
+  final Widget? leading;
+  final Widget? trailing;
+  final VoidCallback? onTap;
+  final VoidCallback? onMore;
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) {
+    final h = (61 * scale).clamp(61, 96).toDouble();
+    final hp = (14 * scale).clamp(14, 20).toDouble();
+    final gap = (8 * scale).clamp(8, 12).toDouble();
+    final fs = (24 * scale).clamp(24, 36).toDouble();
+    final r = (10 * scale).clamp(10, 14).toDouble();
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(r),
+      onTap: onTap,
+      child: Container(
+        height: h,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(r),
+          border: Border.all(color: const Color(0xFFD2D2D2), width: 1),
+        ),
+        padding: EdgeInsets.symmetric(horizontal: hp),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (leading != null) ...[leading!, SizedBox(width: gap)],
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style:
+                      titleStyle ??
+                      TextStyle(
+                        color: Colors.black,
+                        fontSize: fs,
+                        fontWeight: FontWeight.w400,
+                        height: 1.0,
+                      ),
+                ),
+              ),
+            ),
+            SizedBox(width: gap),
+            GestureDetector(
+              onTap: onMore ?? onTap,
+              child: trailing ?? const SizedBox.shrink(),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -457,9 +709,15 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 6),
-            Text(subtitle, style: const TextStyle(color: Colors.grey)),
+            const Text(
+              '허브를 먼저 선택/로그인 해주세요.',
+              style: TextStyle(color: Colors.grey),
+            ),
           ],
         ),
       ),
