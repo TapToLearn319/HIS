@@ -57,27 +57,36 @@ class _PresenterVotePageState extends State<PresenterVotePage>
   }
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
+void initState() {
+  super.initState();
+  WidgetsBinding.instance.addObserver(this);
 
-    for (final t in const ['Great', "Its too difficult"]) {
-      _optionCtrls.add(TextEditingController(text: t));
-      _bindings.add(const _Binding(button: 1, gesture: 'hold'));
+  // ✨ 텍스트를 채우지 않는다(placeholder만 보이게)
+  _optionCtrls.add(TextEditingController());
+  _bindings.add(const _Binding(button: 1, gesture: 'single')); // 1 - click
+
+  _optionCtrls.add(TextEditingController());
+  _bindings.add(const _Binding(button: 2, gesture: 'single')); // 2 - click
+
+  _ensureUniqueAll();
+  setState(() => _loading = false);
+
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    final hubId = context.read<HubProvider>().hubId;
+    if (hubId == null) return;
+
+    // ✅ 1) 입장하자마자 강제 리셋
+    await _forceResetOnEnter(hubId);
+
+    // 2) 특정 voteId로 열어야 하면 로드
+    if (widget.voteId != null) {
+      await _load(hubId, widget.voteId!);
     }
-    _ensureUniqueAll();
-    setState(() => _loading = false);
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final hubId = context.read<HubProvider>().hubId;
-      if (hubId != null && widget.voteId != null) {
-        _load(hubId, widget.voteId!); // ← hub 스코프에서 로드
-      }
-      if (hubId != null) {
-        _watchActive(hubId); // ← hub 스코프에서 active 감시
-      }
-    });
-  }
+    // 3) (선택) 이후부터는 active 감시(다른 기기에서 시작하면 따라가게)
+    _watchActive(hubId);
+  });
+}
 
   @override
   void dispose() {
@@ -284,25 +293,47 @@ class _PresenterVotePageState extends State<PresenterVotePage>
   }
 
   void _addFromScratch() {
-    final t = _newOptionCtrl.text.trim();
-    if (t.isEmpty) return;
-
-    if (_optionCtrls.length >= _maxOptions) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('문항은 최대 4개까지 추가할 수 있습니다.'),
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    setState(() {
-      _optionCtrls.add(TextEditingController(text: t));
-      _bindings.add(_firstUnusedBinding());
-      _newOptionCtrl.clear();
-    });
+  if (_optionCtrls.length >= _maxOptions) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('문항은 최대 4개까지 추가할 수 있습니다.'), duration: Duration(seconds: 2)),
+    );
+    return;
   }
+
+  // 입력이 비어 있어도 생성 (원하면 기본 라벨로 대체 가능)
+  final raw = _newOptionCtrl.text.trim();
+  // final t = _newOptionCtrl.text.trim().isEmpty
+  //     ? 'Option ${_optionCtrls.length + 1}'
+  //     : _newOptionCtrl.text.trim();
+
+  setState(() {
+    _optionCtrls.add(TextEditingController(text: raw.isEmpty ? '' : raw)); // 빈 문자열 OK
+    _bindings.add(_firstUnusedBinding());
+    _newOptionCtrl.clear();
+  });
+}
+
+Future<void> _forceResetOnEnter(String hubId) async {
+  try {
+    // 1) 이 허브에서 active인 투표 모두 종료
+    await _stopAllActive(hubId);
+
+    // 2) 허브 currentVoteId 정리 (표시용 sid도 같이 넣어둠)
+    final sid = context.read<SessionProvider>().sessionId;
+    await _updateHub(sid: sid, voteId: null);
+
+    // 3) 로컬 상태도 확실히 Stop으로
+    if (mounted) {
+      setState(() {
+        _isRunning = false;
+        _activeVoteId = null;
+      });
+    }
+  } catch (e) {
+    debugPrint('[PresenterVote] forceResetOnEnter error: $e');
+  }
+}
+
 
   Future<void> _handleStartStop() async {
     if (_busy) return;
@@ -741,7 +772,7 @@ class _PresenterVotePageState extends State<PresenterVotePage>
             child: TextFormField(
               controller: ctrl,
               decoration: InputDecoration(
-                hintText: 'Option',
+                hintText: 'Enter a poll option',
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 24,
                   vertical: 0,
@@ -907,7 +938,7 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     return Align(
       alignment: Alignment.center,
       child: ConstrainedBox(
-        constraints: const BoxConstraints.tightFor(width: 948, height: 184),
+        constraints: const BoxConstraints.tightFor(width: 948, height: 123),
         child: Container(
           decoration: BoxDecoration(
             color: Colors.white,
@@ -927,15 +958,15 @@ class _PresenterVotePageState extends State<PresenterVotePage>
                   setState(() => _show = 'after');
                 }),
               ),
-              _settingRow(
-                title: 'Anonymous',
-                left: _choice<bool>('yes', _anonymous, () {
-                  setState(() => _anonymous = true);
-                }),
-                right: _choice<bool>('no', !_anonymous, () {
-                  setState(() => _anonymous = false);
-                }),
-              ),
+              // _settingRow(
+              //   title: 'Anonymous',
+              //   left: _choice<bool>('yes', _anonymous, () {
+              //     setState(() => _anonymous = true);
+              //   }),
+              //   right: _choice<bool>('no', !_anonymous, () {
+              //     setState(() => _anonymous = false);
+              //   }),
+              // ),
               _settingRow(
                 title: 'Multiple selections',
                 left: _choice<bool>('yes', _multi, () {

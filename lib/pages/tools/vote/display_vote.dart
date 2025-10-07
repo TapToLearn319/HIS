@@ -43,6 +43,8 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
 
   bool _multi = false;
 
+  bool _revealNow = false;
+
   IconData _iconForGesture(String gesture) {
     switch (gesture) {
       case 'hold':
@@ -82,6 +84,28 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
       _rebindSession(sid);
     }
   }
+
+  // 버튼(1/2)과 제스처(single/hold)에 따른 대표 색
+Color _colorForBinding(int button, String gesture) {
+  // 1: Red 계열, 2: Blue 계열
+  if (button == 1) {
+    return (gesture == 'hold')
+        ? const Color(0xFFF87171) // Red - hold
+        : const Color(0xFFF87171); // Red - click
+  } else {
+    return (gesture == 'hold')
+        ? const Color(0xFF60A5FA) // Blue - hold
+        : const Color(0xFF60A5FA); // Blue - click
+  }
+}
+
+// 버튼 숫자 대신 표시할 라벨
+String _labelForBinding(int button, String gesture) {
+  final b = (button == 1) ? 'red' : 'blue';
+  final g = (gesture == 'hold') ? 'hold' : 'click';
+  return '$b-$g';
+}
+
 
   @override
   void dispose() {
@@ -189,7 +213,7 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
           (qs) {
             if (qs.docs.isEmpty) {
               _evSub?.cancel();
-              _resetState();
+              _resetState();   // ★ 바로 StandBy로
               return;
             }
 
@@ -299,6 +323,7 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
               _anonymous = anonymous;
 
               _multi = multi;
+              _revealNow = false;
             });
 
             // 다음 microtask에서 이벤트(허브의 liveByDevice)를 구독
@@ -467,89 +492,131 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
       return const Scaffold(body: Center(child: DisplayStandByPage()));
     }
 
+    if (_voteId == null || _status == 'closed') {
+    return const Scaffold(body: Center(child: DisplayStandByPage()));
+    }
+
     final sid = context.watch<SessionProvider>().sessionId;
-    final bool hide = (_showMode == 'after' && _status != 'closed');
+    final bool hide = (_showMode == 'after' && !_revealNow);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF6FAFF),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1100),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
-            child: (_voteId == null)
-                ? const DisplayStandByPage()
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Text(
-                        _title.isEmpty ? 'Untitled question' : _title,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 41,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          hide ? '-' : '${_total} VOTERS',
+      body: Stack(
+        children: [
+          Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1100),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+              child: (_voteId == null)
+                  ? const DisplayStandByPage()
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          _title.isEmpty ? 'Untitled question' : _title,
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
-                            fontSize: 19,
+                            fontSize: 41,
                             fontWeight: FontWeight.w500,
+                            color: Colors.black, 
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Colors.black12.withOpacity(0.08),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            '${_total} VOTERS',
+                            style: const TextStyle(
+                              fontSize: 19,
+                              fontWeight: FontWeight.w500,
+                              color:Colors.black,
+                            ),
                           ),
                         ),
-                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-                        child: Column(
-                          children: [
-                            if (hide)
-                              const Padding(
-                                padding: EdgeInsets.only(bottom: 6),
-                                child: Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Text(
-                                    'Results will be shown after voting ends',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.black54,
-                                      fontWeight: FontWeight.w600,
+                        const SizedBox(height: 12),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Colors.black12.withOpacity(0.08),
+                            ),
+                          ),
+                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                          child: Column(
+                            children: [
+                              if (hide)
+                                const Padding(
+                                  padding: EdgeInsets.only(bottom: 6),
+                                  child: Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Text(
+                                      'Results will be shown after voting ends',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.black54,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            for (var i = 0; i < _opts.length; i++) ...[
-                              _barRow(
-                                label: _opts[i].label,
-                                votes: _opts[i].votes,
-                                total: _total,
-                                button: _opts[i].button,
-                                gesture: _opts[i].gesture,
-                                onTap: _tapVoteDebug,
-                                hideResults: hide,
-                              ),
-                              if (i != _opts.length - 1)
-                                const SizedBox(height: 12),
+                              for (var i = 0; i < _opts.length; i++) ...[
+                                _barRow(
+                                  label: _opts[i].label,
+                                  votes: _opts[i].votes,
+                                  total: _total,
+                                  button: _opts[i].button,
+                                  gesture: _opts[i].gesture,
+                                  onTap: _tapVoteDebug,
+                                  hideResults: hide,
+                                  alwaysShowMapping: (_showMode == 'after'),
+                                ),
+                                if (i != _opts.length - 1)
+                                  const SizedBox(height: 12),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
+                      ],
+                    ),
+            ),
+          ),
+          ),
+        if (_voteId != null && _showMode == 'after' && _status == 'active' && !_revealNow)
+        Positioned(
+          right: 16,
+          bottom: 16,
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              width: 160,
+              height: 160,
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => setState(() => _revealNow = true),
+                  child: Padding(
+                    padding: const EdgeInsets.all(10.0),
+                    child: Image.asset(
+                      'assets/logo_bird_start.png', // 없으면 아이콘으로 폴백
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.bar_chart,
+                        size: 72,
+                        color: Colors.indigo,
                       ),
-                    ],
+                    ),
                   ),
+                ),
+              ),
+            ),
           ),
         ),
-      ),
-    );
+    ],
+  ),
+);
   }
 
   Widget _barRow({
@@ -560,6 +627,7 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
     required String gesture,
     required VoidCallback onTap,
     bool hideResults = false,
+    bool alwaysShowMapping = false,
   }) {
     const yellow = Color(0xFFFFE483);
 
@@ -612,29 +680,42 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
                                   fontSize: 22,
                                   fontWeight: FontWeight.w800,
                                   letterSpacing: 0.1,
+                                  color: Colors.black,
                                 ),
                               ),
                             ),
                             const SizedBox(width: 12),
-                            if (!hideResults)
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    '$button - ',
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w700,
-                                      color: Colors.black87,
-                                    ),
+                            if (alwaysShowMapping || !hideResults)
+                              Builder(builder: (context) {
+                                final mapColor = _colorForBinding(button, gesture); // ← 버튼+제스처 조합 색상
+                                final label = _labelForBinding(button, gesture);    // ← red-click 등 라벨
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  decoration: BoxDecoration(
+                                    color: mapColor.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(999),
+                                    border: Border.all(color: mapColor.withOpacity(0.7)),
                                   ),
-                                  Icon(
-                                    _iconForGesture(gesture),
-                                    size: 24,
-                                    color: Colors.black54,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        _iconForGesture(gesture), // click/hold 모양
+                                        size: 20,
+                                        color: mapColor,          // ← 색 입힘
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        label,                    // ← red-click / blue-hold ...
+                                        style: TextStyle(
+                                          color: mapColor,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                ],
-                              )
+                                );
+                              })
                             else
                               const Text(
                                 'Hidden',
@@ -643,6 +724,7 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
                                   color: Colors.black54,
                                 ),
                               ),
+
                           ],
                         ),
                       ),

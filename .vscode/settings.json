@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "C:/Users/z0123/Desktop/flic/project/linux"
+    "cmake.sourceDirectory": "C:/Users/z0123/Desktop/flic/project/linux",
+    "cmake.ignoreCMakeListsMissing": true
 }
