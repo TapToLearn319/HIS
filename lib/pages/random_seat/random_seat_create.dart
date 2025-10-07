@@ -177,7 +177,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
                             'Seperation   *Write student’s number to not pair together',
                           ),
                           const SizedBox(height: 6),
-                          _pillInput(_separateCtrl, hint: 'ex) 1-2, 5-7'),
+                          _pillInput(_separateCtrl, hint: 'ex) Mark-Anna'),
                           const SizedBox(height: 20),
 
                           _sectionLabel(
@@ -194,30 +194,9 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
             ),
 
             // 우상단 NEXT(피그마 새 캐릭터 버튼)
-            Positioned(
-              right: 18,
-              top: 12,
-              child: SafeArea(
-                left: false,
-                bottom: false,
-                child: InkWell(
-                  onTap: _busy ? null : _create,
-                  borderRadius: BorderRadius.circular(12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(6.0),
-                    child: Image.asset(
-                      'assets/test/logo_bird_next.png',
-                      width: 84,
-                      height: 84,
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => ElevatedButton(
-                        onPressed: _busy ? null : _create,
-                        child: const Text('NEXT'),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+            _NextFabImage(
+              onTap: _create,
+              enabled: !_busy,
             ),
 
             if (_busy)
@@ -269,7 +248,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
     return TextFormField(
       controller: _titleCtrl,
       decoration: _inputDecoration(
-        hint: 'August 1st',
+        hint: 'Enter a Title',
         radius: 10,
       ),
       style: const TextStyle(
@@ -305,7 +284,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
               const SizedBox(width: 22),
               _radioWithLabel(
                 label: 'group',
-                colorDot: const Color(0xFFFF7AE1),
+                colorDot: null,
                 value: 'group',
                 group: _type,
                 onChanged: (v) => setState(() => _type = v!),
@@ -366,6 +345,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
             value: value,
             groupValue: group,
             onChanged: onChanged,
+            activeColor: Colors.black,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
           ),
@@ -428,7 +408,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
       child: TextField(
         controller: ctrl,
         decoration: InputDecoration(
-          hintText: hint ?? 'ex) 1-2, 5-7',
+          hintText: hint ?? 'ex) Mark-Anna',
           contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 0),
           filled: true,
           fillColor: Colors.white,
@@ -458,6 +438,47 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(radius),
         borderSide: const BorderSide(color: _kCardBorder, width: 1),
+      ),
+    );
+  }
+}
+class _NextFabImage extends StatelessWidget {
+  final VoidCallback onTap;
+  final bool enabled;
+  const _NextFabImage({Key? key, required this.onTap, this.enabled = true}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned(
+      right: 20,
+      bottom: 20,
+      child: SafeArea(
+        top: false,
+        child: Opacity(
+          opacity: enabled ? 1.0 : 0.5,
+          child: SizedBox(
+            width: 200,
+            height: 200,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(20),
+                hoverColor: Colors.black.withOpacity(0.05),
+                splashColor: Colors.black.withOpacity(0.1),
+                onTap: enabled ? onTap : null,
+                child: Padding(
+                  padding: const EdgeInsets.all(10.0),
+                  child: Image.asset(
+                    // 👉 네가 쓰는 NEXT 자산 경로로 맞춰줘
+                    'assets/test/logo_bird_next.png',
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(Icons.arrow_forward, size: 64),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

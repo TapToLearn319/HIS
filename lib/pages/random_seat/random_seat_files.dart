@@ -193,6 +193,95 @@ class _FilesGrid extends StatelessWidget {
     }
   }
 
+  Future<void> _handleAction(
+  BuildContext context,
+  QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  String action,
+) async {
+  final data = doc.data();
+  final fs = FirebaseFirestore.instance;
+
+  final fileRef = fs.doc('hubs/$hubId/randomSeatFiles/${doc.id}');
+  final seatCol = fs.collection('hubs/$hubId/randomSeatFiles/${doc.id}/seatMap');
+
+  switch (action) {
+    case 'open':
+      Navigator.pushNamed(
+        context,
+        kRouteRandomSeatPresenter,
+        arguments: {'fileId': doc.id},
+      );
+      break;
+
+    case 'rename':
+      final ctrl = TextEditingController(text: (data['title'] ?? '').toString());
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Rename'),
+          content: TextField(
+            controller: ctrl,
+            decoration: const InputDecoration(hintText: 'Enter title'),
+            autofocus: true,
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+          ],
+        ),
+      );
+      if (ok == true) {
+        await fileRef.set({
+          'title': ctrl.text.trim().isEmpty ? 'Untitled' : ctrl.text.trim(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+      break;
+
+    case 'duplicate':
+      final newRef = fs.collection('hubs/$hubId/randomSeatFiles').doc();
+      final meta = Map<String, dynamic>.from(data);
+      meta['title'] = '${(meta['title'] ?? 'Untitled')} (copy)';
+      meta['createdAt'] = FieldValue.serverTimestamp();
+      meta['updatedAt'] = FieldValue.serverTimestamp();
+      await newRef.set(meta, SetOptions(merge: true));
+
+      final seats = await seatCol.get();
+      final batch = fs.batch();
+      for (final s in seats.docs) {
+        batch.set(newRef.collection('seatMap').doc(s.id), s.data());
+      }
+      await batch.commit();
+
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Duplicated.')));
+      break;
+
+    case 'delete':
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Delete'),
+          content: const Text('This file and its seat map will be deleted.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+          ],
+        ),
+      );
+      if (ok == true) {
+        final seats = await seatCol.get();
+        final batch = fs.batch();
+        for (final s in seats.docs) {
+          batch.delete(s.reference);
+        }
+        batch.delete(fileRef);
+        await batch.commit();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Deleted.')));
+      }
+      break;
+  }
+}
+
   @override
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
@@ -250,7 +339,7 @@ class _FilesGrid extends StatelessWidget {
                   arguments: {'fileId': d.id},
                 );
               },
-              onMore: () => _showMoreMenu(context, d),
+              onAction: (a) => _handleAction(context, d, a),
             );
           },
         );
@@ -268,7 +357,8 @@ class _FileCard extends StatelessWidget {
     required this.dateStr,
     this.total,
     required this.onOpen,
-    required this.onMore,
+    // required this.onMore,
+    required this.onAction,
   });
 
   final String title;
@@ -278,8 +368,8 @@ class _FileCard extends StatelessWidget {
   final String type;
   final String dateStr;
   final VoidCallback onOpen;
-  final VoidCallback onMore;
-
+  // final VoidCallback onMore;
+  final ValueChanged<String> onAction;
   @override
   Widget build(BuildContext context) {
     final typeLabel = type == 'group' ? 'group' : 'individual';
@@ -359,24 +449,42 @@ SizedBox(
   child: Row(
     mainAxisAlignment: MainAxisAlignment.end,
     children: [
-      OutlinedButton(
-        onPressed: onMore,
-        style: OutlinedButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
-          minimumSize: const Size(80, 31),
-          side: const BorderSide(color: Color.fromRGBO(0, 0, 0, 0.1)),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-        ),
-        child: const Text(
-          'more ›',
-          style: TextStyle(
-            fontSize: 13.3,
-            fontWeight: FontWeight.w400,
-            fontFamily: 'Pretendard Variable',
-            color: Colors.black,
-            height: 1.0,
+      PopupMenuButton<String>(
+        onSelected: onAction, // ✅ 선택된 액션 전달
+        itemBuilder: (context) => const [
+          PopupMenuItem(value: 'open', child: Text('Open')),
+          PopupMenuItem(value: 'rename', child: Text('Rename')),
+          PopupMenuItem(value: 'duplicate', child: Text('Duplicate')),
+          PopupMenuDivider(),
+          PopupMenuItem(value: 'delete', child: Text('Delete')),
+        ],
+        // 이 child 위에서 팝업이 앵커링됩니다.
+        child: OutlinedButton(
+          onPressed: null, // 클릭은 PopupMenuButton이 처리하므로 null
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+            minimumSize: const Size(80, 31),
+            side: const BorderSide(color: Color.fromRGBO(0, 0, 0, 0.1)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Text(
+                'more',
+                style: TextStyle(
+                  fontSize: 13.3,
+                  fontWeight: FontWeight.w400,
+                  fontFamily: 'Pretendard Variable',
+                  color: Colors.black,
+                  height: 1.0,
+                ),
+              ),
+              SizedBox(width: 6),
+              Icon(Icons.more_vert, size: 16, color: Colors.black87),
+            ],
           ),
         ),
       ),
