@@ -97,7 +97,7 @@ class _GroupDisplayPageState extends State<GroupDisplayPage> {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 44,
-                        height: 1.1,
+                        height: 1.15,
                         fontWeight: FontWeight.bold,
                         color: _ink,
                       ),
@@ -183,24 +183,31 @@ class _TeamCard extends StatelessWidget {
           const Divider(height: 1, color: _stroke, thickness: 2),
           const SizedBox(height: 12),
           Expanded(
-            child: ListView.separated(
+            child: GridView.builder(
               padding: EdgeInsets.zero,
-              itemCount: members.length,
               physics: const BouncingScrollPhysics(),
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
-              itemBuilder:
-                  (_, i) => Text(
-                    members[i],
-                    textAlign: TextAlign.center,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.w400,
-                      color: Color(0xFF001A36),
-                    ),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                mainAxisExtent: 46,   // ← ★ 각 이름 셀의 높이(44~50 사이로 취향 조정)
+                mainAxisSpacing: 6,   // ← ★ 행 간격(세로 간격)
+                crossAxisSpacing: 12,  // 셀 가로:세로 비 (글자 높이에 맞게 약간 조정)
+              ),
+              itemCount: members.length,
+              itemBuilder: (_, i) => Center(
+                child: Text(
+                  members[i],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w400,
+                    color: Color(0xFF001A36),
                   ),
+                ),
+              ),
             ),
-          ),
+          )
         ],
       ),
     );

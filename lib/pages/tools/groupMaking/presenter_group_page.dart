@@ -622,22 +622,21 @@ class _EditableGroupBoard extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    // ★★★ 변경된 부분 시작: 카드 폭을 더 좁게 보기 위한 자동 컬럼 계산 ★★★
     final width = MediaQuery.sizeOf(context).width;
-    final cols =
-        width >= 1280
-            ? 4
-            : width >= 900
-            ? 3
-            : 2;
+    const minCardW = 260.0; // 카드 최소 폭(더 좁게 하려면 240~260 사이로 조정)
+    const gap = 16.0;       // cross/main spacing 과 동일하게
+    int cols = (width / (minCardW + gap)).floor().clamp(2, 6);
+    // ★★★ 변경된 부분 끝 ★★★
 
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: cols,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 16,
-        childAspectRatio: 1.2,
+        crossAxisCount: cols,          // ★ 변경: 자동 계산된 컬럼 수 사용
+        crossAxisSpacing: gap,
+        mainAxisSpacing: gap,
+        childAspectRatio: 0.9,         // ★ 조금 더 컴팩트하게(기존 1.2 → 1.1)
       ),
       itemCount: groups.length,
       itemBuilder: (_, i) {
@@ -782,14 +781,19 @@ class _GroupCardEditableState extends State<_GroupCardEditable> {
               const SizedBox(height: 12),
 
               Expanded(
-                child: SingleChildScrollView(
-                  child: Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final m in widget.members)
-                        _buildDraggableChip(context, m),
-                    ],
+                child: GridView.builder(
+                  padding: EdgeInsets.zero,
+                  physics: const BouncingScrollPhysics(),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,      // 2열 유지
+                    mainAxisExtent: 34,     // ★ 각 칩 셀 높이 고정(더 작게: 30~36 사이 실험)
+                    mainAxisSpacing: 4,     // ★ 행 간격 (세로 간격)
+                    crossAxisSpacing: 6,    // ★ 열 간격 (가로 간격)
+                  ),
+                  itemCount: widget.members.length,
+                  itemBuilder: (_, i) => Align(
+                    alignment: Alignment.centerLeft,
+                    child: _buildDraggableChip(context, widget.members[i]),
                   ),
                 ),
               ),
@@ -815,7 +819,7 @@ class _MemberChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: dragging ? const Color(0xFFDBEAFE) : const Color(0xFFEFF6FF),
         borderRadius: BorderRadius.circular(10),
