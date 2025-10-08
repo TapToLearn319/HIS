@@ -7,8 +7,8 @@ import '../../provider/hub_provider.dart';
 
 const _kAppBg = Color(0xFFF6FAFF);
 
-const String kRouteRandomSeatPresenter = '/random-seat/presenter';
-const String kRouteRandomSeatCreate = '/random-seat/create';
+const String kRouteRandomSeatPresenter = '/tools/random_seat/detail';
+const String kRouteRandomSeatCreate = '/tools/random_seat/create';
 
 class RandomSeatFilesPage extends StatelessWidget {
   const RandomSeatFilesPage({super.key});
@@ -21,25 +21,23 @@ class RandomSeatFilesPage extends StatelessWidget {
       selectedIndex: 0,
       body: Scaffold(
         appBar: AppBar(
-                  elevation: 0,
-                  backgroundColor: const Color(0xFFF6FAFF),
-                  leading: IconButton(
-                    tooltip: 'Back',
-                    icon: const Icon(Icons.arrow_back),
-                    onPressed: () => Navigator.maybePop(context),
-                  ),
-                ),
+          elevation: 0,
+          backgroundColor: const Color(0xFFF6FAFF),
+          leading: IconButton(
+            tooltip: 'Back',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.maybePop(context),
+          ),
+        ),
         backgroundColor: _kAppBg,
         body: SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child:
-                hubId == null
-                    ? const Center(child: Text('허브가 설정되지 않았습니다.'))
-                    : _FilesGrid(hubId: hubId),
+            child: hubId == null
+                ? const Center(child: Text('허브가 설정되지 않았습니다.'))
+                : _FilesGrid(hubId: hubId),
           ),
         ),
-
         floatingActionButton: _CreateFab(
           onTap: () {
             Navigator.pushNamed(context, kRouteRandomSeatCreate);
@@ -54,6 +52,21 @@ class RandomSeatFilesPage extends StatelessWidget {
 class _FilesGrid extends StatelessWidget {
   const _FilesGrid({required this.hubId});
   final String hubId;
+
+  Future<void> _openPresenter(BuildContext context, String fileId) async {
+    // Display가 같은 파일을 보도록 activeFileId만 지정
+    await FirebaseFirestore.instance
+        .doc('hubs/$hubId')
+        .set({'randomSeat': {'activeFileId': fileId}}, SetOptions(merge: true));
+
+    if (context.mounted) {
+      Navigator.pushNamed(
+        context,
+        kRouteRandomSeatPresenter,
+        arguments: {'fileId': fileId},
+      );
+    }
+  }
 
   Future<void> _showMoreMenu(
     BuildContext context,
@@ -78,45 +91,36 @@ class _FilesGrid extends StatelessWidget {
 
     // 공통 레퍼런스
     final fileRef = fs.doc('hubs/$hubId/randomSeatFiles/${doc.id}');
-    final seatCol = fs.collection(
-      'hubs/$hubId/randomSeatFiles/${doc.id}/seatMap',
-    );
+    final seatCol = fs.collection('hubs/$hubId/randomSeatFiles/${doc.id}/seatMap');
 
     switch (action) {
       case 'open':
-        Navigator.pushNamed(
-          context,
-          kRouteRandomSeatPresenter,
-          arguments: {'fileId': doc.id},
-        );
+        await _openPresenter(context, doc.id);
         break;
 
       case 'rename':
         {
-          final ctrl = TextEditingController(
-            text: (data['title'] ?? '').toString(),
-          );
+          final ctrl = TextEditingController(text: (data['title'] ?? '').toString());
           final ok = await showDialog<bool>(
             context: context,
-            builder:
-                (_) => AlertDialog(
-                  title: const Text('Rename'),
-                  content: TextField(
-                    controller: ctrl,
-                    decoration: const InputDecoration(hintText: 'Enter title'),
-                    autofocus: true,
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('Cancel'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: const Text('Save'),
-                    ),
-                  ],
+            builder: (_) => AlertDialog(
+              title: const Text('Rename'),
+              content: TextField(
+                controller: ctrl,
+                decoration: const InputDecoration(hintText: 'Enter title'),
+                autofocus: true,
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
                 ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Save'),
+                ),
+              ],
+            ),
           );
           if (ok == true) {
             await fileRef.set({
@@ -129,16 +133,13 @@ class _FilesGrid extends StatelessWidget {
 
       case 'duplicate':
         {
-          // 새 문서 만들기
           final newRef = fs.collection('hubs/$hubId/randomSeatFiles').doc();
-          // 메타 복사
           final meta = Map<String, dynamic>.from(data);
           meta['title'] = '${(meta['title'] ?? 'Untitled')} (copy)';
           meta['createdAt'] = FieldValue.serverTimestamp();
           meta['updatedAt'] = FieldValue.serverTimestamp();
           await newRef.set(meta, SetOptions(merge: true));
 
-          // seatMap 복사
           final seats = await seatCol.get();
           final batch = fs.batch();
           for (final s in seats.docs) {
@@ -147,9 +148,7 @@ class _FilesGrid extends StatelessWidget {
           }
           await batch.commit();
 
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Duplicated.')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Duplicated.')));
           break;
         }
 
@@ -157,26 +156,16 @@ class _FilesGrid extends StatelessWidget {
         {
           final ok = await showDialog<bool>(
             context: context,
-            builder:
-                (_) => AlertDialog(
-                  title: const Text('Delete'),
-                  content: const Text(
-                    'This file and its seat map will be deleted.',
-                  ),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('Cancel'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: const Text('Delete'),
-                    ),
-                  ],
-                ),
+            builder: (_) => AlertDialog(
+              title: const Text('Delete'),
+              content: const Text('This file and its seat map will be deleted.'),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+              ],
+            ),
           );
           if (ok == true) {
-            // seatMap 먼저 삭제
             final seats = await seatCol.get();
             final batch = fs.batch();
             for (final s in seats.docs) {
@@ -184,9 +173,7 @@ class _FilesGrid extends StatelessWidget {
             }
             batch.delete(fileRef);
             await batch.commit();
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('Deleted.')));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Deleted.')));
           }
           break;
         }
@@ -194,100 +181,94 @@ class _FilesGrid extends StatelessWidget {
   }
 
   Future<void> _handleAction(
-  BuildContext context,
-  QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  String action,
-) async {
-  final data = doc.data();
-  final fs = FirebaseFirestore.instance;
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    String action,
+  ) async {
+    final data = doc.data();
+    final fs = FirebaseFirestore.instance;
 
-  final fileRef = fs.doc('hubs/$hubId/randomSeatFiles/${doc.id}');
-  final seatCol = fs.collection('hubs/$hubId/randomSeatFiles/${doc.id}/seatMap');
+    final fileRef = fs.doc('hubs/$hubId/randomSeatFiles/${doc.id}');
+    final seatCol = fs.collection('hubs/$hubId/randomSeatFiles/${doc.id}/seatMap');
 
-  switch (action) {
-    case 'open':
-      Navigator.pushNamed(
-        context,
-        kRouteRandomSeatPresenter,
-        arguments: {'fileId': doc.id},
-      );
-      break;
+    switch (action) {
+      case 'open':
+        await _openPresenter(context, doc.id);
+        break;
 
-    case 'rename':
-      final ctrl = TextEditingController(text: (data['title'] ?? '').toString());
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Rename'),
-          content: TextField(
-            controller: ctrl,
-            decoration: const InputDecoration(hintText: 'Enter title'),
-            autofocus: true,
+      case 'rename':
+        final ctrl = TextEditingController(text: (data['title'] ?? '').toString());
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Rename'),
+            content: TextField(
+              controller: ctrl,
+              decoration: const InputDecoration(hintText: 'Enter title'),
+              autofocus: true,
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
+            ],
           ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Save')),
-          ],
-        ),
-      );
-      if (ok == true) {
-        await fileRef.set({
-          'title': ctrl.text.trim().isEmpty ? 'Untitled' : ctrl.text.trim(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      }
-      break;
+        );
+        if (ok == true) {
+          await fileRef.set({
+            'title': ctrl.text.trim().isEmpty ? 'Untitled' : ctrl.text.trim(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+        break;
 
-    case 'duplicate':
-      final newRef = fs.collection('hubs/$hubId/randomSeatFiles').doc();
-      final meta = Map<String, dynamic>.from(data);
-      meta['title'] = '${(meta['title'] ?? 'Untitled')} (copy)';
-      meta['createdAt'] = FieldValue.serverTimestamp();
-      meta['updatedAt'] = FieldValue.serverTimestamp();
-      await newRef.set(meta, SetOptions(merge: true));
+      case 'duplicate':
+        final newRef = fs.collection('hubs/$hubId/randomSeatFiles').doc();
+        final meta = Map<String, dynamic>.from(data);
+        meta['title'] = '${(meta['title'] ?? 'Untitled')} (copy)';
+        meta['createdAt'] = FieldValue.serverTimestamp();
+        meta['updatedAt'] = FieldValue.serverTimestamp();
+        await newRef.set(meta, SetOptions(merge: true));
 
-      final seats = await seatCol.get();
-      final batch = fs.batch();
-      for (final s in seats.docs) {
-        batch.set(newRef.collection('seatMap').doc(s.id), s.data());
-      }
-      await batch.commit();
-
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Duplicated.')));
-      break;
-
-    case 'delete':
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('Delete'),
-          content: const Text('This file and its seat map will be deleted.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
-          ],
-        ),
-      );
-      if (ok == true) {
         final seats = await seatCol.get();
         final batch = fs.batch();
         for (final s in seats.docs) {
-          batch.delete(s.reference);
+          batch.set(newRef.collection('seatMap').doc(s.id), s.data());
         }
-        batch.delete(fileRef);
         await batch.commit();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Deleted.')));
-      }
-      break;
+
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Duplicated.')));
+        break;
+
+      case 'delete':
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('Delete'),
+            content: const Text('This file and its seat map will be deleted.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
+            ],
+          ),
+        );
+        if (ok == true) {
+          final seats = await seatCol.get();
+          final batch = fs.batch();
+          for (final s in seats.docs) {
+            batch.delete(s.reference);
+          }
+          batch.delete(fileRef);
+          await batch.commit();
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Deleted.')));
+        }
+        break;
+    }
   }
-}
 
   @override
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
-    final q = fs
-        .collection('hubs/$hubId/randomSeatFiles')
-        .orderBy('updatedAt', descending: true);
+    final q = fs.collection('hubs/$hubId/randomSeatFiles').orderBy('updatedAt', descending: true);
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: q.snapshots(),
@@ -321,8 +302,7 @@ class _FilesGrid extends StatelessWidget {
             final rows = (data['rows'] as num?)?.toInt() ?? 4;
             final total = (data['total'] as num?)?.toInt();
             final type = (data['type'] as String?) ?? 'individual';
-            final createdAt =
-                _readTs(data['createdAt']) ?? _readTs(data['updatedAt']);
+            final createdAt = _readTs(data['createdAt']) ?? _readTs(data['updatedAt']);
             final createdStr = createdAt != null ? _fmtDate(createdAt) : '-';
 
             return _FileCard(
@@ -332,13 +312,7 @@ class _FilesGrid extends StatelessWidget {
               total: total,
               type: type,
               dateStr: createdStr,
-              onOpen: () {
-                Navigator.pushNamed(
-                  context,
-                  kRouteRandomSeatPresenter,
-                  arguments: {'fileId': d.id},
-                );
-              },
+              onOpen: () => _openPresenter(context, d.id),
               onAction: (a) => _handleAction(context, d, a),
             );
           },
@@ -357,7 +331,6 @@ class _FileCard extends StatelessWidget {
     required this.dateStr,
     this.total,
     required this.onOpen,
-    // required this.onMore,
     required this.onAction,
   });
 
@@ -368,15 +341,13 @@ class _FileCard extends StatelessWidget {
   final String type;
   final String dateStr;
   final VoidCallback onOpen;
-  // final VoidCallback onMore;
   final ValueChanged<String> onAction;
+
   @override
   Widget build(BuildContext context) {
     final typeLabel = type == 'group' ? 'group' : 'individual';
-    final typeColor =
-        type == 'group' ? const Color(0x33A0DA1B) : const Color(0x339A6EFF);
-    final typeTextColor =
-        type == 'group' ? const Color(0xFF87BC0E) : const Color(0xFF9A6EFF);
+    final typeColor = type == 'group' ? const Color(0x33A0DA1B) : const Color(0x339A6EFF);
+    final typeTextColor = type == 'group' ? const Color(0xFF87BC0E) : const Color(0xFF9A6EFF);
 
     return InkWell(
       onTap: onOpen,
@@ -406,10 +377,7 @@ class _FileCard extends StatelessWidget {
                 Container(
                   width: 95,
                   height: 36,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 13,
-                    vertical: 4,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
                   decoration: BoxDecoration(
                     color: typeColor,
                     borderRadius: BorderRadius.circular(12),
@@ -428,69 +396,60 @@ class _FileCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            const Divider(
-              color: Color(0xFFD9D9D9),
-              thickness: 1,
-              height: 1,
-            ),
+            const Divider(color: Color(0xFFD9D9D9), thickness: 1, height: 1),
             const SizedBox(height: 12),
 
-            _infoRow(
-              Icons.grid_view_rounded,
-              '${cols} column arrangement${rows > 1 ? ' / $rows row' : ''}',
-            ),
+            _infoRow(Icons.grid_view_rounded, '${cols} column arrangement${rows > 1 ? ' / $rows row' : ''}'),
             const SizedBox(height: 6),
-            if (total != null)
-              _infoRow(Icons.people_alt_outlined, 'Total $total'),
+            if (total != null) _infoRow(Icons.people_alt_outlined, 'Total $total'),
             const Spacer(),
 
-SizedBox(
-  width: double.infinity,
-  child: Row(
-    mainAxisAlignment: MainAxisAlignment.end,
-    children: [
-      PopupMenuButton<String>(
-        onSelected: onAction, // ✅ 선택된 액션 전달
-        itemBuilder: (context) => const [
-          PopupMenuItem(value: 'open', child: Text('Open')),
-          PopupMenuItem(value: 'rename', child: Text('Rename')),
-          PopupMenuItem(value: 'duplicate', child: Text('Duplicate')),
-          PopupMenuDivider(),
-          PopupMenuItem(value: 'delete', child: Text('Delete')),
-        ],
-        // 이 child 위에서 팝업이 앵커링됩니다.
-        child: OutlinedButton(
-          onPressed: null, // 클릭은 PopupMenuButton이 처리하므로 null
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
-            minimumSize: const Size(80, 31),
-            side: const BorderSide(color: Color.fromRGBO(0, 0, 0, 0.1)),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            backgroundColor: Colors.white,
-            foregroundColor: Colors.black,
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: const [
-              Text(
-                'more',
-                style: TextStyle(
-                  fontSize: 13.3,
-                  fontWeight: FontWeight.w400,
-                  fontFamily: 'Pretendard Variable',
-                  color: Colors.black,
-                  height: 1.0,
-                ),
+            SizedBox(
+              width: double.infinity,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  PopupMenuButton<String>(
+                    onSelected: onAction,
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(value: 'open', child: Text('Open')),
+                      PopupMenuItem(value: 'rename', child: Text('Rename')),
+                      PopupMenuItem(value: 'duplicate', child: Text('Duplicate')),
+                      PopupMenuDivider(),
+                      PopupMenuItem(value: 'delete', child: Text('Delete')),
+                    ],
+                    child: OutlinedButton(
+                      onPressed: null,
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 4),
+                        minimumSize: const Size(80, 31),
+                        side: const BorderSide(color: Color.fromRGBO(0, 0, 0, 0.1)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Text(
+                            'more',
+                            style: TextStyle(
+                              fontSize: 13.3,
+                              fontWeight: FontWeight.w400,
+                              fontFamily: 'Pretendard Variable',
+                              color: Colors.black,
+                              height: 1.0,
+                            ),
+                          ),
+                          SizedBox(width: 6),
+                          Icon(Icons.more_vert, size: 16, color: Colors.black87),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              SizedBox(width: 6),
-              Icon(Icons.more_vert, size: 16, color: Colors.black87),
-            ],
-          ),
-        ),
-      ),
-    ],
-  ),
-),
+            ),
           ],
         ),
       ),
@@ -566,12 +525,11 @@ class _CreateFab extends StatelessWidget {
               child: Image.asset(
                 'assets/logo_bird_create.png',
                 fit: BoxFit.contain,
-                errorBuilder:
-                    (_, __, ___) => const Icon(
-                      Icons.add_circle,
-                      size: 64,
-                      color: Colors.indigo,
-                    ),
+                errorBuilder: (_, __, ___) => const Icon(
+                  Icons.add_circle,
+                  size: 64,
+                  color: Colors.indigo,
+                ),
               ),
             ),
           ),

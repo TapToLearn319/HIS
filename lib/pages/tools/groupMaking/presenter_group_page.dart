@@ -165,7 +165,27 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                         ],
                       ),
                     ),
-
+                    Positioned(
+                      left: 24,
+                      bottom: (60 * scale).clamp(40, 80),
+                      child: _ShowButton(
+                        scale: scale,
+                        enabled: (c.currentGroups != null && c.currentGroups!.isNotEmpty),
+                        onTap: () {
+                          if (c.currentGroups == null || c.currentGroups!.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('먼저 “Make”로 그룹을 생성하세요.')),
+                            );
+                            return;
+                          }
+                          c.broadcastCurrentGroups(title: 'Find your Team !');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('디스플레이로 전송했습니다.')),
+                          );
+                        },
+                        imageAsset: 'assets/logo_bird_show.png', // 없으면 아래 위젯에서 아이콘 fallback
+                      ),
+                    ),
                     Positioned(
                       right: 24,
                       bottom: (60 * scale).clamp(40, 80),
@@ -982,6 +1002,73 @@ class _SearchFieldState extends State<_SearchField> {
         filled: true,
       ),
       textInputAction: TextInputAction.search,
+    );
+  }
+}
+
+class _ShowButton extends StatefulWidget {
+  const _ShowButton({
+    required this.scale,
+    required this.onTap,
+    required this.imageAsset,
+    this.enabled = true,
+  });
+
+  final double scale;
+  final VoidCallback onTap;
+  final String imageAsset;
+  final bool enabled;
+
+  @override
+  State<_ShowButton> createState() => _ShowButtonState();
+}
+
+class _ShowButtonState extends State<_ShowButton> {
+  bool _hover = false;
+  bool _down = false;
+
+  static const _baseW = 195.0;
+  static const _baseH = 172.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = _baseW * widget.scale;
+    final h = _baseH * widget.scale;
+    final scaleAnim = _down ? 0.98 : (_hover ? 1.03 : 1.0);
+
+    return Opacity(
+      opacity: widget.enabled ? 1.0 : 0.5,
+      child: MouseRegion(
+        onEnter: (_) => setState(() => _hover = true),
+        onExit: (_) => setState(() => _hover = false),
+        cursor: widget.enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+        child: GestureDetector(
+          onTapDown: (_) { if (widget.enabled) setState(() => _down = true); },
+          onTapCancel: () => setState(() => _down = false),
+          onTapUp: (_) => setState(() => _down = false),
+          onTap: widget.enabled ? widget.onTap : null,
+          child: AnimatedScale(
+            duration: const Duration(milliseconds: 120),
+            scale: scaleAnim,
+            child: SizedBox(
+              width: w,
+              height: h,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.asset(
+                    widget.imageAsset,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Center(
+                      child: Icon(Icons.visibility, size: 64, color: Colors.indigo),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

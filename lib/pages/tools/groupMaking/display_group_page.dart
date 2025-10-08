@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../../main.dart';
+import 'dart:async';
 
 class GroupDisplayPage extends StatefulWidget {
   const GroupDisplayPage({super.key});
@@ -12,7 +13,7 @@ class GroupDisplayPage extends StatefulWidget {
 class _GroupDisplayPageState extends State<GroupDisplayPage> {
   String title = 'Find your Team !';
   List<List<String>> groups = const [];
-
+  StreamSubscription? _sub;
   @override
   void initState() {
     super.initState();
@@ -37,6 +38,15 @@ class _GroupDisplayPageState extends State<GroupDisplayPage> {
               title = newTitle;
               groups = parsed;
             });
+          }
+          else if ((data['type'] == 'tool_mode' && data['mode'] == 'grouping') ||
+               data['type'] == 'grouping_clear') {
+        if (mounted) {
+          setState(() {
+            title = 'Find your Team !';
+            groups = const [];
+          });
+          }
           }
         }
       } catch (_) {}

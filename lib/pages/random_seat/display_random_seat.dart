@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import '../../provider/hub_provider.dart';
+import '../display_standby.dart';
 
 // ===== 출석(프레젠터)와 동일한 디자인 상수 =====
 const _kAppBg = Color(0xFFF6FAFF);
@@ -23,116 +24,96 @@ class DisplayRandomSeatPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
     final hubId = context.watch<HubProvider>().hubId;
+if (hubId == null || hubId.isEmpty) {
+  return const Scaffold(backgroundColor: _kAppBg, body: DisplayStandByPage());
+}
 
-    if (hubId == null || hubId.isEmpty) {
-      return const Scaffold(backgroundColor: _kAppBg, body: _WaitingSeatScreen());
-    }
+final hubStream = fs.doc('hubs/$hubId').snapshots();
 
-    // 허브의 현재 세션 구독
-    final hubStream = fs.doc('hubs/$hubId').snapshots();
+return Scaffold(
+  backgroundColor: _kAppBg,
+  body: SafeArea(
+    child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: hubStream,
+      builder: (context, hubSnap) {
+        if (!hubSnap.hasData) {
+          return const DisplayStandByPage();
+        }
+        final hub = hubSnap.data!.data() ?? {};
+        final rs = (hub['randomSeat'] as Map?) ?? const {};
+        final bool show = rs['show'] == true;
+        final String? activeFileId = (rs['activeFileId'] as String?);
 
-    return Scaffold(
-      backgroundColor: _kAppBg,
-      body: SafeArea(
-        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: hubStream,
-          builder: (context, hubSnap) {
-            if (hubSnap.connectionState == ConnectionState.waiting) {
-              return const _WaitingSeatScreen();
-            }
-            final hub = hubSnap.data?.data();
-            final sid = hub?['currentSessionId'] as String?;
-            if (sid == null || sid.isEmpty) {
-              return const _WaitingSeatScreen();
-            }
+        if (!show || activeFileId == null || activeFileId.isEmpty) {
+          return const DisplayStandByPage(); // ✅ SHOW 전에는 대기화면
+        }
 
-            // 세션/좌석/학생 동시 구독
-            final sessionDocStream =
-                fs.doc('hubs/$hubId/sessions/$sid').snapshots(); // rows/cols
-            final seatMapStream =
-                fs.collection('hubs/$hubId/sessions/$sid/seatMap').snapshots();
-            final studentsStream =
-                fs.collection('hubs/$hubId/students').snapshots();
+        // ✅ SHOW 상태이므로 선택된 파일의 rows/cols + seatMap 구독
+        final sessionDocStream = fs.doc('hubs/$hubId/randomSeatFiles/$activeFileId').snapshots();
+        final seatMapStream   = fs.collection('hubs/$hubId/randomSeatFiles/$activeFileId/seatMap').snapshots();
+        final studentsStream  = fs.collection('hubs/$hubId/students').snapshots();
 
-            return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: sessionDocStream,
-              builder: (context, sessSnap) {
-                final meta = sessSnap.data?.data();
-                final int cols = (meta?['cols'] as num?)?.toInt() ?? 6;
-                final int rows = (meta?['rows'] as num?)?.toInt() ?? 4;
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: sessionDocStream,
+          builder: (context, sessSnap) {
+            final meta = sessSnap.data?.data();
+            final int cols = (meta?['cols'] as num?)?.toInt() ?? 6;
+            final int rows = (meta?['rows'] as num?)?.toInt() ?? 4;
+
+            return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: seatMapStream,
+              builder: (context, seatSnap) {
+                final seatMap = <String,String?>{};
+                if (seatSnap.data != null) {
+                  for (final d in seatSnap.data!.docs) {
+                    seatMap[d.id] = (d.data()['studentId'] as String?)?.trim();
+                  }
+                }
 
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: seatMapStream,
-                  builder: (context, seatSnap) {
-                    final Map<String, String?> seatMap = {};
-                    if (seatSnap.data != null) {
-                      for (final d in seatSnap.data!.docs) {
-                        seatMap[d.id] =
-                            (d.data()['studentId'] as String?)?.trim();
+                  stream: studentsStream,
+                  builder: (context, stuSnap) {
+                    final nameOf = <String,String>{};
+                    if (stuSnap.data != null) {
+                      for (final d in stuSnap.data!.docs) {
+                        final n = (d.data()['name'] as String?)?.trim();
+                        if (n != null && n.isNotEmpty) nameOf[d.id] = n;
                       }
                     }
 
-                    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: studentsStream,
-                      builder: (context, stuSnap) {
-                        final Map<String, String> nameOf = {};
-                        if (stuSnap.data != null) {
-                          for (final d in stuSnap.data!.docs) {
-                            final x = d.data();
-                            final n = (x['name'] as String?)?.trim();
-                            if (n != null && n.isNotEmpty) nameOf[d.id] = n;
-                          }
+                    // 아래는 기존 렌더(보드 + Grid) 그대로
+                    return LayoutBuilder(
+                      builder: (context, box) {
+                        const designW = 1280.0, designH = 720.0;
+                        final scaleW = box.maxWidth / designW;
+                        final scaleH = box.maxHeight / designH;
+                        final scaleFit = scaleW < scaleH ? scaleW : scaleH;
+
+                        final child = SizedBox(
+                          width: designW, height: designH,
+                          child: _DesignSurfaceDisplay(
+                            cols: cols, rows: rows,
+                            seatMap: seatMap, nameOf: nameOf,
+                          ),
+                        );
+
+                        if (scaleFit < 1) {
+                          return ClipRect(
+                            child: OverflowBox(
+                              alignment: Alignment.center,
+                              maxWidth: double.infinity, maxHeight: double.infinity,
+                              child: child,
+                            ),
+                          );
                         }
-
-                        // === 출석페이지와 동일 스케일 래퍼(1280×720) ===
-                        return LayoutBuilder(
-                          builder: (context, box) {
-                            const designW = 1280.0;
-                            const designH = 720.0;
-                            final scaleW = box.maxWidth / designW;
-                            final scaleH = box.maxHeight / designH;
-                            final scaleFit = scaleW < scaleH ? scaleW : scaleH;
-
-                            final child = SizedBox(
-                              width: designW,
-                              height: designH,
-                              child: _DesignSurfaceDisplay(
-                                cols: cols,
-                                rows: rows,
-                                seatMap: seatMap,
-                                nameOf: nameOf,
-                              ),
-                            );
-
-                            if (scaleFit < 1) {
-                              // 작아지면 축소 없이 잘라내기(프레젠터와 동일)
-                              return ClipRect(
-                                child: OverflowBox(
-                                  alignment: Alignment.center,
-                                  minWidth: 0,
-                                  minHeight: 0,
-                                  maxWidth: double.infinity,
-                                  maxHeight: double.infinity,
-                                  child: child,
-                                ),
-                              );
-                            }
-                            // 커지면 확대
-                            return ClipRect(
-                              child: OverflowBox(
-                                alignment: Alignment.center,
-                                minWidth: 0,
-                                minHeight: 0,
-                                maxWidth: double.infinity,
-                                maxHeight: double.infinity,
-                                child: Transform.scale(
-                                  scale: scaleFit,
-                                  alignment: Alignment.center,
-                                  child: child,
-                                ),
-                              ),
-                            );
-                          },
+                        return ClipRect(
+                          child: OverflowBox(
+                            alignment: Alignment.center,
+                            maxWidth: double.infinity, maxHeight: double.infinity,
+                            child: Transform.scale(
+                              scale: scaleFit, alignment: Alignment.center, child: child,
+                            ),
+                          ),
                         );
                       },
                     );
@@ -141,9 +122,11 @@ class DisplayRandomSeatPage extends StatelessWidget {
               },
             );
           },
-        ),
-      ),
-    );
+        );
+      },
+    ),
+  ),
+);
   }
 }
 

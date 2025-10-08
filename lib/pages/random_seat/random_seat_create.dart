@@ -15,14 +15,31 @@ class RandomSeatCreatePage extends StatefulWidget {
   State<RandomSeatCreatePage> createState() => _RandomSeatCreatePageState();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 규칙 그룹 모델
+// ─────────────────────────────────────────────────────────────────────────────
+class _RuleGroup {
+  _RuleGroup({required this.type}) : addCtrl = TextEditingController();
+  final String type; // 'pair'(같이) | 'separate'(떼기)
+  final TextEditingController addCtrl;
+  final List<String> members = [];
+  void dispose() => addCtrl.dispose();
+}
+
 class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
   final _formKey = GlobalKey<FormState>();
 
   final _titleCtrl = TextEditingController(text: '');
   final _colsCtrl  = TextEditingController(text: '7');
   final _rowsCtrl  = TextEditingController(text: '3');
+
+  // (하위호환용 컨트롤러는 유지만 하고 UI엔 노출하지 않음)
   final _separateCtrl = TextEditingController(); // ex) 1-2, 5-7
   final _pairCtrl     = TextEditingController(); // ex) 1-2, 5-7
+
+  // 새 규칙 그룹 UI용 상태 (페이지 수명에 종속)
+  final List<_RuleGroup> _pairGroups = [];      // 같이 앉히기 그룹들
+  final List<_RuleGroup> _separateGroups = [];  // 떨어뜨리기 그룹들
 
   String _type = 'group';       // 'individual' | 'group'
   bool _genderEquity = true;    // 체크박스
@@ -37,9 +54,52 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
     _rowsCtrl.dispose();
     _separateCtrl.dispose();
     _pairCtrl.dispose();
+    for (final g in _pairGroups) g.dispose();
+    for (final g in _separateGroups) g.dispose();
     super.dispose();
   }
 
+  // ── 규칙 그룹 조작 ─────────────────────────────────────────────────────────
+  void _addRuleGroup({required bool together}) {
+    setState(() {
+      (together ? _pairGroups : _separateGroups)
+          .add(_RuleGroup(type: together ? 'pair' : 'separate'));
+    });
+  }
+
+  void _addMember(_RuleGroup g, String name) {
+    final t = name.trim();
+    if (t.isEmpty) return;
+    if (!g.members.contains(t)) {
+      setState(() => g.members.add(t));
+    }
+    g.addCtrl.clear();
+  }
+
+  void _removeMember(_RuleGroup g, String name) {
+    setState(() => g.members.remove(name));
+  }
+
+  void _deleteGroup(_RuleGroup g) {
+    setState(() {
+      g.dispose();
+      (g.type == 'pair' ? _pairGroups : _separateGroups).remove(g);
+    });
+  }
+
+  List<Map<String, dynamic>> _serializeGroups(List<_RuleGroup> src) {
+  return src.map((g) {
+    final members = g.members
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    return {'members': members};
+  })
+  // 2명 이상만 저장(1명이면 규칙 의미 없음)
+  .where((e) => (e['members'] as List).length >= 2)
+  .toList();
+}
+  // ── 저장 ───────────────────────────────────────────────────────────────────
   Future<void> _create() async {
     if (_busy) return;
     if (!_formKey.currentState!.validate()) return;
@@ -58,6 +118,10 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
       final rows = int.tryParse(_rowsCtrl.text.trim()) ?? 0;
       final computedTotal = (cols > 0 && rows > 0) ? cols * rows : _total;
 
+      // 규칙 그룹 직렬화 (빈 값/1명 그룹 제외)
+      final pairingGroups = _serializeGroups(_pairGroups);
+      final separationGroups = _serializeGroups(_separateGroups);
+
       final ref = FirebaseFirestore.instance
           .collection('hubs/$hubId/randomSeatFiles')
           .doc();
@@ -66,14 +130,19 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
         'title': (_titleCtrl.text.trim().isEmpty)
             ? 'Untitled'
             : _titleCtrl.text.trim(),
-        'type': _type,                        // 'individual' | 'group'
-        'genderEquity': _genderEquity,        // bool
+        'type': _type,
+        'genderEquity': _genderEquity,
         'cols': cols,
         'rows': rows,
-        'total': computedTotal,               // cols*rows 기준 저장
+        'total': computedTotal,
         'constraints': {
-          'separation': _separateCtrl.text.trim(),
+          // ✅ 배열 안에 Map 구조로 저장 (Firestore OK)
+          'pairingGroups': pairingGroups,         // [{members: ['A','B']}, ...]
+          'separationGroups': separationGroups,   // [{members: ['X','Y','Z']}, ...]
+
+          // (선택) 하위호환용 문자열도 유지
           'pairing': _pairCtrl.text.trim(),
+          'separation': _separateCtrl.text.trim(),
         },
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -96,6 +165,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
     }
   }
 
+  // ── UI ─────────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
@@ -105,7 +175,12 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
         appBar: AppBar(
           backgroundColor: _kAppBg,
           elevation: 0.5,
-          automaticallyImplyLeading: false,
+          automaticallyImplyLeading: false, // 기본 leading 막고 커스텀 버튼 사용
+          leading: IconButton(
+            tooltip: 'Back',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => Navigator.maybePop(context),
+          ),
         ),
         body: Stack(
           children: [
@@ -118,7 +193,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
                   _pageTitle('Seating Settings'),
                   const SizedBox(height: 16),
 
-                  // 전체 폼 래퍼(빛청색 배경 느낌)
+                  // 전체 폼 래퍼
                   Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 980),
@@ -171,20 +246,24 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 24),
+
+                          // ── 새 규칙 섹션: 같이 앉히기 ─────────────────────────
+                          _ruleGroupsSection(
+                            title: 'Pairing groups (sit together)',
+                            help: 'Add group → add student 를 눌러 그룹을 구성하세요.',
+                            groups: _pairGroups,
+                            together: true,
+                          ),
                           const SizedBox(height: 20),
 
-                          _sectionLabel(
-                            'Seperation   *Write student’s number to not pair together',
+                          // ── 새 규칙 섹션: 떨어뜨리기 ────────────────────────
+                          _ruleGroupsSection(
+                            title: 'Separation groups (do not sit together)',
+                            help: '같은 그룹의 학생들은 서로 다른 자리로 배치됩니다.',
+                            groups: _separateGroups,
+                            together: false,
                           ),
-                          const SizedBox(height: 6),
-                          _pillInput(_separateCtrl, hint: 'ex) Mark-Anna'),
-                          const SizedBox(height: 20),
-
-                          _sectionLabel(
-                            'Pairing   *Write student’s number to pair together',
-                          ),
-                          const SizedBox(height: 6),
-                          _pillInput(_pairCtrl, hint: 'ex) 1-2, 5-7'),
                         ],
                       ),
                     ),
@@ -193,7 +272,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
               ),
             ),
 
-            // 우상단 NEXT(피그마 새 캐릭터 버튼)
+            // 우하단 NEXT 캐릭터 버튼
             _NextFabImage(
               onTap: _create,
               enabled: !_busy,
@@ -212,8 +291,234 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
     );
   }
 
-  /* ===================== Widgets ===================== */
+  // ── 섹션/카드 빌더들 ─────────────────────────────────────────────────────────
+  Widget _ruleGroupsSection({
+    required String title,
+    required String help,
+    required List<_RuleGroup> groups,
+    required bool together,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: _kCardBorder),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 헤더
+          Row(
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  color: Color(0xFF001A36),
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const Spacer(),
+              OutlinedButton.icon(
+                onPressed: () => _addRuleGroup(together: together),
+                icon: const Icon(Icons.group_add, size: 18),
+                label: const Text('Add group'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.black,
+                  side: const BorderSide(color: _kCardBorder),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            help,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF6B7280),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 12),
 
+          // 그룹 카드들
+          if (groups.isEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF9FAFB),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: const Text(
+                '아직 생성된 그룹이 없어요.  오른쪽 위 [Add group]을 눌러 그룹을 추가하세요.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+              ),
+            )
+          else
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                for (int i = 0; i < groups.length; i++)
+                  _ruleGroupCard(groups[i], index: i + 1),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _ruleGroupCard(_RuleGroup g, {required int index}) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 260, maxWidth: 440),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: _kCardBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 헤더 (타입/인덱스 + 삭제)
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: g.type == 'pair'
+                        ? const Color(0xFFEEF2FF)
+                        : const Color(0xFFFFF1F2),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '${g.type == 'pair' ? 'Pair' : 'Separate'} ${index}',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: g.type == 'pair'
+                          ? const Color(0xFF1F2937)
+                          : const Color(0xFF991B1B),
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  tooltip: 'Delete group',
+                  onPressed: () => _deleteGroup(g),
+                  icon: const Icon(Icons.delete_outline, size: 20),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            // Add student
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: g.addCtrl,
+                    onSubmitted: (v) => _addMember(g, v),
+                    decoration: const InputDecoration(
+                      hintText: 'Add student',
+                      isDense: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: _kCardBorder),
+                        borderRadius: BorderRadius.all(Radius.circular(10)),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: _kCardBorder),
+                        borderRadius: BorderRadius.all(Radius.circular(10)),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton.icon(
+                  onPressed: () => _addMember(g, g.addCtrl.text),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF46A5FF),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    elevation: 0,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+
+            // 현재 구성원
+            if (g.members.isEmpty)
+              const Text(
+                'No students yet.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final name in g.members)
+                    _memberChip(
+                      name: name,
+                      onDelete: () => _removeMember(g, name),
+                    ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _memberChip({required String name, required VoidCallback onDelete}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            name,
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF111827),
+            ),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: onDelete,
+            child: const Icon(Icons.close, size: 16, color: Color(0xFF6B7280)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── 공통 폼 위젯들 ───────────────────────────────────────────────────────────
   Widget _pageTitle(String text) {
     return Center(
       child: ConstrainedBox(
@@ -276,7 +581,6 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
             children: [
               _radioWithLabel(
                 label: 'indivisual',
-                colorDot: null,
                 value: 'individual',
                 group: _type,
                 onChanged: (v) => setState(() => _type = v!),
@@ -284,7 +588,6 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
               const SizedBox(width: 22),
               _radioWithLabel(
                 label: 'group',
-                colorDot: null,
                 value: 'group',
                 group: _type,
                 onChanged: (v) => setState(() => _type = v!),
@@ -333,7 +636,6 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
     required String value,
     required String group,
     required ValueChanged<String?> onChanged,
-    Color? colorDot,
   }) {
     return InkWell(
       onTap: () => onChanged(value),
@@ -349,14 +651,6 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             visualDensity: const VisualDensity(horizontal: -2, vertical: -2),
           ),
-          if (colorDot != null)
-            Container(
-              width: 10, height: 10,
-              margin: const EdgeInsets.only(right: 8),
-              decoration: BoxDecoration(
-                color: colorDot, shape: BoxShape.circle,
-              ),
-            ),
           Text(
             label,
             style: const TextStyle(
@@ -376,9 +670,8 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
       height: 48,
       child: DropdownButtonFormField<int>(
         value: _total,
-        items: items
-            .map((v) => DropdownMenuItem(value: v, child: Text('$v')))
-            .toList(),
+        items:
+            items.map((v) => DropdownMenuItem(value: v, child: Text('$v'))).toList(),
         onChanged: (v) => setState(() => _total = v ?? _total),
         decoration: _inputDecoration(radius: 8),
       ),
@@ -402,33 +695,11 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
     );
   }
 
-  Widget _pillInput(TextEditingController ctrl, {String? hint}) {
-    return SizedBox(
-      height: 48,
-      child: TextField(
-        controller: ctrl,
-        decoration: InputDecoration(
-          hintText: hint ?? 'ex) Mark-Anna',
-          contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 0),
-          filled: true,
-          fillColor: Colors.white,
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: _kCardBorder, width: 1),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: _kCardBorder, width: 1),
-          ),
-        ),
-      ),
-    );
-  }
-
   InputDecoration _inputDecoration({String? hint, double radius = 10}) {
     return InputDecoration(
       hintText: hint,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
       filled: true,
       fillColor: Colors.white,
       enabledBorder: OutlineInputBorder(
@@ -442,10 +713,13 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
     );
   }
 }
+
+// 우하단 NEXT 캐릭터 버튼 (Start와 동일 사이즈/스타일)
 class _NextFabImage extends StatelessWidget {
   final VoidCallback onTap;
   final bool enabled;
-  const _NextFabImage({Key? key, required this.onTap, this.enabled = true}) : super(key: key);
+  const _NextFabImage({Key? key, required this.onTap, this.enabled = true})
+      : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -469,10 +743,10 @@ class _NextFabImage extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(10.0),
                   child: Image.asset(
-                    // 👉 네가 쓰는 NEXT 자산 경로로 맞춰줘
                     'assets/test/logo_bird_next.png',
                     fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => const Icon(Icons.arrow_forward, size: 64),
+                    errorBuilder: (_, __, ___) =>
+                        const Icon(Icons.arrow_forward, size: 64),
                   ),
                 ),
               ),

@@ -284,9 +284,9 @@ class PresenterApp extends StatelessWidget {
         '/profile/student/details': (_) => const StudentScoreDetailsPage(),
         '/profile/class/details': (_) => const ClassScoreDetailsPage(),
         '/tools/random_seat': (_) => const RandomSeatFilesPage(),
-        '/random-seat/files'    : (_) => const RandomSeatFilesPage(),
-        '/random-seat/create'   : (_) => const RandomSeatCreatePage(),
-        '/random-seat/presenter': (_) => const RandomSeatPage(),
+        // '/random-seat/files'    : (_) => const RandomSeatFilesPage(),
+        '/tools/random_seat/create'   : (_) => const RandomSeatCreatePage(),
+        '/tools/random_seat/detail': (_) => const RandomSeatPage(),
       },
     );
   }
@@ -373,10 +373,11 @@ class _DisplayAppState extends State<DisplayApp> {
         '/tools/timer': (_) => DisplayTimerPage(),
         '/tools/voting': (_) => DisplayVotePage(),
         '/tools/grouping': (_) => GroupDisplayPage(),
-        '/tools/random_seat': (_) => DisplayRandomSeatPage(),
+        '/tools/random_seat': (_) => DisplayStandByPage(),
         '/tools/button_test': (_) => ButtonTestDisplayPage(),
         '/profile/student': (_) => const DisplayStandByPage(),
         '/profile/class': (_) => const DisplayStandByPage(),
+        '/tools/random_seat/detail': (_) => const DisplayRandomSeatPage(),
       },
     );
   }
