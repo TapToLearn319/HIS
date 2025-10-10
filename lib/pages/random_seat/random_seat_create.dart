@@ -88,17 +88,48 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
   }
 
   List<Map<String, dynamic>> _serializeGroups(List<_RuleGroup> src) {
-  return src.map((g) {
-    final members = g.members
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
+    return src
+        .map((g) {
+          final members = g.members
+              .map((e) => e.trim())
+              .where((e) => e.isNotEmpty)
+              .toList();
+          return {'members': members};
+        })
+        // 2명 이상만 저장(1명이면 규칙 의미 없음)
+        .where((e) => (e['members'] as List).length >= 2)
         .toList();
-    return {'members': members};
-  })
-  // 2명 이상만 저장(1명이면 규칙 의미 없음)
-  .where((e) => (e['members'] as List).length >= 2)
-  .toList();
-}
+  }
+
+  // 학생 팝업 열기 → 선택된 이름들 반환 받아 그룹에 반영
+  Future<void> _pickStudentsForGroup(_RuleGroup group) async {
+    final hubId = context.read<HubProvider>().hubId;
+    if (hubId == null || hubId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('허브가 설정되지 않았습니다.')),
+      );
+      return;
+    }
+
+    final picked = await showDialog<List<String>>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black54, // 배경 흐리게
+      builder: (_) => _StudentMultiPickerDialog(hubId: hubId, initiallySelected: group.members.toSet()),
+    );
+
+    if (picked == null) return; // 취소/닫기
+    if (picked.isEmpty) return;
+
+    setState(() {
+      // 기존 + 신규(중복 제거)
+      final setAll = {...group.members, ...picked};
+      group.members
+        ..clear()
+        ..addAll(setAll);
+    });
+  }
+
   // ── 저장 ───────────────────────────────────────────────────────────────────
   Future<void> _create() async {
     if (_busy) return;
@@ -148,13 +179,21 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
+       await FirebaseFirestore.instance
+        .doc('hubs/$hubId')
+        .set({'randomSeat': {'activeFileId': ref.id}}, SetOptions(merge: true));
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('랜덤 시팅 파일이 생성되었습니다.')),
       );
 
       // 생성 후: 파일 선택 페이지로 이동
-      Navigator.pushReplacementNamed(context, '/random-seat/files');
+      Navigator.pushReplacementNamed(
+      context,
+      '/tools/random_seat/detail',   // 앱에 등록된 라우트 키와 동일하게
+      arguments: {'fileId': ref.id},
+    );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -163,6 +202,8 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+
+    
   }
 
   // ── UI ─────────────────────────────────────────────────────────────────────
@@ -251,7 +292,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
                           // ── 새 규칙 섹션: 같이 앉히기 ─────────────────────────
                           _ruleGroupsSection(
                             title: 'Pairing groups (sit together)',
-                            help: 'Add group → add student 를 눌러 그룹을 구성하세요.',
+                            help: 'Add group → Add students 에서 학생을 선택하세요.',
                             groups: _pairGroups,
                             together: true,
                           ),
@@ -260,7 +301,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
                           // ── 새 규칙 섹션: 떨어뜨리기 ────────────────────────
                           _ruleGroupsSection(
                             title: 'Separation groups (do not sit together)',
-                            help: '같은 그룹의 학생들은 서로 다른 자리로 배치됩니다.',
+                            help: '같은 그룹의 학생들은 서로 인접하지 않게 배치됩니다.',
                             groups: _separateGroups,
                             together: false,
                           ),
@@ -330,8 +371,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 ),
               ),
             ],
@@ -363,13 +403,25 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
               ),
             )
           else
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                for (int i = 0; i < groups.length; i++)
-                  _ruleGroupCard(groups[i], index: i + 1),
-              ],
+            LayoutBuilder(
+              builder: (context, box) {
+                const gap = 12.0;
+                const cols = 3; // 한 줄에 3개
+                final maxW = box.maxWidth;
+                final cardW = (maxW - gap * (cols - 1)) / cols; // 3등분한 카드 폭
+
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: [
+                    for (int i = 0; i < groups.length; i++)
+                      SizedBox(
+                        width: cardW, // ← 카드 폭 고정
+                        child: _ruleGroupCard(groups[i], index: i + 1),
+                      ),
+                  ],
+                );
+              },
             ),
         ],
       ),
@@ -393,8 +445,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
             Row(
               children: [
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                   decoration: BoxDecoration(
                     color: g.type == 'pair'
                         ? const Color(0xFFEEF2FF)
@@ -402,7 +453,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    '${g.type == 'pair' ? 'Pair' : 'Separate'} ${index}',
+                    '${g.type == "pair" ? "Pair" : "Separate"} $index',
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
                       color: g.type == 'pair'
@@ -421,45 +472,22 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
             ),
             const SizedBox(height: 10),
 
-            // Add student
+            // ✨ 텍스트 입력 대신 "Add students" 버튼만 노출 → 팝업에서 선택
             Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: g.addCtrl,
-                    onSubmitted: (v) => _addMember(g, v),
-                    decoration: const InputDecoration(
-                      hintText: 'Add student',
-                      isDense: true,
-                      contentPadding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      enabledBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: _kCardBorder),
-                        borderRadius: BorderRadius.all(Radius.circular(10)),
+                  child: OutlinedButton.icon(
+                    onPressed: () => _pickStudentsForGroup(g),
+                    icon: const Icon(Icons.person_add_alt_1, size: 18),
+                    label: const Text('Add students'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.black,
+                      side: const BorderSide(color: _kCardBorder),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      focusedBorder: OutlineInputBorder(
-                        borderSide: BorderSide(color: _kCardBorder),
-                        borderRadius: BorderRadius.all(Radius.circular(10)),
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
                     ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton.icon(
-                  onPressed: () => _addMember(g, g.addCtrl.text),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Add'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF46A5FF),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    elevation: 0,
                   ),
                 ),
               ],
@@ -670,8 +698,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
       height: 48,
       child: DropdownButtonFormField<int>(
         value: _total,
-        items:
-            items.map((v) => DropdownMenuItem(value: v, child: Text('$v'))).toList(),
+        items: items.map((v) => DropdownMenuItem(value: v, child: Text('$v'))).toList(),
         onChanged: (v) => setState(() => _total = v ?? _total),
         decoration: _inputDecoration(radius: 8),
       ),
@@ -698,8 +725,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
   InputDecoration _inputDecoration({String? hint, double radius = 10}) {
     return InputDecoration(
       hintText: hint,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 0),
       filled: true,
       fillColor: Colors.white,
       enabledBorder: OutlineInputBorder(
@@ -752,6 +778,282 @@ class _NextFabImage extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ─────────────────────────────────────────────────────────────────────────
+/// 학생 다중 선택 팝업
+/// ─────────────────────────────────────────────────────────────────────────
+class _StudentMultiPickerDialog extends StatefulWidget {
+  const _StudentMultiPickerDialog({
+    required this.hubId,
+    this.initiallySelected = const {},
+  });
+
+  final String hubId;
+  final Set<String> initiallySelected;
+
+  @override
+  State<_StudentMultiPickerDialog> createState() => _StudentMultiPickerDialogState();
+}
+
+class _StudentMultiPickerDialogState extends State<_StudentMultiPickerDialog> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  late Set<String> _selected;
+
+  static const _kText = TextStyle(color: Colors.black);
+  static const _kTextBold = TextStyle(color: Colors.black, fontWeight: FontWeight.w800);
+  static const _kMuteds = TextStyle(color: Colors.black, fontWeight: FontWeight.w600);
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = {...widget.initiallySelected};
+  }
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final fs = FirebaseFirestore.instance;
+    final stream = fs
+        .collection('hubs/${widget.hubId}/students')
+        .orderBy('name')
+        .snapshots();
+
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 720, maxHeight: 560),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 헤더
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+              child: Row(
+                children: [
+                  const Text('Select students', style: _kTextBold),
+                  const Spacer(),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, color: Colors.black),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, color: Color(0xFFE5E7EB)),
+
+            // 검색창
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: TextField(
+                controller: _searchCtrl,
+                style: _kText,
+                decoration: InputDecoration(
+                  hintText: 'Search name',
+                  hintStyle: _kText.copyWith(color: Colors.black54),
+                  isDense: true,
+                  prefixIcon: const Icon(Icons.search, color: Colors.black),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: _kCardBorder),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: _kCardBorder),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: _kCardBorder),
+                  ),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  fillColor: const Color(0xFFF9FAFB),
+                  filled: true,
+                ),
+              ),
+            ),
+
+            // 리스트
+            Expanded(
+              child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                stream: stream,
+                builder: (context, snap) {
+                  final docs = snap.data?.docs ?? const [];
+                  final names = <String>[
+                    for (final d in docs) ((d.data()['name'] ?? d.id).toString().trim())
+                  ].where((n) => n.isNotEmpty).toList();
+
+                  final q = _searchCtrl.text.trim().toLowerCase();
+                  final filtered = q.isEmpty
+                      ? names
+                      : names.where((n) => n.toLowerCase().contains(q)).toList();
+
+                  if (filtered.isEmpty) {
+                    return const Center(
+                      child: Text('검색 결과가 없습니다.', style: _kText),
+                    );
+                  }
+
+                  // 내부 setState용(검색창 입력시 전체 리빌드 방지)
+                  return StatefulBuilder(
+                    builder: (context, setSB) => Column(
+                      children: [
+                        // 전체 선택/해제
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                          child: Row(
+                            children: [
+                              TextButton.icon(
+                                onPressed: () {
+                                  setSB(() => _selected.addAll(filtered));
+                                },
+                                icon: const Icon(Icons.done_all, color: Colors.black),
+                                label: const Text('Select all on this page', style: _kText),
+                                style: TextButton.styleFrom(foregroundColor: Colors.black),
+                              ),
+                              const SizedBox(width: 10),
+                              TextButton.icon(
+                                onPressed: () {
+                                  setSB(() => _selected.removeWhere((e) => filtered.contains(e)));
+                                },
+                                icon: const Icon(Icons.remove_done, color: Colors.black),
+                                label: const Text('Clear all on this page', style: _kText),
+                                style: TextButton.styleFrom(foregroundColor: Colors.black),
+                              ),
+                              const Spacer(),
+                              Text('${_selected.length} selected', style: _kMuteds),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1, color: Color(0xFFE5E7EB)),
+
+                        // ✅ 2열 그리드
+                        Expanded(
+                          child: GridView.builder(
+                            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: 2,
+                              crossAxisSpacing: 12,
+                              mainAxisSpacing: 10,
+                              mainAxisExtent: 44, // 한 셀의 세로 높이
+                            ),
+                            itemCount: filtered.length,
+                            itemBuilder: (_, i) {
+                              final name = filtered[i];
+                              final checked = _selected.contains(name);
+
+                              return _NameCheckTile(
+                                name: name,
+                                checked: checked,
+                                onChanged: (v) {
+                                  setSB(() {
+                                    if (v) {
+                                      _selected.add(name);
+                                    } else {
+                                      _selected.remove(name);
+                                    }
+                                  });
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
+
+            // 하단 버튼
+            const Divider(height: 1, color: Color(0xFFE5E7EB)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+              child: Row(
+                children: [
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Cancel', style: _kText),
+                    style: TextButton.styleFrom(foregroundColor: Colors.black),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.pop(context, _selected.toList()),
+                    icon: const Icon(Icons.person_add_alt_1, size: 18, color: Colors.white),
+                    label: const Text('Add', style: TextStyle(color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF46A5FF),
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 2열 그리드용 체크 타일(검정 폰트)
+class _NameCheckTile extends StatelessWidget {
+  const _NameCheckTile({
+    required this.name,
+    required this.checked,
+    required this.onChanged,
+  });
+
+  final String name;
+  final bool checked;
+  final ValueChanged<bool> onChanged;
+
+  static const _kText = TextStyle(color: Colors.black, fontWeight: FontWeight.w600);
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () => onChanged(!checked),
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            Checkbox(
+              value: checked,
+              onChanged: (v) => onChanged(v ?? false),
+              activeColor: Colors.black,
+              checkColor: Colors.white,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            Expanded(
+              child: Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: _kText,
+              ),
+            ),
+          ],
         ),
       ),
     );

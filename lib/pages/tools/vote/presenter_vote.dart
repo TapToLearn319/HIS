@@ -646,8 +646,10 @@ Future<void> _forceResetOnEnter(String hubId) async {
                       child: TextField(
                         controller: _newOptionCtrl,
                         onSubmitted: (_) => _addFromScratch(),
+                        style: const TextStyle(color: Colors.black),
                         decoration: InputDecoration(
                           hintText: 'Enter...',
+                          
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 24,
                           ),
@@ -771,6 +773,7 @@ Future<void> _forceResetOnEnter(String hubId) async {
             constraints: const BoxConstraints.tightFor(height: 60),
             child: TextFormField(
               controller: ctrl,
+              style: const TextStyle(color: Colors.black),
               decoration: InputDecoration(
                 hintText: 'Enter a poll option',
                 contentPadding: const EdgeInsets.symmetric(
