@@ -103,7 +103,7 @@ class _HelpBadgeState extends State<HelpBadge> {
         height: widget.size,
         fit: BoxFit.contain,
         errorBuilder: (_, __, ___) => Icon(
-          Icons.help_outline_rounded,
+          Icons.help_rounded, 
           size: widget.size,
           color: widget.color ?? Colors.grey.shade500,
         ),

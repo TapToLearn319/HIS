@@ -756,43 +756,43 @@ Future<void> _setDisplayShow(bool value) async {
                   ),
 
                   Positioned(
-  left: 20,
-  bottom: 20,
-  child: SafeArea(
-    top: false,
-    child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .doc('hubs/${context.read<HubProvider>().hubId}')
-          .snapshots(),
-      builder: (context, snap) {
-        final snapshotShow = (snap.data?.data()?['randomSeat']?['show'] as bool?) ?? false;
+                    right: 180,
+                    bottom: 20,
+                    child: SafeArea(
+                      top: false,
+                      child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                        stream: FirebaseFirestore.instance
+                            .doc('hubs/${context.read<HubProvider>().hubId}')
+                            .snapshots(),
+                        builder: (context, snap) {
+                          final snapshotShow = (snap.data?.data()?['randomSeat']?['show'] as bool?) ?? false;
 
-        // 로컬 오버라이드가 있으면 그 값을 우선 사용 → 즉시 이미지 전환
-        final effectiveShow = _showOverride ?? snapshotShow;
+                          // 로컬 오버라이드가 있으면 그 값을 우선 사용 → 즉시 이미지 전환
+                          final effectiveShow = _showOverride ?? snapshotShow;
 
-        return _ShowHideFab(
-          show: effectiveShow,
-          disabled: _updatingShow,
-          onToggle: () async {
-            if (_updatingShow) return;
-            setState(() {
-              _updatingShow = true;
-              _showOverride = !effectiveShow; // ← 로컬로 즉시 뒤집어 이미지 변경
-            });
-            try {
-              await _setDisplayShow(!effectiveShow); // 서버 반영
-            } finally {
-              if (!mounted) return;
-              setState(() => _updatingShow = false);
-              // 스냅샷이 곧 따라오므로 굳이 _showOverride를 바로 null로 되돌릴 필요는 없음
-              // (원하면: if (_showOverride == snapshotShow) _showOverride = null;)
-            }
-          },
-        );
-      },
-    ),
-  ),
-),
+                          return _ShowHideFab(
+                            show: effectiveShow,
+                            disabled: _updatingShow,
+                            onToggle: () async {
+                              if (_updatingShow) return;
+                              setState(() {
+                                _updatingShow = true;
+                                _showOverride = !effectiveShow; // ← 로컬로 즉시 뒤집어 이미지 변경
+                              });
+                              try {
+                                await _setDisplayShow(!effectiveShow); // 서버 반영
+                              } finally {
+                                if (!mounted) return;
+                                setState(() => _updatingShow = false);
+                                // 스냅샷이 곧 따라오므로 굳이 _showOverride를 바로 null로 되돌릴 필요는 없음
+                                // (원하면: if (_showOverride == snapshotShow) _showOverride = null;)
+                              }
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ),
                   // 우측 하단: SAVE (→ 카드에 저장)
                   _SaveFabImage(onTap: _saveToCard),
 

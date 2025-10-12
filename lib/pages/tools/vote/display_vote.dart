@@ -643,6 +643,7 @@ String _labelForBinding(int button, String gesture) {
           Expanded(
             child: Container(
               height: 64,
+              clipBehavior: Clip.hardEdge,
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(32),
@@ -651,21 +652,39 @@ String _labelForBinding(int button, String gesture) {
               child: LayoutBuilder(
                 builder: (context, c) {
                   final maxW = c.maxWidth;
-                  final fillW = (maxW * ratio).clamp(0.0, maxW);
+
+                  // ✔︎ 막대 색/비율 결정
+                  final bool hidden = hideResults;
+                  final Color barColor = hidden ? const Color(0xFFE5E7EB) /* 회색 */ : yellow;
+
+                  // 숨김이면 50%, 아니면 투표 비율(0표면 0)
+                  final double displayRatio = hidden
+                      ? 0.5
+                      : (total > 0 ? (votes / total) : 0.0);
+
+                  final double fillW = (maxW * displayRatio).clamp(0.0, maxW);
 
                   return Stack(
                     alignment: Alignment.centerLeft,
                     children: [
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 220),
-                        width: fillW,
-                        height: double.infinity,
-                        decoration: BoxDecoration(
-                          color: yellow,
-                          borderRadius: BorderRadius.circular(32),
+                      // 막대는 테두리에 딱 붙도록 clip 유지
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(32),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 220),
+                            width: fillW,
+                            height: double.infinity,
+                            color: barColor, // ← hide면 회색, 아니면 노란색
+                          ),
                         ),
                       ),
-                      const Positioned(left: 12, child: _YellowBubble()),
+
+                      // ✅ 노란 원 버블: 숨김모드거나 0표면 숨김
+                      if (!hidden && displayRatio > 0)
+                        const Positioned(left: 12, child: _YellowBubble()),
+
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 18),
                         child: Row(

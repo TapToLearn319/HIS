@@ -181,75 +181,75 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                         ],
                       ),
                     ),
-                    // Positioned(
-                    //   left: 24,
-                    //   bottom: (60 * scale).clamp(40, 80),
-                    //   child: _ShowButton(
-                    //     scale: scale,
-                    //     enabled: (c.currentGroups != null && c.currentGroups!.isNotEmpty),
-                    //     onTap: () {
-                    //       if (c.currentGroups == null || c.currentGroups!.isEmpty) {
-                    //         ScaffoldMessenger.of(context).showSnackBar(
-                    //           const SnackBar(content: Text('먼저 “Make”로 그룹을 생성하세요.')),
-                    //         );
-                    //         return;
-                    //       }
-                    //       c.broadcastCurrentGroups(title: 'Find your Team !');
-                    //       ScaffoldMessenger.of(context).showSnackBar(
-                    //         const SnackBar(content: Text('디스플레이로 전송했습니다.')),
-                    //       );
-                    //     },
-                    //     imageAsset: 'assets/logo_bird_show.png', // 없으면 아래 위젯에서 아이콘 fallback
-                    //   ),
-                    // ),
+                    Positioned(
+                      right: 174,
+                      bottom: 60,
+                      child: _ShowButton(
+                        scale: 1.0,
+                        enabled: (c.currentGroups != null && c.currentGroups!.isNotEmpty),
+                        onTap: () {
+                          if (c.currentGroups == null || c.currentGroups!.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('먼저 “Make”로 그룹을 생성하세요.')),
+                            );
+                            return;
+                          }
+                          c.broadcastCurrentGroups(title: 'Find your Team !');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('디스플레이로 전송했습니다.')),
+                          );
+                        },
+                        imageAsset: 'assets/logo_bird_show.png', // 없으면 아래 위젯에서 아이콘 fallback
+                      ),
+                    ),
+                    Positioned(
+                      right: 12,
+                      bottom: 60,
+                      child: _MakeButton(
+                        scale: 1.0,
+                        onTap: c.makeGroups,
+                        imageAsset: 'assets/logo_bird_make.png',
+                      ),
+                    ),
                     // Positioned(
                     //   right: 24,
-                    //   bottom: (60 * scale).clamp(40, 80),
-                    //   child: _MakeButton(
-                    //     scale: scale,
-                    //     onTap: c.makeGroups,
-                    //     imageAsset: 'assets/logo_bird_make.png',
-                    //   ),
+                    //   bottom: 60,
+                    //   child: _readyToShow
+                    //       // ====== SHOW 단계 ======
+                    //       ? _ShowButton(
+                    //           scale: 1.0,
+                    //           // 그룹이 방금 만들어진 뒤라면 true이지만, 안전하게 체크
+                    //           enabled: (c.currentGroups != null && c.currentGroups!.isNotEmpty),
+                    //           onTap: () {
+                    //             if (c.currentGroups == null || c.currentGroups!.isEmpty) {
+                    //               ScaffoldMessenger.of(context).showSnackBar(
+                    //                 const SnackBar(content: Text('먼저 “Make”로 그룹을 생성하세요.')),
+                    //               );
+                    //               return;
+                    //             }
+                    //             c.broadcastCurrentGroups(title: 'Find your Team !');
+                    //             ScaffoldMessenger.of(context).showSnackBar(
+                    //               const SnackBar(content: Text('디스플레이로 전송했습니다.')),
+                    //             );
+                    //             // 🔒 여기서 _readyToShow를 다시 false로 만들지 않음 → Make로 되돌아가지 않음
+                    //           },
+                    //           imageAsset: 'assets/logo_bird_show.png',
+                    //         )
+                    //       // ====== MAKE 단계 ======
+                    //       : _MakeButton(
+                    //           scale: 1.0,
+                    //           onTap: () async {
+                    //             await c.makeGroups();                // 1) 그룹 생성
+                    //             if (!mounted) return;
+                    //             setState(() => _readyToShow = true); // 2) 버튼을 Show로 전환(되돌리지 않음)
+                    //             // (선택) 안내 토스트
+                    //             // ScaffoldMessenger.of(context).showSnackBar(
+                    //             //   const SnackBar(content: Text('그룹을 만들었습니다. 이제 Show로 전송할 수 있어요.')),
+                    //             // );
+                    //           },
+                    //           imageAsset: 'assets/logo_bird_make.png',
+                    //         ),
                     // ),
-                    Positioned(
-                      right: 24,
-                      bottom: 60,
-                      child: _readyToShow
-                          // ====== SHOW 단계 ======
-                          ? _ShowButton(
-                              scale: 1.0,
-                              // 그룹이 방금 만들어진 뒤라면 true이지만, 안전하게 체크
-                              enabled: (c.currentGroups != null && c.currentGroups!.isNotEmpty),
-                              onTap: () {
-                                if (c.currentGroups == null || c.currentGroups!.isEmpty) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('먼저 “Make”로 그룹을 생성하세요.')),
-                                  );
-                                  return;
-                                }
-                                c.broadcastCurrentGroups(title: 'Find your Team !');
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('디스플레이로 전송했습니다.')),
-                                );
-                                // 🔒 여기서 _readyToShow를 다시 false로 만들지 않음 → Make로 되돌아가지 않음
-                              },
-                              imageAsset: 'assets/logo_bird_show.png',
-                            )
-                          // ====== MAKE 단계 ======
-                          : _MakeButton(
-                              scale: 1.0,
-                              onTap: () async {
-                                await c.makeGroups();                // 1) 그룹 생성
-                                if (!mounted) return;
-                                setState(() => _readyToShow = true); // 2) 버튼을 Show로 전환(되돌리지 않음)
-                                // (선택) 안내 토스트
-                                // ScaffoldMessenger.of(context).showSnackBar(
-                                //   const SnackBar(content: Text('그룹을 만들었습니다. 이제 Show로 전송할 수 있어요.')),
-                                // );
-                              },
-                              imageAsset: 'assets/logo_bird_make.png',
-                            ),
-                    ),
                   ],
                 ),
               ),
