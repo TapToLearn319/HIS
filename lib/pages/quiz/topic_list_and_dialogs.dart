@@ -1,4 +1,6 @@
 // lib/pages/quiz/topic_list_and_dialogs.dart
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -186,18 +188,25 @@ Future<void> _deleteTopicWithSubcollections(
   final running = (status == 'running');
   final ok = await showDialog<bool>(
     context: context,
-    builder: (_) => AlertDialog(
-      title: const Text('Delete topic'),
-      content: Text(
-        running
-            ? '이 토픽은 현재 진행 중입니다.\n삭제하면 진행이 중단되고, 모든 퀴즈/결과가 함께 삭제됩니다. 계속할까요?'
-            : '토픽과 그 안의 모든 퀴즈/결과가 삭제됩니다. 계속할까요?',
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-        ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
-      ],
-    ),
+    builder:
+        (_) => AlertDialog(
+          title: const Text('Delete topic'),
+          content: Text(
+            running
+                ? '이 토픽은 현재 진행 중입니다.\n삭제하면 진행이 중단되고, 모든 퀴즈/결과가 함께 삭제됩니다. 계속할까요?'
+                : '토픽과 그 안의 모든 퀴즈/결과가 삭제됩니다. 계속할까요?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
   );
   if (ok != true) return;
 
@@ -228,8 +237,16 @@ Future<void> _deleteTopicWithSubcollections(
     }
 
     // 하위 컬렉션 페이징 삭제
-    await _deleteCollectionPaged(fs, '$hubPath/quizTopics/$topicId/quizzes', pageSize: 300);
-    await _deleteCollectionPaged(fs, '$hubPath/quizTopics/$topicId/results', pageSize: 300);
+    await _deleteCollectionPaged(
+      fs,
+      '$hubPath/quizTopics/$topicId/quizzes',
+      pageSize: 300,
+    );
+    await _deleteCollectionPaged(
+      fs,
+      '$hubPath/quizTopics/$topicId/results',
+      pageSize: 300,
+    );
 
     // 마지막으로 토픽 문서 삭제
     await fs.doc('$hubPath/quizTopics/$topicId').delete();
@@ -303,20 +320,47 @@ class TopicList extends StatelessWidget {
     }
 
     Future<void> _startTopic(BuildContext context, String topicId) async {
+      final fs = FirebaseFirestore.instance;
+      final hubPath = context.read<HubProvider>().hubDocPath;
+      if (hubPath == null) return;
+
+      // 🔒 이미 다른 running 토픽이 있으면 중복 방지
+      final running =
+          await fs
+              .collection('$hubPath/quizTopics')
+              .where('status', isEqualTo: 'running')
+              .get();
+      if (running.docs.isNotEmpty) {
+        _snack(context, '이미 진행 중인 퀴즈가 있습니다.');
+        return;
+      }
+
+      // 🔹 현재 토픽 데이터 가져오기 (타임리밋 확인용)
+      final topicDoc = await fs.doc('$hubPath/quizTopics/$topicId').get();
+      final topicData = topicDoc.data() ?? {};
+      final timeLimitSeconds =
+          (topicData['timeLimitSeconds'] as num?)?.toInt() ?? 0;
+
+      // 🔹 퀴즈 목록 가져오기
       final qSnap =
           await fs
               .collection('$hubPath/quizTopics/$topicId/quizzes')
               .orderBy('createdAt')
               .get();
+
       if (qSnap.docs.isEmpty) {
         _snack(context, '먼저 문제를 추가해 주세요.');
         return;
       }
+
       final first = qSnap.docs.first;
+
+      // 🔹 START 누를 때 timerSeconds도 함께 기록
       await fs.doc('$hubPath/quizTopics/$topicId').set({
         'status': 'running',
         'phase': 'question',
-        'currentIndex': 0,
+        'currentQuizIndex': 1,
+        'totalQuizCount': qSnap.docs.length,
         'currentQuizId': first.id,
         'questionStartedAt': FieldValue.serverTimestamp(),
         'questionStartedAtMs': DateTime.now().millisecondsSinceEpoch,
@@ -324,6 +368,7 @@ class TopicList extends StatelessWidget {
         'endedAt': null,
         'updatedAt': FieldValue.serverTimestamp(),
         'showSummaryOnDisplay': false,
+        if (timeLimitSeconds > 0) 'timerSeconds': timeLimitSeconds, // 🔥 여기 추가!
       }, SetOptions(merge: true));
 
       if (context.mounted) {
@@ -444,7 +489,7 @@ class TopicList extends StatelessWidget {
                               trailing: _StartButton(
                                 enabled: cnt != 0,
                                 scale: s,
-                                onPressed: () => _startTopic(context, d.id),
+                                topicId: d.id,
                               ),
                             );
                           },
@@ -496,30 +541,167 @@ double _uiScale(BuildContext context) {
   return 1.00;
 }
 
-class _StartButton extends StatelessWidget {
+class _StartButton extends StatefulWidget {
   const _StartButton({
     required this.enabled,
-    required this.onPressed,
     required this.scale,
+    required this.topicId,
   });
 
   final bool enabled;
-  final VoidCallback? onPressed;
   final double scale;
+  final String topicId;
+
+  @override
+  State<_StartButton> createState() => _StartButtonState();
+}
+
+class _StartButtonState extends State<_StartButton> {
+  StreamSubscription<DocumentSnapshot>? _statusSub;
+  bool _isRunning = false;
+  late final FirebaseFirestore _fs;
+  String? _hubPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _fs = FirebaseFirestore.instance;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final hub = context.read<HubProvider>().hubDocPath;
+      if (hub != null) {
+        _hubPath = hub;
+        _listenStatus();
+      }
+    });
+  }
+
+  void _listenStatus() {
+    if (_hubPath == null) return;
+    _statusSub = _fs
+        .doc('$_hubPath/quizTopics/${widget.topicId}')
+        .snapshots()
+        .listen((doc) {
+          final data = doc.data();
+          if (data != null && mounted) {
+            final status = data['status'] as String?;
+            setState(() {
+              _isRunning = status == 'running';
+            });
+          }
+        });
+  }
+
+  Future<void> _toggleQuiz() async {
+    if (_hubPath == null) {
+      _snack(context, '허브 경로가 없습니다. 다시 시도해 주세요.');
+      return;
+    }
+
+    final path = '$_hubPath/quizTopics/${widget.topicId}';
+
+    if (_isRunning) {
+      // 🔴 STOP 상태로 전환
+      _snack(context, '퀴즈를 종료합니다...');
+      setState(() => _isRunning = false); // 버튼 즉시 반응
+
+      // 🔒 리스너 일시 정지 (Firestore가 'stopped' emit해도 무시)
+      _statusSub?.pause();
+
+      await _fs.doc(path).set({
+        'status': 'stopped',
+        'phase': 'finished',
+        'currentQuizId': null,
+        'currentIndex': null,
+        'endedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'showSummaryOnDisplay': false,
+      }, SetOptions(merge: true));
+
+      // 🕒 Firestore sync 기다린 후 리스너 재개
+      await Future.delayed(const Duration(seconds: 1));
+      _statusSub?.resume();
+
+      _snack(context, '퀴즈가 종료되었습니다.');
+      return;
+    }
+
+    // ✅ START 시도 전에 다른 running 퀴즈 있는지 확인
+    final running =
+        await _fs
+            .collection('$_hubPath/quizTopics')
+            .where('status', isEqualTo: 'running')
+            .get();
+
+    if (running.docs.isNotEmpty) {
+      _snack(context, '이미 진행 중인 퀴즈를 종료해 주세요.');
+      return;
+    }
+
+    // 🔹 현재 토픽 데이터와 퀴즈 불러오기
+    final topicDoc = await _fs.doc(path).get();
+    final topicData = topicDoc.data() ?? {};
+    final timeLimitSeconds =
+        (topicData['timeLimitSeconds'] as num?)?.toInt() ?? 0;
+
+    final qSnap =
+        await _fs.collection('$path/quizzes').orderBy('createdAt').get();
+
+    if (qSnap.docs.isEmpty) {
+      _snack(context, '먼저 문제를 추가해 주세요.');
+      return;
+    }
+
+    // 🔹 public=true인 첫 문항 찾기
+    QueryDocumentSnapshot<Map<String, dynamic>>? firstPublic;
+    for (final doc in qSnap.docs) {
+      final data = doc.data();
+      if (data['public'] == true) {
+        firstPublic = doc;
+        break;
+      }
+    }
+
+    if (firstPublic == null) {
+      _snack(context, '공개된(public=true) 문항이 없습니다.');
+      return;
+    }
+
+    // 🔹 START 로직
+    await _fs.doc(path).set({
+      'status': 'running',
+      'phase': 'question',
+      'currentQuizIndex': qSnap.docs.indexOf(firstPublic) + 1,
+      'totalQuizCount': qSnap.docs.length,
+      'currentQuizId': firstPublic.id,
+      'questionStartedAt': FieldValue.serverTimestamp(),
+      'questionStartedAtMs': DateTime.now().millisecondsSinceEpoch,
+      'startedAt': FieldValue.serverTimestamp(),
+      'endedAt': null,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'showSummaryOnDisplay': false,
+      if (timeLimitSeconds > 0)
+        'timerSeconds': timeLimitSeconds
+      else
+        'timerSeconds': FieldValue.delete(),
+    }, SetOptions(merge: true));
+
+    _snack(context, '퀴즈가 시작되었습니다.');
+  }
 
   @override
   Widget build(BuildContext context) {
-    final h = (61 * scale).clamp(61, 96).toDouble();
-    final fs = (24 * scale).clamp(24, 36).toDouble();
+    final h = (61 * widget.scale).clamp(61, 96).toDouble();
+    final fs = (24 * widget.scale).clamp(24, 36).toDouble();
+
     return TextButton.icon(
-      onPressed: enabled ? onPressed : null,
+      onPressed: widget.enabled ? _toggleQuiz : null,
       icon: Icon(
-        Icons.play_arrow,
-        size: (18 * scale).clamp(18, 28).toDouble(),
+        _isRunning ? Icons.stop : Icons.play_arrow,
+        size: (18 * widget.scale).clamp(18, 28).toDouble(),
         color: Colors.black,
       ),
       label: Text(
-        'START !',
+        _isRunning ? 'STOP' : 'START !',
         textAlign: TextAlign.center,
         style: TextStyle(
           color: Colors.black,
@@ -529,13 +711,21 @@ class _StartButton extends StatelessWidget {
         ),
       ),
       style: TextButton.styleFrom(
-        padding: EdgeInsets.symmetric(horizontal: (8 * scale).clamp(8, 16)),
+        padding: EdgeInsets.symmetric(
+          horizontal: (8 * widget.scale).clamp(8, 16),
+        ),
         minimumSize: Size(0, h),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         foregroundColor: Colors.black,
         disabledForegroundColor: const Color(0xFFA2A2A2),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _statusSub?.cancel();
+    super.dispose();
   }
 }
 

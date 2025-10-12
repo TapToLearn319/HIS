@@ -1,6 +1,7 @@
 // lib/pages/quiz/topic_detail.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../../provider/hub_provider.dart';
 import 'question_options_page.dart';
@@ -36,6 +37,9 @@ class TopicDetailPage extends StatelessWidget {
     final prefix = 'hubs/$hubId';
 
     final topicRef = fs.doc('$prefix/quizTopics/$topicId');
+
+    _ensureDefaultSettings(topicRef);
+
     final quizzesCol = fs
         .collection('$prefix/quizTopics/$topicId/quizzes')
         .orderBy('createdAt', descending: false);
@@ -47,6 +51,14 @@ class TopicDetailPage extends StatelessWidget {
         final title = (t?['title'] as String?) ?? '(untitled)';
         final status = (t?['status'] as String?) ?? 'draft';
         final int maxQuestions = (t?['maxQuestions'] as num?)?.toInt() ?? 1;
+
+        final showResultsMode =
+            (t?['showResultsMode'] as String?) ?? 'realtime';
+        final anonymous = (t?['anonymous'] as bool?) ?? true;
+        final multipleSelections = (t?['multipleSelections'] as bool?) ?? false;
+        final timeLimitEnabled = (t?['timeLimitEnabled'] as bool?) ?? false;
+        final timeLimitSeconds =
+            (t?['timeLimitSeconds'] as num?)?.toInt() ?? 300;
 
         // 반응형 스케일 (넓을수록 살짝 크게)
         final s = _uiScale(MediaQuery.of(context).size.width);
@@ -72,19 +84,6 @@ class TopicDetailPage extends StatelessWidget {
               'Quiz • $title',
               style: TextStyle(fontSize: (16 * s).clamp(16, 22).toDouble()),
             ),
-            actions: [
-              TextButton.icon(
-                onPressed:
-                    () => _editTopicDialog(
-                      context,
-                      topicRef: topicRef,
-                      currentTitle: title,
-                      currentMaxQuestions: maxQuestions,
-                    ),
-                icon: const Icon(Icons.edit, size: 18),
-                label: const Text('Edit'),
-              ),
-            ],
           ),
           body: LayoutBuilder(
             builder: (context, c) {
@@ -116,86 +115,84 @@ class TopicDetailPage extends StatelessWidget {
                           );
                         },
                       ),
-                      SizedBox(height: (6 * s).clamp(6, 10).toDouble()),
-                      // 상단 상태/요약 바
-                      _StatusStrip(
-                        status: status,
-                        maxQuestions: maxQuestions,
-                        scale: s,
-                      ),
                       SizedBox(height: (14 * s).clamp(12, 18).toDouble()),
 
                       // ===== Questions 섹션 =====
-                      _SectionHeader(
-                        title: 'Questions',
-                        trailing: _AddBtn(
-                          enabledStream: quizzesCol.snapshots(),
-                          maxQuestions: maxQuestions,
-                          onAdd:
-                              () => _createBlankQuestion(
-                                context,
-                                fs: fs,
-                                topicRef: topicRef,
-                              ),
-                          scale: s,
-                        ),
-                        scale: s,
-                      ),
+                      _SectionHeader(title: 'Questions', scale: s),
+
                       StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                         stream: quizzesCol.snapshots(),
                         builder: (context, qSnap) {
                           final docs = qSnap.data?.docs ?? const [];
-                          if (docs.isEmpty) {
-                            return Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: _EmptyCard(
-                                text:
-                                    '아직 질문이 없습니다.\n오른쪽 위 Add 버튼으로 질문을 추가해 주세요.',
-                              ),
-                            );
-                          }
 
-                          return Column(
-                            children: [
-                              const SizedBox(height: 8),
-                              for (int i = 0; i < docs.length; i++) ...[
-                                _QuestionRow(
-                                  index: i,
-                                  quizDoc: docs[i],
-                                  scale: s,
-                                  onTogglePublic: (v) async {
-                                    await docs[i].reference.set({
-                                      'public': v,
+                          return Container(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.all(
+                                color: const Color(0xFFDAE2EE),
+                              ),
+                              borderRadius: BorderRadius.circular(
+                                (12 * s).clamp(12, 16),
+                              ),
+                            ),
+                            padding: EdgeInsets.symmetric(
+                              vertical: (10 * s).clamp(10, 14).toDouble(),
+                              horizontal: (10 * s).clamp(10, 14).toDouble(),
+                            ),
+                            child: Column(
+                              children: [
+                                // 질문 목록
+                                for (int i = 0; i < docs.length; i++) ...[
+                                  _QuestionCard(
+                                    key: ValueKey(
+                                      '${docs[i].id}-$multipleSelections',
+                                    ),
+                                    index: i,
+                                    quizDoc: docs[i],
+                                    scale: s,
+                                    multipleSelections: multipleSelections,
+                                    onTogglePublic: (v) async {
+                                      await docs[i].reference.set({
+                                        'public': v,
+                                        'updatedAt':
+                                            FieldValue.serverTimestamp(),
+                                      }, SetOptions(merge: true));
+                                    },
+                                    onMore:
+                                        () =>
+                                            _openEditOptions(context, docs[i]),
+                                    onDelete: () async {
+                                      await _deleteQuestion(
+                                        context,
+                                        docs[i],
+                                        status: status,
+                                      );
+                                    },
+                                  ),
+                                  SizedBox(
+                                    height: (8 * s).clamp(8, 12).toDouble(),
+                                  ),
+                                ],
+
+                                // 새 항목 추가 입력란
+                                _AddQuestionInput(
+                                  onAdd: (text) async {
+                                    if (text.trim().isEmpty) return;
+                                    await topicRef.collection('quizzes').add({
+                                      'question': text.trim(),
+                                      'choices': ['A', 'B'],
+                                      'triggers': ['S1_CLICK', 'S2_CLICK'],
+                                      'correctIndexes': [0],
+                                      'public': true,
+                                      'createdAt': FieldValue.serverTimestamp(),
                                       'updatedAt': FieldValue.serverTimestamp(),
-                                    }, SetOptions(merge: true));
+                                    });
                                   },
-                                  onMore:
-                                      () => _openEditOptions(context, docs[i]),
-                                  onDelete: () async {
-                                    await _deleteQuestion(
-                                      context,
-                                      docs[i],
-                                      status: status,
-                                    );
-                                  },
-                                ),
-                                SizedBox(
-                                  height: (8 * s).clamp(8, 12).toDouble(),
+                                  index: docs.length + 1,
+                                  scale: s,
                                 ),
                               ],
-                              if (docs.length >= maxQuestions)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    '최대 문항 수에 도달했습니다.',
-                                    style: TextStyle(
-                                      color: const Color(0xFF6B7280),
-                                      fontSize:
-                                          (12 * s).clamp(12, 14).toDouble(),
-                                    ),
-                                  ),
-                                ),
-                            ],
+                            ),
                           );
                         },
                       ),
@@ -205,7 +202,15 @@ class TopicDetailPage extends StatelessWidget {
                       // ===== Settings 섹션 =====
                       _SectionHeader(title: 'Quiz Settings', scale: s),
                       SizedBox(height: (8 * s).clamp(8, 12).toDouble()),
-                      _SettingsCard(scale: s),
+                      _SettingsCard(
+                        scale: s,
+                        topicRef: topicRef,
+                        showResultsMode: showResultsMode,
+                        anonymous: anonymous,
+                        multipleSelections: multipleSelections,
+                        timeLimitEnabled: timeLimitEnabled,
+                        timeLimitSeconds: timeLimitSeconds,
+                      ),
                     ],
                   ),
                 ),
@@ -236,13 +241,13 @@ class _TitleRow extends StatelessWidget {
     required this.textLeft,
     required this.textRight,
     required this.scale,
-    required this.topicRef, // 🔑 topicRef 직접 받기
+    required this.topicRef,
   });
 
-  final String textLeft; // "Quiz 3"
-  final String textRight; // "Ummmmm"
+  final String textLeft;
+  final String textRight;
   final double scale;
-  final DocumentReference<Map<String, dynamic>> topicRef; // 👈 전달받음
+  final DocumentReference<Map<String, dynamic>> topicRef;
 
   @override
   Widget build(BuildContext context) {
@@ -251,11 +256,11 @@ class _TitleRow extends StatelessWidget {
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
+      mainAxisAlignment: MainAxisAlignment.start,
       children: [
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 404),
+        Flexible(
           child: Text(
-            textLeft,
+            '$textLeft : $textRight',
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: color,
@@ -265,86 +270,36 @@ class _TitleRow extends StatelessWidget {
             ),
           ),
         ),
-        Text(
-          ' : ',
-          style: TextStyle(
-            color: color,
-            fontSize: fs,
-            fontWeight: FontWeight.w500,
-            height: 1.0,
-          ),
-        ),
-        Expanded(
-          child: Text(
-            textRight,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: color,
-              fontSize: fs,
-              fontWeight: FontWeight.w500,
-              height: 1.0,
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        IconButton(
-          tooltip: 'Edit title',
-          icon: const Icon(Icons.edit, size: 20, color: Color(0xFF6B7280)),
+
+        const SizedBox(width: 12),
+        TextButton.icon(
           onPressed:
               () => _editTopicDialog(
                 context,
-                topicRef: topicRef, // 👈 여기서 직접 topicRef 전달
+                topicRef: topicRef,
                 currentTitle: textRight,
-                currentMaxQuestions: 1, // TODO: 실제 maxQuestions 값 넣기
+                currentMaxQuestions: 1,
               ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StatusStrip extends StatelessWidget {
-  const _StatusStrip({
-    required this.status,
-    required this.maxQuestions,
-    required this.scale,
-  });
-  final String status;
-  final int maxQuestions;
-  final double scale;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFDAE2EE)),
-        borderRadius: BorderRadius.circular(
-          (12 * scale).clamp(12, 16).toDouble(),
-        ),
-      ),
-      padding: EdgeInsets.fromLTRB(
-        (14 * scale).clamp(14, 18).toDouble(),
-        (10 * scale).clamp(10, 14).toDouble(),
-        (14 * scale).clamp(14, 18).toDouble(),
-        (10 * scale).clamp(10, 14).toDouble(),
-      ),
-      child: Row(
-        children: [
-          _statusBadge(status),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'You can add questions up to $maxQuestions.',
-              style: TextStyle(
-                color: const Color(0xFF6B7280),
-                fontSize: (13 * scale).clamp(13, 15).toDouble(),
-              ),
+          icon: const Icon(
+            Icons.edit_outlined,
+            size: 22,
+            color: Color(0xFFA2A2A2),
+          ),
+          label: const Text(
+            'Edit',
+            style: TextStyle(
+              color: Color(0xFFA2A2A2),
+              fontSize: 24,
+              fontWeight: FontWeight.w400,
             ),
           ),
-        ],
-      ),
+          style: TextButton.styleFrom(
+            padding: EdgeInsets.zero,
+            minimumSize: const Size(0, 0),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -361,6 +316,9 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final color = const Color(0xFF001A36);
+    final fs = (24 * scale).clamp(20, 26).toDouble();
+
     return Padding(
       padding: EdgeInsets.only(
         left: 2,
@@ -369,13 +327,14 @@ class _SectionHeader extends StatelessWidget {
         top: (6 * scale).clamp(6, 10).toDouble(),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(
             title,
             style: TextStyle(
-              fontSize: (14 * scale).clamp(14, 18).toDouble(),
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF0B1324),
+              color: color,
+              fontSize: fs,
+              fontWeight: FontWeight.w500,
             ),
           ),
           const Spacer(),
@@ -605,28 +564,46 @@ class _MoreChevron extends StatelessWidget {
   }
 }
 
-/* ───────────────────────── settings card (mock UI) ───────────────────────── */
-
 class _SettingsCard extends StatelessWidget {
-  const _SettingsCard({required this.scale});
+  const _SettingsCard({
+    required this.scale,
+    required this.topicRef,
+    required this.showResultsMode,
+    required this.anonymous,
+    required this.multipleSelections,
+    required this.timeLimitEnabled,
+    required this.timeLimitSeconds,
+  });
+
   final double scale;
+  final DocumentReference<Map<String, dynamic>> topicRef;
+
+  // 현재 설정값들
+  final String showResultsMode; // 'realtime' | 'afterEnd'
+  final bool anonymous;
+  final bool multipleSelections;
+  final bool timeLimitEnabled;
+  final int timeLimitSeconds;
 
   @override
   Widget build(BuildContext context) {
-    final r = (14 * scale).clamp(12, 16).toDouble();
-    final p = (16 * scale).clamp(14, 18).toDouble();
-    final fs = (14 * scale).clamp(14, 16).toDouble();
-
+    // 좌측 라벨 스타일(요청하신 타이포)
     Widget row(String label, Widget right) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             SizedBox(
-              width: 180,
+              width: 277,
               child: Text(
                 label,
-                style: TextStyle(fontSize: fs, color: const Color(0xFF0B1324)),
+                style: const TextStyle(
+                  color: Color(0xFF001A36),
+                  fontSize: 24,
+                  fontWeight: FontWeight.w500,
+                  height: 46 / 24,
+                ),
               ),
             ),
             Expanded(child: right),
@@ -635,49 +612,113 @@ class _SettingsCard extends StatelessWidget {
       );
     }
 
-    Widget radioPair(String a, String b) {
-      return Row(
-        children: [_chip(a, true), const SizedBox(width: 10), _chip(b, false)],
-      );
-    }
-
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border.all(color: const Color(0xFFDAE2EE)),
-        borderRadius: BorderRadius.circular(r),
+        borderRadius: BorderRadius.circular((14 * scale).clamp(12, 16)),
       ),
-      padding: EdgeInsets.all(p),
+      padding: const EdgeInsets.fromLTRB(40, 20, 40, 20),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           row(
             'Show results',
-            Row(
+            Wrap(
+              spacing: 48,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                _chip('in real time', true),
-                const SizedBox(width: 10),
-                _chip('After quiz ends', false),
+                _LimeRadioOption(
+                  label: 'in real time',
+                  selected: showResultsMode == 'realtime',
+                  onTap:
+                      () => _updateTopic(topicRef, {
+                        'showResultsMode': 'realtime',
+                      }),
+                ),
+                _LimeRadioOption(
+                  label: 'After quiz ends',
+                  selected: showResultsMode == 'afterEnd',
+                  onTap:
+                      () => _updateTopic(topicRef, {
+                        'showResultsMode': 'afterEnd',
+                      }),
+                ),
               ],
             ),
           ),
-          const Divider(height: 24),
-          row('Anonymous', radioPair('yes', 'no')),
-          const Divider(height: 24),
-          row('Multiple selections', radioPair('yes', 'no')),
-          const Divider(height: 24),
+
+          const SizedBox(height: 6),
+          row(
+            'Anonymous',
+            Wrap(
+              spacing: 48,
+              children: [
+                _LimeRadioOption(
+                  label: 'yes',
+                  selected: anonymous,
+                  onTap: () => _updateTopic(topicRef, {'anonymous': true}),
+                ),
+                _LimeRadioOption(
+                  label: 'no',
+                  selected: !anonymous,
+                  onTap: () => _updateTopic(topicRef, {'anonymous': false}),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          row(
+            'Multiple selections',
+            Wrap(
+              spacing: 48,
+              children: [
+                _LimeRadioOption(
+                  label: 'yes',
+                  selected: multipleSelections,
+                  onTap:
+                      () =>
+                          _updateTopic(topicRef, {'multipleSelections': true}),
+                ),
+                _LimeRadioOption(
+                  label: 'no',
+                  selected: !multipleSelections,
+                  onTap:
+                      () =>
+                          _updateTopic(topicRef, {'multipleSelections': false}),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
           row(
             'Time Limit',
             Row(
               children: [
-                _limeDot(),
-                const SizedBox(width: 8),
-                Text(
-                  '—  h   5  m   s',
-                  style: TextStyle(
-                    color: const Color(0xFF6B7280),
-                    fontSize: fs,
-                  ),
+                GestureDetector(
+                  onTap:
+                      () => _updateTopic(topicRef, {
+                        'timeLimitEnabled': !timeLimitEnabled,
+                      }),
+                  child: _LimeDot(selected: timeLimitEnabled),
                 ),
+                const SizedBox(width: 12),
+                if (timeLimitEnabled)
+                  _TimeLimitInput(
+                    seconds: timeLimitSeconds,
+                    onChanged:
+                        (v) => _updateTopic(topicRef, {'timeLimitSeconds': v}),
+                  )
+                else
+                  const Text(
+                    'Disabled',
+                    style: TextStyle(
+                      color: Color(0xFF9CA3AF),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w400,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -685,63 +726,171 @@ class _SettingsCard extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _chip(String text, bool selected) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: selected ? const Color(0xFFB6F536) : const Color(0xFFF3F4F6),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
+class _LimeRadioOption extends StatelessWidget {
+  const _LimeRadioOption({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(999),
+      onTap: onTap,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _LimeDot(selected: selected),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF000000),
+              fontSize: 20,
+              fontWeight: FontWeight.w400,
+              height: 46 / 20,
+            ),
+          ),
+        ],
       ),
-      child: Text(
-        text,
-        style: TextStyle(
-          fontWeight: FontWeight.w600,
-          color: const Color(0xFF0B1324),
+    );
+  }
+}
+
+class _LimeDot extends StatelessWidget {
+  const _LimeDot({required this.selected});
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
+      width: 30,
+      height: 30,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: selected ? const Color(0xFFA9E817) : Colors.white,
+        border: Border.all(
+          color: selected ? Colors.transparent : const Color(0xFFA2A2A2),
+          width: 1,
         ),
       ),
     );
   }
-
-  Widget _limeDot() => Container(
-    width: 14,
-    height: 14,
-    decoration: const BoxDecoration(
-      color: Color(0xFFB6F536),
-      shape: BoxShape.circle,
-    ),
-  );
 }
 
-/* ───────────────────────── small shared ───────────────────────── */
+class _TimeLimitInput extends StatefulWidget {
+  const _TimeLimitInput({required this.seconds, required this.onChanged});
+  final int seconds; // 총 초 단위
+  final ValueChanged<int> onChanged;
 
-Widget _statusBadge(String status) {
-  Color bg, fg;
-  switch (status) {
-    case 'running':
-      bg = const Color(0x3322C55E);
-      fg = const Color(0xFF22C55E);
-      break;
-    case 'stopped':
-      bg = const Color(0x33A1A1AA);
-      fg = const Color(0xFF71717A);
-      break;
-    default:
-      bg = const Color(0x33F59E0B);
-      fg = const Color(0xFFF59E0B);
+  @override
+  State<_TimeLimitInput> createState() => _TimeLimitInputState();
+}
+
+class _TimeLimitInputState extends State<_TimeLimitInput> {
+  late int hours;
+  late int minutes;
+  late int seconds;
+
+  @override
+  void initState() {
+    super.initState();
+    hours = widget.seconds ~/ 3600;
+    minutes = (widget.seconds % 3600) ~/ 60;
+    seconds = widget.seconds % 60;
   }
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-    decoration: BoxDecoration(
-      color: bg,
-      borderRadius: BorderRadius.circular(999),
-    ),
-    child: Text(
-      status,
-      style: TextStyle(color: fg, fontWeight: FontWeight.w700),
-    ),
-  );
+
+  void _update() {
+    final total = hours * 3600 + minutes * 60 + seconds;
+    widget.onChanged(total);
+  }
+
+  Widget _underlineBox({
+    required int value,
+    required void Function(int) onChanged,
+  }) {
+    final controller = TextEditingController(text: value.toString());
+    return SizedBox(
+      width: 50,
+      child: TextField(
+        controller: controller,
+        textAlign: TextAlign.center,
+        keyboardType: TextInputType.number,
+        style: const TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w500,
+          color: Color(0xFF001A36),
+        ),
+        decoration: const InputDecoration(
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(vertical: 4),
+          enabledBorder: UnderlineInputBorder(
+            borderSide: BorderSide(color: Color(0xFFD1D5DB), width: 1.4),
+          ),
+          focusedBorder: UnderlineInputBorder(
+            borderSide: BorderSide(color: Color(0xFFB6F536), width: 2.0),
+          ),
+        ),
+        onSubmitted: (text) {
+          final n = int.tryParse(text) ?? 0;
+          onChanged(n.clamp(0, 59)); // 시 제외, 0~59 제한
+          _update();
+        },
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _underlineBox(
+          value: hours,
+          onChanged: (v) => setState(() => hours = v),
+        ),
+        const Text(
+          ' h  ',
+          style: TextStyle(
+            color: Color(0xFF001A36),
+            fontSize: 20,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        _underlineBox(
+          value: minutes,
+          onChanged: (v) => setState(() => minutes = v),
+        ),
+        const Text(
+          ' m  ',
+          style: TextStyle(
+            color: Color(0xFF001A36),
+            fontSize: 20,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        _underlineBox(
+          value: seconds,
+          onChanged: (v) => setState(() => seconds = v),
+        ),
+        const Text(
+          ' s',
+          style: TextStyle(
+            color: Color(0xFF001A36),
+            fontSize: 20,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _EmptyCard extends StatelessWidget {
@@ -779,7 +928,7 @@ Future<void> _createBlankQuestion(
     'question': 'New question',
     'choices': ['A', 'B'],
     'triggers': ['S1_CLICK', 'S2_CLICK'],
-    'correctIndex': 0,
+    'correctIndexes': [0],
     'public': true,
     'createdAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
@@ -917,6 +1066,39 @@ Future<void> _editTopicDialog(
   cTitle.dispose();
 }
 
+Future<void> _updateTopic(
+  DocumentReference<Map<String, dynamic>> ref,
+  Map<String, dynamic> data,
+) async {
+  final merged = {...data};
+  if (merged.containsKey('timeLimitSeconds')) {
+    merged['timerSeconds'] = merged['timeLimitSeconds'];
+  }
+
+  await ref.set({
+    ...merged,
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+}
+
+Future<void> _ensureDefaultSettings(
+  DocumentReference<Map<String, dynamic>> ref,
+) async {
+  final snap = await ref.get();
+  if (!snap.exists) return;
+  final x = snap.data() ?? {};
+  if (!x.containsKey('showResultsMode')) {
+    await ref.set({
+      'showResultsMode': 'realtime',
+      'anonymous': true,
+      'multipleSelections': false,
+      'timeLimitEnabled': false,
+      'timeLimitSeconds': 300,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+}
+
 /* ───────────────────────── utilities ───────────────────────── */
 
 void _snack(BuildContext context, String msg) {
@@ -992,4 +1174,762 @@ void _openEditOptions(
           ),
     ),
   );
+}
+
+class _QuestionCard extends StatefulWidget {
+  const _QuestionCard({
+    super.key,
+    required this.index,
+    required this.quizDoc,
+    required this.onTogglePublic,
+    required this.scale,
+    required this.onMore,
+    required this.onDelete,
+    required this.multipleSelections,
+  });
+
+  final int index;
+  final QueryDocumentSnapshot<Map<String, dynamic>> quizDoc;
+  final ValueChanged<bool> onTogglePublic;
+  final double scale;
+  final VoidCallback onMore;
+  final VoidCallback onDelete;
+  final bool multipleSelections;
+
+  @override
+  State<_QuestionCard> createState() => _QuestionCardState();
+}
+
+class _QuestionCardState extends State<_QuestionCard>
+    with SingleTickerProviderStateMixin {
+  bool expanded = false;
+  late List<int> correctIndexes; // 로컬 상태 캐시
+
+  @override
+  void initState() {
+    super.initState();
+    final data = widget.quizDoc.data();
+    final correctIndexRaw = data['correctIndexes'] ?? data['correctIndex'];
+    correctIndexes =
+        correctIndexRaw is List
+            ? List<int>.from(correctIndexRaw)
+            : [if (correctIndexRaw is int) correctIndexRaw];
+  }
+
+  @override
+  void didUpdateWidget(covariant _QuestionCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Firestore snapshot이 갱신되더라도, 로컬에서 수동 클릭 중이면 덮어쓰지 않음
+    final newData = widget.quizDoc.data();
+    final correctIndexRaw =
+        newData['correctIndexes'] ?? newData['correctIndex'];
+    final newIndexes =
+        correctIndexRaw is List
+            ? List<int>.from(correctIndexRaw)
+            : [if (correctIndexRaw is int) correctIndexRaw];
+    if (!listEquals(newIndexes, correctIndexes)) {
+      correctIndexes = newIndexes;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final data = widget.quizDoc.data();
+    final question = (data['question'] as String?) ?? '';
+    final public = (data['public'] as bool?) ?? true;
+    final choices = List<String>.from(data['choices'] ?? []);
+    final triggers = List<String>.from(data['triggers'] ?? []);
+    final multipleSelections = widget.multipleSelections;
+
+    Color updatedColor(int index) {
+      if (multipleSelections) {
+        return correctIndexes.contains(index)
+            ? const Color(0xFFA9E817)
+            : Colors.white;
+      } else {
+        return (correctIndexes.isNotEmpty && correctIndexes.first == index)
+            ? const Color(0xFFA9E817)
+            : Colors.white;
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ───────── 질문 행 ─────────
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            SizedBox(
+              width: (41 * widget.scale).clamp(41, 45),
+              child: Text(
+                '${widget.index + 1}.',
+                textAlign: TextAlign.right,
+                style: const TextStyle(
+                  color: Color(0xFF000000),
+                  fontSize: 24,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Container(
+                height: (61 * widget.scale).clamp(56, 68),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: const Color(0xFFDAE2EE)),
+                  borderRadius: BorderRadius.circular(
+                    (12 * widget.scale).clamp(12, 14),
+                  ),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    // 왼쪽: 질문 + Public 스위치
+                    Row(
+                      children: [
+                        Text(
+                          question,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w400,
+                            color: Color(0xFF000000),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Row(
+                          children: [
+                            const Text(
+                              'Public',
+                              style: TextStyle(
+                                color: Color(0xFFA2A2A2),
+                                fontSize: 20,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                            Transform.scale(
+                              scale: 0.95,
+                              child: Switch(
+                                value: public,
+                                onChanged: widget.onTogglePublic,
+                                activeColor: Colors.white,
+                                activeTrackColor: const Color(0xFFA9E817),
+                                inactiveTrackColor: const Color(0xFFA2A2A2),
+                                inactiveThumbColor: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    // 오른쪽 more/less + 삭제 버튼
+                    Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Delete question',
+                          icon: const Icon(
+                            Icons.close_rounded,
+                            color: Color(0xFFEF4444),
+                            size: 26,
+                          ),
+                          onPressed: widget.onDelete, // ✅ 부모 콜백 사용
+                        ),
+                        const SizedBox(width: 6),
+                        InkWell(
+                          onTap: () => setState(() => expanded = !expanded),
+                          child: Row(
+                            children: const [
+                              Text(
+                                'more',
+                                style: TextStyle(
+                                  color: Color(0xFFA2A2A2),
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.w400,
+                                ),
+                              ),
+                              Icon(Icons.expand_more, color: Color(0xFFA2A2A2)),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+
+        AnimatedSize(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeInOut,
+          child:
+              expanded
+                  ? Container(
+                    margin: const EdgeInsets.only(
+                      left: 52,
+                      top: 10,
+                      bottom: 20,
+                    ),
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      border: Border.all(color: Colors.transparent),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: const [
+                            Text(
+                              'Answer Options',
+                              style: TextStyle(
+                                color: Color(0xFF001A36),
+                                fontSize: 24,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            SizedBox(width: 6),
+                            Text(
+                              '*Up to 4',
+                              style: TextStyle(
+                                color: Color(0xFF001A36),
+                                fontSize: 15,
+                                fontWeight: FontWeight.w400,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            border: Border.all(color: const Color(0xFFDAE2EE)),
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              for (int i = 0; i < choices.length; i++)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6,
+                                  ),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      GestureDetector(
+                                        onTap: () async {
+                                          setState(() {
+                                            if (correctIndexes.contains(i)) {
+                                              correctIndexes.remove(i);
+                                            } else {
+                                              if (multipleSelections) {
+                                                correctIndexes.add(i);
+                                              } else {
+                                                correctIndexes
+                                                  ..clear()
+                                                  ..add(i);
+                                              }
+                                            }
+                                          });
+                                          await widget.quizDoc.reference.set({
+                                            'correctIndexes': List<int>.from(
+                                              correctIndexes,
+                                            ),
+                                            'updatedAt':
+                                                FieldValue.serverTimestamp(),
+                                          }, SetOptions(merge: true));
+                                        },
+                                        child: AnimatedContainer(
+                                          duration: const Duration(
+                                            milliseconds: 180,
+                                          ),
+                                          width: 30,
+                                          height: 30,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color:
+                                                correctIndexes.contains(i)
+                                                    ? const Color(
+                                                      0xFFA9E817,
+                                                    ) // ✅ 선택됨 (#A9E817)
+                                                    : Colors
+                                                        .transparent, // ✅ 선택 안됨: 투명
+                                            border: Border.all(
+                                              color:
+                                                  correctIndexes.contains(i)
+                                                      ? Colors
+                                                          .transparent // 선택된 상태는 외곽선 없음
+                                                      : const Color(
+                                                        0xFFA2A2A2,
+                                                      ), // 선택 안됨: 회색 외곽선
+                                              width: 1,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+
+                                      // 옵션 입력 필드
+                                      Expanded(
+                                        child: Container(
+                                          height: 49,
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            border: Border.all(
+                                              color: const Color(0xFFD2D2D2),
+                                              width: 1,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              32.5,
+                                            ),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 18,
+                                          ),
+                                          alignment: Alignment.centerLeft,
+                                          child: Row(
+                                            children: [
+                                              Expanded(
+                                                child: TextField(
+                                                  controller:
+                                                      TextEditingController(
+                                                        text: choices[i],
+                                                      ),
+                                                  style: const TextStyle(
+                                                    fontSize: 20,
+                                                    fontWeight: FontWeight.w500,
+                                                    color: Color(0xFF001A36),
+                                                  ),
+                                                  decoration:
+                                                      const InputDecoration(
+                                                        border:
+                                                            InputBorder.none,
+                                                        enabledBorder:
+                                                            InputBorder.none,
+                                                        focusedBorder:
+                                                            InputBorder.none,
+                                                        disabledBorder:
+                                                            InputBorder.none,
+                                                        isCollapsed: true,
+                                                        contentPadding:
+                                                            EdgeInsets.zero,
+                                                      ),
+                                                  onSubmitted: (v) async {
+                                                    choices[i] = v;
+                                                    await widget
+                                                        .quizDoc
+                                                        .reference
+                                                        .set(
+                                                          {
+                                                            'choices': choices,
+                                                            'updatedAt':
+                                                                FieldValue.serverTimestamp(),
+                                                          },
+                                                          SetOptions(
+                                                            merge: true,
+                                                          ),
+                                                        );
+                                                  },
+                                                ),
+                                              ),
+                                              // 드롭다운 (트리거 매핑)
+                                              DropdownButton<String>(
+                                                value: triggers[i],
+                                                underline: const SizedBox(),
+                                                icon: const Icon(
+                                                  Icons.arrow_drop_down,
+                                                  color: Color(0xFF6B7280),
+                                                ),
+                                                items: const [
+                                                  DropdownMenuItem(
+                                                    value: 'S1_CLICK',
+                                                    child: Text('1 - single'),
+                                                  ),
+                                                  DropdownMenuItem(
+                                                    value: 'S1_HOLD',
+                                                    child: Text('1 - hold'),
+                                                  ),
+                                                  DropdownMenuItem(
+                                                    value: 'S2_CLICK',
+                                                    child: Text('2 - single'),
+                                                  ),
+                                                  DropdownMenuItem(
+                                                    value: 'S2_HOLD',
+                                                    child: Text('2 - hold'),
+                                                  ),
+                                                ],
+                                                onChanged: (v) async {
+                                                  if (v == null) return;
+                                                  String newTrigger = v;
+                                                  final used = Set<String>.from(
+                                                    triggers,
+                                                  );
+
+                                                  // 중복 트리거 방지
+                                                  if (used.contains(
+                                                        newTrigger,
+                                                      ) &&
+                                                      triggers[i] !=
+                                                          newTrigger) {
+                                                    const all = [
+                                                      'S1_CLICK',
+                                                      'S1_HOLD',
+                                                      'S2_CLICK',
+                                                      'S2_HOLD',
+                                                    ];
+                                                    final available =
+                                                        all
+                                                            .where(
+                                                              (t) =>
+                                                                  !used
+                                                                      .contains(
+                                                                        t,
+                                                                      ),
+                                                            )
+                                                            .toList();
+                                                    if (available.isNotEmpty) {
+                                                      newTrigger =
+                                                          available.first;
+                                                    } else {
+                                                      debugPrint(
+                                                        '⚠️ No available triggers left.',
+                                                      );
+                                                      return;
+                                                    }
+                                                  }
+
+                                                  triggers[i] = newTrigger;
+                                                  await widget.quizDoc.reference.set({
+                                                    'triggers': triggers,
+                                                    'updatedAt':
+                                                        FieldValue.serverTimestamp(),
+                                                  }, SetOptions(merge: true));
+                                                  setState(() {});
+                                                },
+                                              ),
+
+                                              // 삭제 버튼
+                                              IconButton(
+                                                padding: EdgeInsets.zero,
+                                                constraints:
+                                                    const BoxConstraints.tightFor(
+                                                      width: 28,
+                                                      height: 28,
+                                                    ),
+                                                icon: const Icon(
+                                                  Icons.more_vert,
+                                                  color: Color(0xFFA2A2A2),
+                                                  size: 22,
+                                                ),
+                                                onPressed: () async {
+                                                  final confirm = await showModalBottomSheet<
+                                                    bool
+                                                  >(
+                                                    context: context,
+                                                    shape: const RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.vertical(
+                                                            top:
+                                                                Radius.circular(
+                                                                  16,
+                                                                ),
+                                                          ),
+                                                    ),
+                                                    builder:
+                                                        (_) => SafeArea(
+                                                          child: Padding(
+                                                            padding:
+                                                                const EdgeInsets.all(
+                                                                  20,
+                                                                ),
+                                                            child: Column(
+                                                              mainAxisSize:
+                                                                  MainAxisSize
+                                                                      .min,
+                                                              children: [
+                                                                const Text(
+                                                                  'Delete this option?',
+                                                                  style: TextStyle(
+                                                                    fontSize:
+                                                                        20,
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w600,
+                                                                  ),
+                                                                ),
+                                                                const SizedBox(
+                                                                  height: 16,
+                                                                ),
+                                                                Row(
+                                                                  mainAxisAlignment:
+                                                                      MainAxisAlignment
+                                                                          .end,
+                                                                  children: [
+                                                                    TextButton(
+                                                                      onPressed:
+                                                                          () => Navigator.pop(
+                                                                            context,
+                                                                            false,
+                                                                          ),
+                                                                      child: const Text(
+                                                                        'Cancel',
+                                                                      ),
+                                                                    ),
+                                                                    const SizedBox(
+                                                                      width: 8,
+                                                                    ),
+                                                                    ElevatedButton(
+                                                                      style: ElevatedButton.styleFrom(
+                                                                        backgroundColor:
+                                                                            Colors.red,
+                                                                      ),
+                                                                      onPressed:
+                                                                          () => Navigator.pop(
+                                                                            context,
+                                                                            true,
+                                                                          ),
+                                                                      child: const Text(
+                                                                        'Delete',
+                                                                      ),
+                                                                    ),
+                                                                  ],
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                        ),
+                                                  );
+
+                                                  if (confirm == true) {
+                                                    choices.removeAt(i);
+                                                    triggers.removeAt(i);
+                                                    await widget
+                                                        .quizDoc
+                                                        .reference
+                                                        .set(
+                                                          {
+                                                            'choices': choices,
+                                                            'triggers':
+                                                                triggers,
+                                                            'updatedAt':
+                                                                FieldValue.serverTimestamp(),
+                                                          },
+                                                          SetOptions(
+                                                            merge: true,
+                                                          ),
+                                                        );
+                                                    setState(() {});
+                                                  }
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              const SizedBox(height: 8),
+                              if (choices.length < 4)
+                                Builder(
+                                  builder: (context) {
+                                    final addController =
+                                        TextEditingController();
+
+                                    return Container(
+                                      margin: const EdgeInsets.only(top: 12),
+                                      height: 49,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        border: Border.all(
+                                          color: const Color(0xFFD2D2D2),
+                                          width: 1,
+                                        ),
+                                        borderRadius: BorderRadius.circular(
+                                          32.5,
+                                        ),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 18,
+                                      ),
+                                      alignment: Alignment.centerLeft,
+                                      child: Row(
+                                        children: [
+                                          // 입력창
+                                          Expanded(
+                                            child: TextField(
+                                              controller: addController,
+                                              decoration: const InputDecoration(
+                                                hintText: 'Type your option...',
+                                                hintStyle: TextStyle(
+                                                  color: Color(0xFFA2A2A2),
+                                                  fontSize: 20,
+                                                ),
+                                                border: InputBorder.none,
+                                                enabledBorder: InputBorder.none,
+                                                focusedBorder: InputBorder.none,
+                                                isCollapsed: true,
+                                                contentPadding: EdgeInsets.zero,
+                                              ),
+                                              style: const TextStyle(
+                                                fontSize: 20,
+                                                color: Color(0xFF001A36),
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+
+                                          // 추가 버튼 (+)
+                                          GestureDetector(
+                                            onTap: () async {
+                                              final newText =
+                                                  addController.text.trim();
+                                              if (newText.isEmpty) return;
+
+                                              choices.add(newText);
+                                              triggers.add('S1_CLICK');
+                                              await widget.quizDoc.reference.set({
+                                                'choices': choices,
+                                                'triggers': triggers,
+                                                'updatedAt':
+                                                    FieldValue.serverTimestamp(),
+                                              }, SetOptions(merge: true));
+
+                                              addController.clear();
+                                              setState(() {});
+                                            },
+                                            child: const Icon(
+                                              Icons.add_circle_outline,
+                                              color: Color(0xFFA2A2A2),
+                                              size: 28,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                  : const SizedBox.shrink(),
+        ),
+      ],
+    );
+  }
+}
+
+class _AddQuestionInput extends StatefulWidget {
+  const _AddQuestionInput({
+    required this.onAdd,
+    required this.index,
+    required this.scale,
+  });
+  final Function(String) onAdd;
+  final int index;
+  final double scale;
+
+  @override
+  State<_AddQuestionInput> createState() => _AddQuestionInputState();
+}
+
+class _AddQuestionInputState extends State<_AddQuestionInput> {
+  final controller = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    final h = (56 * widget.scale).clamp(56, 68).toDouble();
+    final r = (12 * widget.scale).clamp(12, 14).toDouble();
+    final fs = (16 * widget.scale).clamp(16, 18).toDouble();
+
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        vertical: (4 * widget.scale).clamp(4, 8).toDouble(),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: (41 * widget.scale).clamp(41, 45).toDouble(),
+            child: Text(
+              '${widget.index}.',
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                color: Color(0xFF000000),
+                fontSize: 24,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+
+          Expanded(
+            child: Container(
+              height: h,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFDAE2EE)),
+                borderRadius: BorderRadius.circular(r),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              alignment: Alignment.centerLeft,
+              child: TextField(
+                controller: controller,
+                style: TextStyle(
+                  fontSize: fs,
+                  fontWeight: FontWeight.w500,
+                  color: const Color(0xFF001A36),
+                ),
+                decoration: const InputDecoration(
+                  hintText: 'Type your question...',
+                  hintStyle: TextStyle(
+                    color: Color(0xFF9CA3AF),
+                    fontWeight: FontWeight.w400,
+                  ),
+                  border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  isCollapsed: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                onSubmitted: (text) {
+                  widget.onAdd(text);
+                  controller.clear();
+                },
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 10),
+
+          GestureDetector(
+            onTap: () {
+              final text = controller.text.trim();
+              if (text.isEmpty) return;
+              widget.onAdd(text);
+              controller.clear();
+            },
+            child: const Icon(
+              Icons.add_circle_outline_outlined,
+              color: Color(0xFFD2D2D2),
+              size: 36,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

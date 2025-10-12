@@ -655,7 +655,7 @@ String _labelForBinding(int button, String gesture) {
 
                   // ✔︎ 막대 색/비율 결정
                   final bool hidden = hideResults;
-                  final Color barColor = hidden ? const Color(0xFFE5E7EB) /* 회색 */ : yellow;
+                  final Color barColor = hidden ? const Color(0xFFFFE483) /* 회색 */ : yellow;
 
                   // 숨김이면 50%, 아니면 투표 비율(0표면 0)
                   final double displayRatio = hidden

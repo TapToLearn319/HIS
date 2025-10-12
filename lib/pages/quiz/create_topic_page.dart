@@ -72,7 +72,7 @@ class _CreateTopicPageState extends State<CreateTopicPage> {
         'phase': 'finished',
         'questionStartedAt': null,
         'showSummaryOnDisplay': false,
-        'maxQuestions': _maxQuestions,
+        'totalQuizCount': _maxQuestions,
       });
 
       if (!mounted) return;

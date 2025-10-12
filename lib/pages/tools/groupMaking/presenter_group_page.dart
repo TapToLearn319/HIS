@@ -183,7 +183,7 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                     ),
                     Positioned(
                       right: 174,
-                      bottom: 60,
+                      bottom: 6,
                       child: _ShowButton(
                         scale: 1.0,
                         enabled: (c.currentGroups != null && c.currentGroups!.isNotEmpty),
@@ -192,7 +192,7 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('먼저 “Make”로 그룹을 생성하세요.')),
                             );
-                            return;
+                            return; 
                           }
                           c.broadcastCurrentGroups(title: 'Find your Team !');
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -204,7 +204,7 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                     ),
                     Positioned(
                       right: 12,
-                      bottom: 60,
+                      bottom: 6,
                       child: _MakeButton(
                         scale: 1.0,
                         onTap: c.makeGroups,

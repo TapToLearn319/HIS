@@ -149,7 +149,7 @@ class _CreateQuizPageState extends State<CreateQuizPage> {
       'triggers': _triggerKeys.whereType<String>().toList(),
       'anonymous': _anonymous,
       'allowMultiple': _allowMultiple,
-      'showMode': _showMode, // 'realtime' | 'after'
+      'showResultMode': _showMode,
       'correctIndex': correctIndex,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
