@@ -5,6 +5,8 @@ import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../widgets/help_badge.dart';
 // Providers
 import '../../provider/session_provider.dart';
 import '../../provider/hub_provider.dart';
@@ -606,6 +608,16 @@ Future<String?> _loadLastSessionId(String hubId) async {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   // 날짜 • Board • 합계
+                                  Align(
+                                    alignment: Alignment.topRight,
+                                    child: const HelpBadge(
+                                      tooltip: 'Students can press the button on their seat to indicate their attendance.',
+                                      placement: HelpPlacement.left, // 말풍선이 왼쪽으로 펼쳐지게
+                                      // gap: 2, // 네가 쓰는 HelpBadge가 gap 지원하면 켜줘서 더 가깝게
+                                      size: 32,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
                                   Row(
                                     children: [
                                       Row(
@@ -619,6 +631,7 @@ Future<String?> _loadLastSessionId(String hubId) async {
                                         ],
                                       ),
                                       const Spacer(),
+                                      const SizedBox(width: 32),  
                                       SizedBox(
                                         width: 680,
                                         height: 40,
@@ -651,7 +664,7 @@ Future<String?> _loadLastSessionId(String hubId) async {
                                       ),
                                       const Spacer(),
                                       SizedBox(
-                                        width: 142,
+                                        width: 142, // 살짝 여유
                                         child: Text(
                                           '$assignedCount / $totalSeats',
                                           textAlign: TextAlign.right,
@@ -1492,46 +1505,61 @@ class _ClassToggleFabImage extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      right: 16,
-      bottom: 16,
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          width: 200,
-          height: 200,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(16),
-              hoverColor: Colors.black.withOpacity(0.05),
-              splashColor: Colors.black.withOpacity(0.1),
-              onTap: onTap,
-              child: Tooltip(
-                message: running ? 'Stop class' : 'Start class',
-                child: Padding(
-                  padding: const EdgeInsets.all(10.0),
-                  child: Image.asset(
-                    running
-                        ? 'assets/logo_bird_done.png'
-                        : 'assets/logo_bird_begin.png',
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => Icon(
+Widget build(BuildContext context) {
+  return Positioned(
+    right: 16,
+    bottom: 16,
+    child: SafeArea(
+      top: false,
+      child: SizedBox(
+        width: 200,   // ← 크기 조절 포인트 1 (vote 페이지 느낌: 160~200 추천)
+        height: 200,  // ← 크기 조절 포인트 1
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            // 버튼 본체: vote 페이지와 동일한 구조
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                hoverColor: Colors.black.withOpacity(0.05),
+                splashColor: Colors.black.withOpacity(0.1),
+                onTap: onTap,
+                child: Tooltip(
+                  message: running ? 'Stop class' : 'Start class',
+                  child: Padding(
+                    padding: const EdgeInsets.all(10.0), // ← 크기 조절 포인트 2 (아이콘 여백)
+                    child: Image.asset(
                       running
-                          ? Icons.stop_circle
-                          : Icons.play_circle_fill,
-                      size: 64,
-                      color:
-                          running ? Colors.redAccent : Colors.indigo,
+                          ? 'assets/logo_bird_save.png'
+                          : 'assets/logo_bird_begin.png',
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => Icon(
+                        running ? Icons.stop_circle : Icons.play_circle_fill,
+                        size: 72, // 에러 폴백 아이콘 크기
+                        color: running ? Colors.redAccent : Colors.indigo,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
-          ),
+
+            // 배지: 버튼 우상단에 살짝 겹치게
+            const Positioned(
+              right: -2,
+              top: -2,
+              child: HelpBadge(
+                tooltip:
+                    "Pressing BEGIN will mark students as late from that point onward. Pressing SAVE will save the attendance information for the current date and class.",
+                placement: HelpPlacement.left,
+                size: 28,
+              ),
+            ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

@@ -1,10 +1,6 @@
 // lib/widgets/help_badge.dart
 import 'package:flutter/material.dart';
 
-/// 물음표(?) 배지 + Hover 오버레이 말풍선.
-/// - 데스크톱/웹: 마우스 올리면 즉시 표시, 벗어나면 즉시 숨김(hover 중에는 계속 보임)
-/// - 모바일/터치: 탭하면 토글로 표시/숨김
-/// - assetPath가 있으면 해당 이미지를, 없으면 기본 ? 아이콘을 사용
 class HelpBadge extends StatefulWidget {
   const HelpBadge({
     super.key,
@@ -13,33 +9,18 @@ class HelpBadge extends StatefulWidget {
     this.size = 24,
     this.color,
     this.placement = HelpPlacement.right,
-    this.offset = const Offset(0, 0), // 기본은 0,0로 아주 가깝게
-    this.gap = 2.0,                   // 아이콘과 말풍선 사이 간격(px). 0~2 권장
+    this.gap = 8.0,
+    this.offset = const Offset(0, 0),
     this.semanticLabel = 'Help',
   });
 
-  /// 툴팁 텍스트
   final String tooltip;
-
-  /// 아이콘 이미지 경로(null이면 기본 아이콘)
   final String? assetPath;
-
-  /// 아이콘 크기
   final double size;
-
-  /// 기본 아이콘 색상(assetPath 없을 때만 적용)
   final Color? color;
-
-  /// 말풍선 배치 방향(left/right)
-  final HelpPlacement placement;
-
-  /// 말풍선 위치 미세 조정
-  final Offset offset;
-
-  /// 아이콘과 말풍선 사이 간격(px). 작을수록 더 바짝 붙음(음수도 가능)
-  final double gap;
-
-  /// 접근성 라벨
+  final HelpPlacement placement;   // left | right
+  final double gap;                // 아이콘과 말풍선 간격
+  final Offset offset;             // 미세 위치 조정
   final String semanticLabel;
 
   @override
@@ -49,8 +30,6 @@ class HelpBadge extends StatefulWidget {
 class _HelpBadgeState extends State<HelpBadge> {
   final GlobalKey _anchorKey = GlobalKey();
   OverlayEntry? _overlay;
-  bool _hovering = false; // 데스크톱/웹
-  bool _openByTap = false; // 모바일/터치
 
   @override
   void dispose() {
@@ -61,35 +40,16 @@ class _HelpBadgeState extends State<HelpBadge> {
   @override
   Widget build(BuildContext context) {
     final icon = _buildIcon();
-
     return Semantics(
       label: widget.semanticLabel,
       button: true,
       child: MouseRegion(
-        onEnter: (_) {
-          _hovering = true;
-          _showOverlay();
-        },
-        onExit: (_) {
-          _hovering = false;
-          if (!_openByTap) _removeOverlay();
-        },
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            // 모바일/터치: 탭 토글
-            _openByTap = !_openByTap;
-            if (_openByTap) {
-              _showOverlay();
-            } else {
-              if (!_hovering) _removeOverlay();
-            }
-          },
-          child: Container(
-            key: _anchorKey,
-            padding: const EdgeInsets.all(4),
-            child: icon,
-          ),
+        onEnter: (_) => _showOverlay(),
+        onExit: (_) => _removeOverlay(),
+        child: Container(
+          key: _anchorKey,
+          padding: const EdgeInsets.all(4),
+          child: icon,
         ),
       ),
     );
@@ -103,61 +63,56 @@ class _HelpBadgeState extends State<HelpBadge> {
         height: widget.size,
         fit: BoxFit.contain,
         errorBuilder: (_, __, ___) => Icon(
-          Icons.help_rounded, 
+          Icons.help_rounded,
           size: widget.size,
-          color: widget.color ?? Colors.grey.shade500,
+          color: widget.color ?? Colors.grey.shade600,
         ),
       );
     }
     return Icon(
-      Icons.help_outline_rounded,
+      Icons.help_rounded,
       size: widget.size,
-      color: widget.color ?? Colors.grey.shade500,
+      color: widget.color ?? Colors.grey.shade600,
     );
   }
 
   void _showOverlay() {
     if (_overlay != null) return;
 
-    final anchor = _anchorKey.currentContext;
-    if (anchor == null) return;
+    final anchorCtx = _anchorKey.currentContext;
+    if (anchorCtx == null) return;
 
-    final renderBox = anchor.findRenderObject() as RenderBox?;
+    final anchorBox = anchorCtx.findRenderObject() as RenderBox?;
     final overlayBox = Overlay.of(context).context.findRenderObject() as RenderBox?;
-    if (renderBox == null || overlayBox == null) return;
+    if (anchorBox == null || overlayBox == null) return;
 
-    final anchorSize = renderBox.size;
-    final topLeft  = renderBox.localToGlobal(Offset.zero, ancestor: overlayBox);
-    final topRight = renderBox.localToGlobal(Offset(anchorSize.width, 0), ancestor: overlayBox);
+    // 아이콘 위치(오버레이 좌표계)
+    final iconSize = anchorBox.size;
+    final topLeft  = anchorBox.localToGlobal(Offset.zero, ancestor: overlayBox);
+    final topRight = anchorBox.localToGlobal(Offset(iconSize.width, 0), ancestor: overlayBox);
+    final centerY  = topLeft.dy + iconSize.height / 2;
 
-    // 아이콘과 말풍선 간격(px)
-    final gap = widget.gap;
+    final toRight = widget.placement == HelpPlacement.right;
+    final baseX = (toRight ? topRight.dx + widget.gap : topLeft.dx - widget.gap) + widget.offset.dx;
+    final baseY = centerY + widget.offset.dy;
 
-    // 세로는 아이콘 중앙 근처에 배치
-    Offset pos;
-    switch (widget.placement) {
-      case HelpPlacement.right:
-        // 아이콘 오른쪽에 딱 붙이듯이
-        pos = topRight + Offset(gap, -(anchorSize.height * 0.5));
-        break;
-      case HelpPlacement.left:
-        // 아이콘 왼쪽에 딱 붙이듯이 (살짝 겹치고 싶으면 gap을 음수로)
-        pos = topLeft + Offset(-gap, -(anchorSize.height * 0.5));
-        break;
-    }
-
-    // 최종 미세 조정
-    pos += widget.offset;
+    final tip = widget.tooltip; // ★ 문자열을 캡쳐해서 아래로 전달
 
     _overlay = OverlayEntry(
-      builder: (_) => Positioned(
-        left: pos.dx,
-        top:  pos.dy,
-        child: _HelpBubble(
-          text: widget.tooltip,
-          marginScreen: const EdgeInsets.all(8),
-        ),
-      ),
+      builder: (_) {
+        final fx = toRight ? 0.0 : -1.0; // 왼쪽 배치면 자기폭만큼 왼쪽으로
+        const fy = -0.5;                 // 수직 중앙 정렬
+        return Positioned(
+          left: baseX,
+          top:  baseY,
+          child: FractionalTranslation(
+            translation: Offset(fx, fy),
+            child: IgnorePointer(
+              child: _HelpBubble(text: tip), // ★ 여기로 직접 전달
+            ),
+          ),
+        );
+      },
     );
 
     Overlay.of(context).insert(_overlay!);
@@ -169,37 +124,40 @@ class _HelpBadgeState extends State<HelpBadge> {
   }
 }
 
-/// 오버레이 말풍선
+/// 텍스트 크기에 딱 맞는 말풍선(연회색 배경 + 진회색 텍스트)
 class _HelpBubble extends StatelessWidget {
-  const _HelpBubble({
-    required this.text,
-    this.marginScreen = EdgeInsets.zero,
-  });
-
+  const _HelpBubble({required this.text});
   final String text;
-  final EdgeInsets marginScreen;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: marginScreen,
-      constraints: const BoxConstraints(maxWidth: 280),
-      decoration: BoxDecoration(
-        color: const Color(0xFF111827),
+    return Material(
+      type: MaterialType.card,
+      color: const Color(0xFFF3F4F6),              // 연한 회색
+      elevation: 4,
+      shadowColor: const Color(0x1F000000),
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        boxShadow: const [
-          BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 2)),
-        ],
+        side: const BorderSide(color: Color(0xFFA2A2A2)), // 옅은 테두리
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      child: DefaultTextStyle( // << const 제거
-        style: const TextStyle(color: Colors.white, fontSize: 12, height: 1.3),
-        child: Text(text),      // << 전달된 텍스트 사용
-        // 또는 child: SelectableText(text),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 280), // 너무 길어지는 것만 방지
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Text(
+            text,
+            softWrap: true,
+            style: const TextStyle(
+              color: Color(0xFF111827), // 진한 회색 글씨
+              fontSize: 16,
+              height: 1.3,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-/// 배치 방향
 enum HelpPlacement { right, left }
