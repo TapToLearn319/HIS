@@ -93,6 +93,17 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       trending: false,
       route: '/tools/quiz',
     ),
+    ToolItem(
+      id: 'random_draw',
+      title: 'Random draw',
+      description: 'Select students at random',
+      icon: Icons.check_box_outlined,
+      color: const Color(0xFF44DAAD),
+      bgColor: const Color(0x33A9E817),
+      usage: "",
+      trending: false,
+      route: '/tools/draw',
+    ),
   ];
 
   final List<QuickAction> quickActions = const [

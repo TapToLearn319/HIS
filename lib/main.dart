@@ -8,6 +8,7 @@ import 'package:project/pages/random_seat/display_random_seat.dart';
 import 'package:project/pages/random_seat/random_seat_files.dart';
 import 'package:project/pages/random_seat/random_seat_create.dart';
 import 'package:project/pages/random_seat/presenter_random_seat.dart';
+import 'package:project/pages/tools/draw/presenter_random_draw.dart';
 import 'package:project/pages/tools/groupMaking/display_group_page.dart';
 import 'package:project/pages/tools/groupMaking/presenter_group_page.dart';
 import 'package:project/pages/tools/timer/display_timer.dart';
@@ -287,6 +288,7 @@ class PresenterApp extends StatelessWidget {
         // '/random-seat/files'    : (_) => const RandomSeatFilesPage(),
         '/tools/random_seat/create'   : (_) => const RandomSeatCreatePage(),
         '/tools/random_seat/detail': (_) => const RandomSeatPage(),
+        '/tools/draw': (_) => const PresenterRandomDrawPage(),
       },
     );
   }
@@ -378,6 +380,7 @@ class _DisplayAppState extends State<DisplayApp> {
         '/profile/student': (_) => const DisplayStandByPage(),
         '/profile/class': (_) => const DisplayStandByPage(),
         '/tools/random_seat/detail': (_) => const DisplayRandomSeatPage(),
+        '/tools/draw': (_) => const DisplayStandByPage(),
       },
     );
   }
