@@ -754,30 +754,11 @@ class _NextFabImage extends StatelessWidget {
       bottom: 20,
       child: SafeArea(
         top: false,
-        child: Opacity(
-          opacity: enabled ? 1.0 : 0.5,
-          child: SizedBox(
-            width: 200,
-            height: 200,
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(20),
-                hoverColor: Colors.black.withOpacity(0.05),
-                splashColor: Colors.black.withOpacity(0.1),
-                onTap: enabled ? onTap : null,
-                child: Padding(
-                  padding: const EdgeInsets.all(10.0),
-                  child: Image.asset(
-                    'assets/test/logo_bird_next.png',
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) =>
-                        const Icon(Icons.arrow_forward, size: 64),
-                  ),
-                ),
-              ),
-            ),
-          ),
+        child: _MakeButton(
+          scale: 1.0, // 원본 크기 (조정 가능: 0.8~1.2)
+          imageAsset: 'assets/test/logo_bird_next.png',
+          onTap: onTap,
+          enabled: enabled,
         ),
       ),
     );
@@ -1054,6 +1035,82 @@ class _NameCheckTile extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+class _MakeButton extends StatefulWidget {
+  const _MakeButton({
+    required this.scale,
+    required this.imageAsset,
+    required this.onTap,
+    this.enabled = true,
+  });
+
+  final double scale;
+  final String imageAsset;
+  final VoidCallback onTap;
+  final bool enabled;
+
+  @override
+  State<_MakeButton> createState() => _MakeButtonState();
+}
+
+class _MakeButtonState extends State<_MakeButton> {
+  bool _hover = false;
+  bool _down = false;
+
+  static const _baseW = 195.0;
+  static const _baseH = 172.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = _baseW * widget.scale;
+    final h = _baseH * widget.scale;
+    final scaleAnim = !_hover && !_down
+        ? 1.0
+        : _down
+            ? 0.97
+            : 1.05;
+
+    return MouseRegion(
+      cursor: widget.enabled
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
+      onEnter: (_) {
+        if (widget.enabled) setState(() => _hover = true);
+      },
+      onExit: (_) {
+        if (widget.enabled) setState(() => _hover = false);
+      },
+      child: GestureDetector(
+        onTapDown: (_) {
+          if (widget.enabled) setState(() => _down = true);
+        },
+        onTapUp: (_) {
+          if (widget.enabled) setState(() => _down = false);
+        },
+        onTapCancel: () {
+          if (widget.enabled) setState(() => _down = false);
+        },
+        onTap: widget.enabled ? widget.onTap : null,
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 120),
+          scale: scaleAnim,
+          child: Opacity(
+            opacity: widget.enabled ? 1.0 : 0.5,
+            child: SizedBox(
+              width: w,
+              height: h,
+              child: Image.asset(
+                widget.imageAsset,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) =>
+                    const Icon(Icons.play_arrow, size: 64),
+              ),
+            ),
+          ),
         ),
       ),
     );

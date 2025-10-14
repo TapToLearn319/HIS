@@ -114,7 +114,7 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                                               ),
                                               SizedBox(width: 6 * scale),
                                               const HelpBadge(
-                                                tooltip: '참여자 목록에서 선택/검색/추가할 수 있어요.',
+                                                tooltip: 'Select students to participate in the random grouping process. You can also add participants beyond the existing students.',
                                                 // assetPath: 'assets/icons/help_gray.png', // 이미지 쓰면 경로 지정
                                                 size: 24,
                                                 gap: -4.0,
@@ -144,13 +144,25 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Text(
-                                          'How to',
-                                          style: TextStyle(
-                                            fontSize: 24 * scale,
-                                            fontWeight: FontWeight.w500,
-                                            color: const Color(0xFF001A36),
-                                          ),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              'How to',
+                                              style: TextStyle(
+                                                fontSize: 24 * scale,
+                                                fontWeight: FontWeight.w500,
+                                                color: const Color(0xFF001A36),
+                                              ),
+                                            ),
+                                            SizedBox(width: 6 * scale),
+                                              const HelpBadge(
+                                                tooltip: 'Please specify the criteria by which you are grouping.        ',
+                                                // assetPath: 'assets/icons/help_gray.png', // 이미지 쓰면 경로 지정
+                                                size: 24,
+                                                gap: -4.0,
+                                                placement: HelpPlacement.right,
+                                              ),
+                                          ],
                                         ),
                                         SizedBox(height: 8 * scale),
                                         _howToCard(
@@ -209,6 +221,16 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                         scale: 1.0,
                         onTap: c.makeGroups,
                         imageAsset: 'assets/logo_bird_make.png',
+                      ),
+                    ),
+                    const Positioned(
+                      right: 10,
+                      bottom: 130,
+                      child: HelpBadge(
+                        tooltip:
+                            "After selecting all the settings, click to start grouping. Groups that have been created can be modified.",
+                        placement: HelpPlacement.left,
+                        size: 28,
                       ),
                     ),
                     // Positioned(

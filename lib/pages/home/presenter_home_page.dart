@@ -1505,61 +1505,107 @@ class _ClassToggleFabImage extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-Widget build(BuildContext context) {
-  return Positioned(
-    right: 16,
-    bottom: 16,
-    child: SafeArea(
-      top: false,
-      child: SizedBox(
-        width: 200,   // ← 크기 조절 포인트 1 (vote 페이지 느낌: 160~200 추천)
-        height: 200,  // ← 크기 조절 포인트 1
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            // 버튼 본체: vote 페이지와 동일한 구조
-            Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                hoverColor: Colors.black.withOpacity(0.05),
-                splashColor: Colors.black.withOpacity(0.1),
+  Widget build(BuildContext context) {
+    return Positioned(
+      right: 16,
+      bottom: 16,
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          width: 200,
+          height: 200,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              // ✅ 여기부터 수정: hover / click 애니메이션 버튼
+              _MakeButton(
+                scale: 1.0,
+                imageAsset: running
+                    ? 'assets/logo_bird_save.png'
+                    : 'assets/logo_bird_begin.png',
+                tooltip: running ? 'Stop class' : 'Start class',
                 onTap: onTap,
-                child: Tooltip(
-                  message: running ? 'Stop class' : 'Start class',
-                  child: Padding(
-                    padding: const EdgeInsets.all(10.0), // ← 크기 조절 포인트 2 (아이콘 여백)
-                    child: Image.asset(
-                      running
-                          ? 'assets/logo_bird_save.png'
-                          : 'assets/logo_bird_begin.png',
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => Icon(
-                        running ? Icons.stop_circle : Icons.play_circle_fill,
-                        size: 72, // 에러 폴백 아이콘 크기
-                        color: running ? Colors.redAccent : Colors.indigo,
-                      ),
-                    ),
-                  ),
+              ),
+
+              // 기존 HelpBadge 유지
+              const Positioned(
+                right: -2,
+                top: -2,
+                child: HelpBadge(
+                  tooltip:
+                      "Pressing BEGIN will mark students as late from that point onward. Pressing SAVE will save the attendance information for the current date and class.",
+                  placement: HelpPlacement.left,
+                  size: 28,
                 ),
               ),
-            ),
-
-            // 배지: 버튼 우상단에 살짝 겹치게
-            const Positioned(
-              right: -2,
-              top: -2,
-              child: HelpBadge(
-                tooltip:
-                    "Pressing BEGIN will mark students as late from that point onward. Pressing SAVE will save the attendance information for the current date and class.",
-                placement: HelpPlacement.left,
-                size: 28,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
+
+/// 🎨 공통 버튼 (hover + click 애니메이션)
+class _MakeButton extends StatefulWidget {
+  const _MakeButton({
+    required this.scale,
+    required this.imageAsset,
+    required this.onTap,
+    this.tooltip,
+  });
+
+  final double scale;
+  final String imageAsset;
+  final VoidCallback onTap;
+  final String? tooltip;
+
+  @override
+  State<_MakeButton> createState() => _MakeButtonState();
+}
+
+class _MakeButtonState extends State<_MakeButton> {
+  bool _hover = false;
+  bool _down = false;
+
+  static const _baseW = 195.0;
+  static const _baseH = 172.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = _baseW * widget.scale;
+    final h = _baseH * widget.scale;
+    final scaleAnim = _down ? 0.98 : (_hover ? 1.03 : 1.0);
+
+    final image = Image.asset(
+      widget.imageAsset,
+      fit: BoxFit.contain,
+      errorBuilder: (_, __, ___) => const Icon(
+        Icons.error,
+        size: 72,
+        color: Colors.grey,
+      ),
+    );
+
+    final content = widget.tooltip != null
+        ? Tooltip(message: widget.tooltip!, child: image)
+        : image;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _down = true),
+        onTapCancel: () => setState(() => _down = false),
+        onTapUp: (_) => setState(() => _down = false),
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 120),
+          scale: scaleAnim,
+          child: SizedBox(width: w, height: h, child: content),
+        ),
+      ),
+    );
+  }
 }

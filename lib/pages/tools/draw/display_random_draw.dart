@@ -1,45 +1,156 @@
-// tools/draw/display_random_draw.dart
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 import '../../../provider/hub_provider.dart';
 
-class DisplayRandomDrawPage extends StatelessWidget {
+class DisplayRandomDrawPage extends StatefulWidget {
   const DisplayRandomDrawPage({super.key});
+
+  @override
+  State<DisplayRandomDrawPage> createState() => _DisplayRandomDrawPageState();
+}
+
+class _DisplayRandomDrawPageState extends State<DisplayRandomDrawPage>
+    with TickerProviderStateMixin {
+  bool _animating = false;
+  List<String> _displayNames = [];
+  List<String> _allNamesPool = [];
+  List<bool> _locked = []; // 이미 멈춘 슬롯
+  List<AnimationController> _zoomControllers = [];
+  bool _firstLoad = true; 
+
+  final Random _rand = Random();
+
+  Future<void> _startSlotAnimation(List<String> finalNames) async {
+    if (_animating) return;
+    setState(() {
+      _animating = true;
+      _displayNames = List.generate(finalNames.length, (_) => '');
+      _locked = List.generate(finalNames.length, (_) => false);
+      _zoomControllers = List.generate(
+        finalNames.length,
+        (_) => AnimationController(
+          vsync: this,
+          duration: const Duration(milliseconds: 300),
+          lowerBound: 1.0,
+          upperBound: 1.3,
+        ),
+      );
+    });
+
+    // 슬롯별로 독립적인 회전 루프
+    for (int i = 0; i < finalNames.length; i++) {
+      _spinSingleSlot(i);
+    }
+
+    // 순차적으로 2초 간격으로 멈춤
+    for (int i = 0; i < finalNames.length; i++) {
+      await Future.delayed(const Duration(seconds: 2));
+      if (!mounted) return;
+      setState(() {
+        _locked[i] = true;
+        _displayNames[i] = finalNames[i];
+      });
+      _zoomControllers[i].forward(from: 0);
+      // 줌인 후 다시 줄이기
+      _zoomControllers[i].addStatusListener((status) {
+        if (status == AnimationStatus.completed) {
+          _zoomControllers[i].reverse();
+        }
+      });
+    }
+
+    setState(() {
+      _animating = false;
+    });
+  }
+
+  Future<void> _spinSingleSlot(int index) async {
+    int delay = 50;
+    while (mounted && !_locked[index]) {
+      await Future.delayed(Duration(milliseconds: delay));
+      if (!_locked[index] && _allNamesPool.isNotEmpty) {
+        setState(() {
+          _displayNames[index] =
+              _allNamesPool[_rand.nextInt(_allNamesPool.length)];
+        });
+      }
+      // 점점 느려지는 효과
+      if (delay < 150) delay += 2;
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final c in _zoomControllers) {
+      c.dispose();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final hubId = context.watch<HubProvider>().hubId;
 
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFFF6FAFF), // 밝은 하늘색
       body: SafeArea(
         child: Center(
           child: (hubId == null)
-              ? const Text('No hub', style: TextStyle(color: Colors.white))
+              ? const Text('No hub', style: TextStyle(color: Colors.black))
               : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                   stream: FirebaseFirestore.instance
-                      .doc('hubs/$hubId/draw/display')
+                      .doc('hubs/$hubId/draws/display')
                       .snapshots(),
                   builder: (context, snap) {
                     if (!snap.hasData || !snap.data!.exists) {
                       return const Text('Waiting…',
-                          style: TextStyle(color: Colors.white, fontSize: 36));
+                          style:
+                              TextStyle(color: Colors.black54, fontSize: 36));
                     }
+
                     final data = snap.data!.data()!;
                     final show = (data['show'] as bool?) ?? false;
                     final mode = (data['mode'] as String?) ?? 'lots';
                     final title = (data['title'] as String?) ?? '';
-                    final names = (data['names'] as List?)?.cast<String>() ?? const [];
-
+                    final names =
+                        (data['names'] as List?)?.cast<String>() ?? const [];
+                    // ✅ 첫 진입일 경우, 이전 show=true 데이터가 있더라도 무조건 Waiting 표시
+                      if (_firstLoad) {
+                        _firstLoad = false;
+                        return const Text(
+                          'Waiting…',
+                          style: TextStyle(color: Colors.black54, fontSize: 36),
+                        );
+                      }
                     if (!show || names.isEmpty) {
                       return const Text('Waiting…',
-                          style: TextStyle(color: Colors.white, fontSize: 36));
+                          style:
+                              TextStyle(color: Colors.black54, fontSize: 36));
                     }
 
-                    // 렌더
+                    // 전체 학생 풀 가져오기
+                    FirebaseFirestore.instance
+                        .collection('hubs/$hubId/students')
+                        .get()
+                        .then((snap) {
+                      _allNamesPool = snap.docs
+                          .map((d) => (d.data()['name'] as String?)?.trim())
+                          .whereType<String>()
+                          .toList();
+                    });
+
+                    // 새로운 draw 시작
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (!_animating &&
+                          (_displayNames.isEmpty ||
+                              !_displayNames.contains(names.first))) {
+                        _startSlotAnimation(names);
+                      }
+                    });
+
                     return Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
@@ -49,27 +160,14 @@ class DisplayRandomDrawPage extends StatelessWidget {
                             child: Text(
                               title,
                               style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 48,
+                                color: Colors.black,
+                                fontSize: 40,
                                 fontWeight: FontWeight.w800,
                               ),
                               textAlign: TextAlign.center,
                             ),
                           ),
-                        // lots: 이름만, ordering: 번호 + 이름
-                        for (int i = 0; i < names.length; i++)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            child: Text(
-                              mode == 'ordering' ? '${i + 1}. ${names[i]}' : names[i],
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 40,
-                                fontWeight: FontWeight.w700,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
+                        _buildAnimatedList(mode, _displayNames.isEmpty ? names : _displayNames),
                       ],
                     );
                   },
@@ -78,256 +176,36 @@ class DisplayRandomDrawPage extends StatelessWidget {
       ),
     );
   }
-}
 
-/* -------------------- Waiting View -------------------- */
-
-class _WaitingView extends StatelessWidget {
-  const _WaitingView({this.title});
-
-  final String? title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 1000),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              if (title != null && title!.isNotEmpty) ...[
-                Text(
-                  title!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 42, fontWeight: FontWeight.w800, color: Color(0xFF001A36),
-                  ),
-                ),
-                const SizedBox(height: 24),
-              ],
-              const Icon(Icons.hourglass_empty, size: 96, color: Colors.black54),
-              const SizedBox(height: 16),
-              const Text(
-                'Waiting for presenter…',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'The screen will update automatically when the presenter presses SHOW.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, color: Colors.black54),
-              ),
-            ],
-          ),
-        ),
+  Widget _buildAnimatedList(String mode, List<String> names) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 40),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFD2D2D2), width: 1),
       ),
-    );
-  }
-}
-
-/* -------------------- Drawing lots View -------------------- */
-
-class _DrawingLotsView extends StatelessWidget {
-  const _DrawingLotsView({super.key, this.title, required this.winners});
-
-  final String? title;
-  final List<String> winners;
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final maxCols = size.width ~/ 320;
-    final crossAxisCount = maxCols.clamp(1, 5);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: 40,
+        runSpacing: 12,
         children: [
-          if (title != null && title!.isNotEmpty) ...[
-            Text(
-              title!,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 42, fontWeight: FontWeight.w800, color: Color(0xFF001A36),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          const Text(
-            'Winners',
-            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, color: Colors.black87),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.all(12),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: crossAxisCount,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                childAspectRatio: 4 / 2,
-              ),
-              itemCount: winners.length,
-              itemBuilder: (_, i) => _NameCard(title: winners[i]),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/* -------------------- Ordering View -------------------- */
-
-class _OrderingView extends StatelessWidget {
-  const _OrderingView({super.key, this.title, required this.ordered});
-
-  final String? title;
-  final List<String> ordered;
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final maxCols = size.width ~/ 460;
-    final crossAxisCount = maxCols.clamp(1, 3);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          if (title != null && title!.isNotEmpty) ...[
-            Text(
-              title!,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 42, fontWeight: FontWeight.w800, color: Color(0xFF001A36),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
-          const Text(
-            'Order',
-            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, color: Colors.black87),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: GridView.builder(
-              padding: const EdgeInsets.all(12),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: crossAxisCount,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                childAspectRatio: 16 / 3.5,
-              ),
-              itemCount: ordered.length,
-              itemBuilder: (_, i) => _OrderRow(index: i + 1, name: ordered[i]),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/* -------------------- Small UI Parts -------------------- */
-
-class _NameCard extends StatelessWidget {
-  const _NameCard({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: Color(0xFFD2D2D2), width: 1),
-      ),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          child: Text(
-            title,
-            textAlign: TextAlign.center,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 28, fontWeight: FontWeight.w800, color: Color(0xFF0B1324),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _OrderRow extends StatelessWidget {
-  const _OrderRow({required this.index, required this.name});
-
-  final int index;
-  final String name;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: const BorderSide(color: Color(0xFFD2D2D2), width: 1),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        child: Row(
-          children: [
-            Container(
-              width: 44,
-              height: 44,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEEF2FF),
-                borderRadius: BorderRadius.circular(12),
-              ),
+          for (int i = 0; i < names.length; i++)
+            ScaleTransition(
+              scale: _zoomControllers.length > i
+                  ? _zoomControllers[i]
+                  : const AlwaysStoppedAnimation(1.0),
               child: Text(
-                '$index',
+                mode == 'ordering' ? '${i + 1}. ${names[i]}' : names[i],
                 style: const TextStyle(
-                  fontSize: 22, fontWeight: FontWeight.w900, color: Color(0xFF111827),
+                  color: Colors.black,
+                  fontSize: 30,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                name,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 26, fontWeight: FontWeight.w800, color: Color(0xFF0B1324),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _CenteredMessage extends StatelessWidget {
-  const _CenteredMessage(this.text);
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        text,
-        style: const TextStyle(fontSize: 20, color: Colors.black54),
+        ],
       ),
     );
   }
