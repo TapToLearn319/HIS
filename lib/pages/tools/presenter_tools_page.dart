@@ -1,6 +1,6 @@
 // lib/pages/tools/presenter_tools_page.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
-
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -11,8 +11,7 @@ import 'vote/vote_manager.dart';
 // ▶ Tools 입장만으로 세션/좌석을 바로 준비시키기 위해 추가
 import '../../provider/session_provider.dart';
 import '../../provider/seat_map_provider.dart';
-
-const String kHubId = 'hub-001';
+import '../../provider/hub_provider.dart'; // ✅ 허브 프로바이더 추가
 
 const double _kGutter = 16.0;
 const double _kToolsAspect = 1.6;
@@ -25,7 +24,9 @@ class PresenterToolsPage extends StatefulWidget {
 }
 
 class _PresenterToolsPageState extends State<PresenterToolsPage> {
-  // 6개 카드
+  bool _displayReady = false;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _readySub;
+
   final List<ToolItem> tools = [
     ToolItem(
       id: 'attendance',
@@ -63,7 +64,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
     ToolItem(
       id: 'timer',
       title: 'Timer',
-      description: 'Manage class time effeciantly',
+      description: 'Manage class time efficiently',
       icon: Icons.alarm_outlined,
       color: const Color(0xFF9A6EFF),
       bgColor: const Color(0x339A6EFF),
@@ -99,7 +100,7 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       description: 'Select students at random',
       icon: Icons.check_box_outlined,
       color: const Color(0xFF44DAAD),
-      bgColor: const Color(0x33A9E817),
+      bgColor: const Color(0x3344DAAD),
       usage: "",
       trending: false,
       route: '/tools/draw',
@@ -108,30 +109,83 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
 
   final List<QuickAction> quickActions = const [
     QuickAction('Start Timer', Icons.timer_outlined, Color(0xFF3B82F6)),
-    QuickAction(
-      'Take Attendance',
-      Icons.check_circle_outline,
-      Color(0xFFEF4444),
-    ),
+    QuickAction('Take Attendance', Icons.check_circle_outline, Color(0xFFEF4444)),
     QuickAction('Create Poll', Icons.how_to_vote_outlined, Color(0xFF10B981)),
     QuickAction('New Quiz', Icons.psychology_alt_outlined, Color(0xFFF59E0B)),
   ];
 
-  bool _boundOnce = false; // didChangeDependencies 보강 바인딩 1회만
+  bool _boundOnce = false;
 
   @override
   void initState() {
     super.initState();
-    // Tools 들어오자마자 세션 확정 + seatMap 구독
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ensureSessionAndBindSeatMap();
+      _listenDisplayReady();
     });
+  }
+
+void _listenDisplayReady() async {
+  final hubId = context.read<HubProvider>().hubId;
+  debugPrint('🔍 hubId in _listenDisplayReady(): $hubId');
+  if (hubId == null) return;
+
+  final fs = FirebaseFirestore.instance;
+  final colRef = fs
+      .collection('hubs')
+      .doc(hubId)
+      .collection('displayStatus')
+      .withConverter<Map<String, dynamic>>(
+        fromFirestore: (snap, _) => snap.data() ?? {},
+        toFirestore: (data, _) => data,
+      );
+
+  // ✅ display-main 문서만 관리
+  const displayId = 'display-main';
+  final docRef = colRef.doc(displayId);
+
+  // 🔹 문서 존재 확인 후 생성/초기화
+  final docSnap = await docRef.get();
+  if (!docSnap.exists) {
+    await docRef.set({
+      'ready': false,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    debugPrint('🆕 Created new displayStatus/$displayId document');
+  } else {
+    await docRef.set({
+      'ready': false,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    debugPrint('♻️ Reset displayStatus/$displayId to ready:false');
+  }
+
+  // ✅ 단일 문서 실시간 감시
+  _readySub?.cancel();
+  _readySub = docRef.snapshots().listen(
+    (DocumentSnapshot<Map<String, dynamic>> snap) {
+      final data = snap.data();
+      if (data == null) return;
+
+      final ready = data['ready'] == true;
+      debugPrint('📡 Display ready (display-main): $ready');
+
+      if (mounted) setState(() => _displayReady = ready);
+    },
+  );
+}
+
+
+  @override
+  void dispose() {
+    _readySub?.cancel();
+    super.dispose();
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // 위젯 트리 재결합 타이밍 보강 (1회만)
     if (!_boundOnce) {
       _boundOnce = true;
       _ensureSessionAndBindSeatMap();
@@ -139,70 +193,68 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
   }
 
   Future<void> _ensureSessionAndBindSeatMap() async {
-  final fs = FirebaseFirestore.instance;
-  final session = context.read<SessionProvider>();
-  final seatMap = context.read<SeatMapProvider>();
+    final fs = FirebaseFirestore.instance;
+    final hubId = context.read<HubProvider>().hubId; // ✅ 여기서도 Provider 사용
+    if (hubId == null) return;
 
-  // 0) 허브 currentSessionId가 이미 있으면 그것만 신뢰하고 바인딩, 덮어쓰지 않음
-  final hubRef = fs.doc('hubs/$kHubId');
-  final hubSnap = await hubRef.get();
-  final hubSid = hubSnap.data()?['currentSessionId'] as String?;
-  if (hubSid != null && hubSid.isNotEmpty) {
-    if (session.sessionId != hubSid) session.setSession(hubSid);
-    try { await seatMap.bindSession(hubSid); } catch (_) {}
-    return;
-  }
+    final session = context.read<SessionProvider>();
+    final seatMap = context.read<SeatMapProvider>();
 
-  // 1) Provider에 세션이 이미 있으면 그걸 허브에 "최초 세팅"만 함
-  if (session.sessionId != null) {
-    final sid = session.sessionId!;
+    final hubRef = fs.doc('hubs/$hubId');
+    final hubSnap = await hubRef.get();
+    final hubSid = hubSnap.data()?['currentSessionId'] as String?;
+    if (hubSid != null && hubSid.isNotEmpty) {
+      if (session.sessionId != hubSid) session.setSession(hubSid);
+      try { await seatMap.bindSession(hubSid); } catch (_) {}
+      return;
+    }
+
+    if (session.sessionId != null) {
+      final sid = session.sessionId!;
+      try { await seatMap.bindSession(sid); } catch (_) {}
+      await hubRef.set({
+        'currentSessionId': sid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return;
+    }
+
+    String? sid;
+    try {
+      final hubSess = await fs
+          .collection('hubs/$hubId/sessions')
+          .orderBy('updatedAt', descending: true)
+          .limit(1)
+          .get();
+      if (hubSess.docs.isNotEmpty) sid = hubSess.docs.first.id;
+    } catch (_) {}
+
+    if (sid == null) {
+      try {
+        final rootSess = await fs
+            .collection('sessions')
+            .orderBy('updatedAt', descending: true)
+            .limit(1)
+            .get();
+        if (rootSess.docs.isNotEmpty) sid = rootSess.docs.first.id;
+      } catch (_) {}
+    }
+
+    sid ??= _defaultSessionId();
+
+    await fs.doc('hubs/$hubId/sessions/$sid').set({
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'note': 'auto (tools entry)',
+    }, SetOptions(merge: true));
+
+    session.setSession(sid);
     try { await seatMap.bindSession(sid); } catch (_) {}
     await hubRef.set({
       'currentSessionId': sid,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
-    return;
   }
-
-  // 2) 허브 스코프에서 최신 세션 시도 → 없으면 루트(sessions) 폴백 → 그래도 없으면 새로 생성
-  String? sid;
-  try {
-    final hubSess = await fs
-        .collection('hubs/$kHubId/sessions')
-        .orderBy('updatedAt', descending: true)
-        .limit(1)
-        .get();
-    if (hubSess.docs.isNotEmpty) sid = hubSess.docs.first.id;
-  } catch (_) {}
-
-  if (sid == null) {
-    try {
-      final rootSess = await fs
-          .collection('sessions')
-          .orderBy('updatedAt', descending: true)
-          .limit(1)
-          .get();
-      if (rootSess.docs.isNotEmpty) sid = rootSess.docs.first.id;
-    } catch (_) {}
-  }
-
-  sid ??= _defaultSessionId();
-
-  // 허브 스코프 세션 문서 보장(없으면 생성)
-  await fs.doc('hubs/$kHubId/sessions/$sid').set({
-    'createdAt': FieldValue.serverTimestamp(),
-    'updatedAt': FieldValue.serverTimestamp(),
-    'note': 'auto (tools entry)',
-  }, SetOptions(merge: true));
-
-  // Provider 바인딩 + seatMap 구독 + 허브에 "최초 기록"
-  session.setSession(sid);
-  try { await seatMap.bindSession(sid); } catch (_) {}
-  await hubRef.set({
-    'currentSessionId': sid,
-    'updatedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
-}
 
   String _defaultSessionId() {
     final now = DateTime.now();
@@ -211,31 +263,26 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
         '${now.minute.toString().padLeft(2, '0')}';
   }
 
-  // ----------------- ✅ 카드 탭 가드: Random Seat 차단 -----------------
   Future<void> _onToolTap(BuildContext context, ToolItem t) async {
     if (t.id == 'random_seat') {
       final session = context.read<SessionProvider>();
-      // 세션 바인딩이 아직 없으면 실제로 세션 존재 여부까지 확인
       if (session.sessionId == null) {
         try {
-          final snap =
-              await FirebaseFirestore.instance
-                  .collection('sessions')
-                  .limit(1)
-                  .get();
+          final snap = await FirebaseFirestore.instance
+              .collection('sessions')
+              .limit(1)
+              .get();
           final hasAnySession = snap.docs.isNotEmpty;
           if (!hasAnySession) {
             await _showNeedSessionDialog(context);
-            return; // ▶ 진입 차단
+            return;
           }
         } catch (_) {
-          // 조회 에러 시도 세션이 확실치 않으면 진입 막고 안내
           await _showNeedSessionDialog(context);
           return;
         }
       }
     }
-    // 통과 시 정상 이동
     if (!mounted) return;
     Navigator.pushNamed(context, t.route);
   }
@@ -243,26 +290,22 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
   Future<void> _showNeedSessionDialog(BuildContext context) async {
     await showDialog(
       context: context,
-      builder:
-          (_) => AlertDialog(
-            title: const Text('세션이 필요해요'),
-            content: const Text(
-              '랜덤 좌석 기능을 사용하려면 먼저 세션을 생성하세요.\n상단의 Session 버튼에서 새 세션을 만들 수 있어요.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('확인'),
-              ),
-            ],
+      builder: (_) => AlertDialog(
+        title: const Text('세션이 필요해요'),
+        content: const Text(
+          '랜덤 좌석 기능을 사용하려면 먼저 세션을 생성하세요.\n상단의 Session 버튼에서 새 세션을 만들 수 있어요.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('확인'),
           ),
+        ],
+      ),
     );
   }
 
-  Widget _beforeClassSectionGrid(
-    BuildContext context, {
-    required int crossAxisCount,
-  }) {
+  Widget _beforeClassSectionGrid(BuildContext context, {required int crossAxisCount}) {
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -286,13 +329,12 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
           label: 'Warm-up',
           icon: Icons.mood,
           iconColor: const Color(0xFF44A0FF),
-          onTap: () {}, // TODO
+          onTap: () {},
         );
       },
     );
   }
 
-  // 버튼 카드 하나 (크기 지정 X: 그리드가 크기 결정)
   Widget _bcCard({
     required String label,
     required IconData icon,
@@ -322,51 +364,39 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
-    final bool wide = width >= 1024;
 
-    return AppScaffold(
-      selectedIndex: 0,
-      body: Scaffold(
-        backgroundColor: const Color(0xFFF6FAFF),
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            int crossAxisCount = 1;
-            if (constraints.maxWidth >= 1200) {
-              crossAxisCount = 3;
-            } else if (constraints.maxWidth >= 700) {
-              crossAxisCount = 2;
-            }
-            final double cardW =
-                (constraints.maxWidth - (crossAxisCount - 1) * _kGutter) /
-                crossAxisCount;
-            final double cardH = cardW / _kToolsAspect;
+    return Stack(
+      children: [
+        AppScaffold(
+          selectedIndex: 0,
+          body: Scaffold(
+            backgroundColor: const Color(0xFFF6FAFF),
+            body: LayoutBuilder(
+              builder: (context, constraints) {
+                int crossAxisCount = 1;
+                if (constraints.maxWidth >= 1200) {
+                  crossAxisCount = 3;
+                } else if (constraints.maxWidth >= 700) {
+                  crossAxisCount = 2;
+                }
 
-            return SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 77),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Before Class
-                  const Text(
-                    'Before Class',
-                    style: TextStyle(
-                      fontSize: 48,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF001A36),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  _beforeClassSectionGrid(
-                    context,
-                    crossAxisCount: crossAxisCount,
-                  ),
-
-                  const SizedBox(height: 32),
-
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Text(
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 77),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Before Class',
+                        style: TextStyle(
+                          fontSize: 48,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF001A36),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _beforeClassSectionGrid(context, crossAxisCount: crossAxisCount),
+                      const SizedBox(height: 32),
+                      const Text(
                         'Classroom Tools',
                         style: TextStyle(
                           fontSize: 48,
@@ -374,33 +404,47 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
                           color: Color(0xFF111827),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: crossAxisCount,
+                          crossAxisSpacing: _kGutter,
+                          mainAxisSpacing: _kGutter,
+                          childAspectRatio: _kToolsAspect,
+                        ),
+                        itemCount: tools.length,
+                        itemBuilder: (context, i) =>
+                            ToolCard(item: tools[i], onTap: () => _onToolTap(context, tools[i])),
+                      ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-
-                  // 6개 카드 그리드
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: crossAxisCount,
-                      crossAxisSpacing: _kGutter,
-                      mainAxisSpacing: _kGutter,
-                      childAspectRatio: _kToolsAspect,
-                    ),
-                    itemCount: tools.length,
-                    itemBuilder:
-                        (context, i) => ToolCard(
-                          item: tools[i],
-                          onTap: () => _onToolTap(context, tools[i]),
-                        ),
-                  ),
-                ],
-              ),
-            );
-          },
+                );
+              },
+            ),
+          ),
         ),
-      ),
+        if (!_displayReady)
+          Positioned.fill(
+            child: Container(
+              color: Colors.white.withOpacity(0.85),
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(color: Colors.black),
+                    SizedBox(height: 20),
+                    Text(
+                      'Waiting for Display to be ready...',
+                      style: TextStyle(fontSize: 18, color: Colors.black87),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -471,11 +515,6 @@ class ToolCard extends StatelessWidget {
             final titleFs = 21.0 * s;
             final descFs = 17.0 * s;
             final usageFs = 12.0 * s;
-            final gapLg = 14.0 * s;
-            final gapSm = 6.0 * s;
-            final chipPadH = 8.0 * s;
-            final chipPadV = 4.0 * s;
-            final chipFs = 11.0 * s;
             final topGap = 8.0 * s;
 
             return Padding(
@@ -483,7 +522,6 @@ class ToolCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── 상단: 아이콘 · (spacer) · trending · Open ────────────────
                   Row(
                     children: [
                       Container(
@@ -493,51 +531,13 @@ class ToolCard extends StatelessWidget {
                           color: item.bgColor,
                           borderRadius: BorderRadius.circular(12 * s),
                         ),
-                        child: Icon(
-                          item.icon,
-                          color: item.color,
-                          size: iconSize,
-                        ),
+                        child: Icon(item.icon, color: item.color, size: iconSize),
                       ),
                       const Spacer(),
-                      if (item.trending) ...[
-                        Container(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: chipPadH,
-                            vertical: chipPadV,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFD1FAE5),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.trending_up,
-                                size: 14.0 * s,
-                                color: const Color(0xFF047857),
-                              ),
-                              SizedBox(width: 4 * s),
-                              Text(
-                                'Trending',
-                                style: TextStyle(
-                                  color: const Color(0xFF047857),
-                                  fontSize: chipFs,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        SizedBox(width: 8 * s),
-                      ],
-                      _OpenButton(scale: s, onTap: onTap), // ▲ 상단 우측 버튼
+                      _OpenButton(scale: s, onTap: onTap),
                     ],
                   ),
                   SizedBox(height: topGap),
-
-                  // 제목 / 설명
                   Text(
                     item.title,
                     style: TextStyle(
@@ -546,7 +546,7 @@ class ToolCard extends StatelessWidget {
                       color: const Color(0xFF111827),
                     ),
                   ),
-                  SizedBox(height: gapSm),
+                  SizedBox(height: 6 * s),
                   Text(
                     item.description,
                     style: TextStyle(
@@ -555,10 +555,7 @@ class ToolCard extends StatelessWidget {
                       color: const Color(0xFF6B7280),
                     ),
                   ),
-
                   const Spacer(),
-
-                  // 하단: usage만 (버튼은 제거됨)
                   Text(
                     item.usage,
                     style: TextStyle(
@@ -583,16 +580,12 @@ class _OpenButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = 13.0 * scale;
-    final hPad = 12.0 * scale;
-    final vPad = 5.0 * scale;
-
     return TextButton(
       onPressed: onTap,
       style: TextButton.styleFrom(
         backgroundColor: const Color(0xFF44A0FF),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(radius),
+          borderRadius: BorderRadius.circular(13 * scale),
         ),
         padding: EdgeInsets.zero,
         minimumSize: Size(60 * scale, 30 * scale),

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:project/widgets/help_badge.dart';
 import 'package:provider/provider.dart';
 import '../../../provider/session_provider.dart';
 import '../../../main.dart';
@@ -543,8 +544,8 @@ Future<void> _forceResetOnEnter(String hubId) async {
                         child: Container(
                           width: 948,
                           alignment: Alignment.centerLeft,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: const [
                               Text(
                                 'Poll Options',
@@ -554,7 +555,7 @@ Future<void> _forceResetOnEnter(String hubId) async {
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),
-                              SizedBox(height: 4),
+                              SizedBox(width: 4),
                               Text(
                                 '*Up to 4',
                                 style: TextStyle(
@@ -562,6 +563,13 @@ Future<void> _forceResetOnEnter(String hubId) async {
                                   fontSize: 15,
                                   fontWeight: FontWeight.w400,
                                 ),
+                                
+                              ),
+                              const HelpBadge(
+                                tooltip: 'Set up the items for voting.',
+                                placement: HelpPlacement.right, // 말풍선이 왼쪽으로 펼쳐지게
+                                // gap: 2, // 네가 쓰는 HelpBadge가 gap 지원하면 켜줘서 더 가깝게
+                                size: 24,
                               ),
                             ],
                           ),
@@ -583,31 +591,12 @@ Future<void> _forceResetOnEnter(String hubId) async {
                 bottom: 16,
                 child: SafeArea(
                   top: false,
-                  child: SizedBox(
-                    width: 160,
-                    height: 160,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: _handleStartStop,
-                        child: Padding(
-                          padding: const EdgeInsets.all(10.0),
-                          child: Image.asset(
-                            _isRunning
-                                ? 'assets/logo_bird_stop.png'
-                                : 'assets/logo_bird_start.png',
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) {
-                              return Image.asset(
-                                'assets/logo_bird_start.png',
-                                fit: BoxFit.contain,
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
+                  child: _MakeButton(
+                    scale: 0.8, // 🔹 버튼 크기 비율 (1.0이면 원본)
+                    imageAsset: _isRunning
+                        ? 'assets/logo_bird_stop.png'
+                        : 'assets/logo_bird_start.png',
+                    onTap: _handleStartStop,
                   ),
                 ),
               ),
@@ -768,6 +757,7 @@ Future<void> _forceResetOnEnter(String hubId) async {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
+        
         Expanded(
           child: ConstrainedBox(
             constraints: const BoxConstraints.tightFor(height: 60),
@@ -796,27 +786,44 @@ Future<void> _forceResetOnEnter(String hubId) async {
                     width: 1,
                   ),
                 ),
-                suffixIcon: SizedBox(
-                  width: 170,
+                suffixIcon: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minWidth: 150,
+                    maxWidth: 200, // ✅ suffixIcon 전체 폭 제한
+                  ),
                   child: Row(
-                    mainAxisSize: MainAxisSize.max,
+                    mainAxisSize: MainAxisSize.min, // ✅ 내부 요소 크기에만 맞춤
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.centerRight,
+                      if (i == 0) ...[
+                        const HelpBadge(
+                          tooltip: 'You can customize how students select the correct answer.',
+                          placement: HelpPlacement.left,
+                          size: 26,
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+
+                      // ✅ 텍스트 영역 유연하게 줄임
+                      Flexible(
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 4),
                           child: Text(
                             '${bind.button} - ${bind.gesture}',
-                            textAlign: TextAlign.right,
-                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.left,
+                            overflow: TextOverflow.ellipsis, // ✅ 넘치면 자동 줄임
                             style: const TextStyle(
                               color: Color(0xFF8D8D8D),
-                              fontSize: 21,
+                              fontSize: 20,
                               fontWeight: FontWeight.w400,
                             ),
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
+
+                      const SizedBox(width: 4),
+
+                      // ✅ 메뉴 버튼
                       Theme(
                         data: Theme.of(context).copyWith(
                           popupMenuTheme: PopupMenuThemeData(
@@ -840,20 +847,16 @@ Future<void> _forceResetOnEnter(String hubId) async {
                           ),
                           elevation: 0,
                           itemBuilder: (_) {
-                            final usedExceptMe =
-                                _bindings
-                                    .asMap()
-                                    .entries
-                                    .where((e) => e.key != i)
-                                    .map(
-                                      (e) =>
-                                          '${e.value.button}-${e.value.gesture}',
-                                    )
-                                    .toSet();
+                            final usedExceptMe = _bindings
+                                .asMap()
+                                .entries
+                                .where((e) => e.key != i)
+                                .map((e) => '${e.value.button}-${e.value.gesture}')
+                                .toSet();
 
                             final currentKey = '${bind.button}-${bind.gesture}';
 
-                            List<_MenuOpt> opts = const [
+                            const opts = [
                               _MenuOpt(1, '1 - single', '1-single'),
                               _MenuOpt(2, '1 - hold', '1-hold'),
                               _MenuOpt(3, '2 - single', '2-single'),
@@ -868,31 +871,27 @@ Future<void> _forceResetOnEnter(String hubId) async {
                                 value: o.value,
                                 enabled: !disabled,
                                 height: 44,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                ),
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
                                 child: Row(
                                   children: [
                                     SizedBox(
                                       width: 24,
-                                      child:
-                                          selected
-                                              ? const Icon(
-                                                  Icons.check,
-                                                  size: 18,
-                                                  color: Colors.black87,
-                                                )
-                                              : const SizedBox.shrink(),
+                                      child: selected
+                                          ? const Icon(
+                                              Icons.check,
+                                              size: 18,
+                                              color: Colors.black87,
+                                            )
+                                          : const SizedBox.shrink(),
                                     ),
                                     const SizedBox(width: 6),
                                     Expanded(
                                       child: Text(
                                         o.label,
                                         style: TextStyle(
-                                          decoration:
-                                              disabled
-                                                  ? TextDecoration.lineThrough
-                                                  : null,
+                                          decoration: disabled
+                                              ? TextDecoration.lineThrough
+                                              : null,
                                         ),
                                       ),
                                     ),
@@ -1087,29 +1086,76 @@ Future<void> _forceResetOnEnter(String hubId) async {
     );
   }
 
-  Widget _settingRow({
-    required String title,
-    required Widget left,
-    required Widget right,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        ConstrainedBox(
-          constraints: const BoxConstraints.tightFor(width: 404),
-          child: Text(
-            title,
-            style: const TextStyle(
-              color: Color(0xFF001A36),
-              fontSize: 24,
-              fontWeight: FontWeight.w500,
+Widget _settingRow({
+  required String title,
+  required Widget left,
+  required Widget right,
+}) {
+  return Row(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      // 왼쪽 제목 + 배지
+      ConstrainedBox(
+        constraints: const BoxConstraints.tightFor(width: 404),
+        child: Row(
+          children: [
+            Text(
+              title,
+              style: const TextStyle(
+                color: Color(0xFF001A36),
+                fontSize: 24,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+            if (title == 'Show results') ...[
+              const HelpBadge(
+                tooltip:
+                    '결과를 실시간으로 보여줄지, 투표 종료 후 공개할지를 설정합니다.',
+                placement: HelpPlacement.right,
+                size: 24,
+              ),
+            ] else if (title == 'Multiple selections') ...[
+              const HelpBadge(
+                tooltip:
+                    '참가자가 여러 항목을 동시에 선택할 수 있게 할지 여부를 설정합니다.',
+                placement: HelpPlacement.right,
+                size: 24,
+              ),
+            ],
+          ],
         ),
-        Row(children: [left, const SizedBox(width: 28), right]),
-      ],
-    );
-  }
+      ),
+
+      // 오른쪽 yes/no 선택부
+      SizedBox(
+        width: 420,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // ✅ 왼쪽 선택지: 폭 고정, 중앙 정렬
+            SizedBox(
+              width: 200, // 두 줄 모두 동일한 폭 확보
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: left,
+              ),
+            ),
+            // ✅ 오른쪽 선택지: 폭 고정, 중앙 정렬
+            SizedBox(
+              width: 200,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: right,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
 
   Widget _dot(bool selected) {
     return AnimatedContainer(
@@ -1190,4 +1236,57 @@ class _MenuOpt {
   final String label;
   final String key;
   const _MenuOpt(this.value, this.label, this.key);
+}
+class _MakeButton extends StatefulWidget {
+  const _MakeButton({
+    required this.scale,
+    required this.onTap,
+    required this.imageAsset,
+  });
+
+  final double scale;
+  final VoidCallback onTap;
+  final String imageAsset;
+
+  @override
+  State<_MakeButton> createState() => _MakeButtonState();
+}
+
+class _MakeButtonState extends State<_MakeButton> {
+  bool _hover = false;
+  bool _down = false;
+
+  static const _baseW = 195.0;
+  static const _baseH = 172.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = _baseW * widget.scale;
+    final h = _baseH * widget.scale;
+    final scaleAnim = _down ? 0.96 : (_hover ? 1.04 : 1.0);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _down = true),
+        onTapCancel: () => setState(() => _down = false),
+        onTapUp: (_) => setState(() => _down = false),
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 120),
+          scale: scaleAnim,
+          child: SizedBox(
+            width: w,
+            height: h,
+            child: Image.asset(
+              widget.imageAsset,
+              fit: BoxFit.contain,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }

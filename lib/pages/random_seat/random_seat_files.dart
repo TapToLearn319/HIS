@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:project/widgets/help_badge.dart';
 import 'package:provider/provider.dart';
 
 import '../../sidebar_menu.dart';
@@ -31,19 +32,50 @@ class RandomSeatFilesPage extends StatelessWidget {
         ),
         backgroundColor: _kAppBg,
         body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: hubId == null
-                ? const Center(child: Text('허브가 설정되지 않았습니다.'))
-                : _FilesGrid(hubId: hubId),
+          child: Stack(
+            clipBehavior: Clip.none, // 혹시 오버플로 막지 않게
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: hubId == null
+                    ? const Center(child: Text('허브가 설정되지 않았습니다.'))
+                    : _FilesGrid(hubId: hubId),
+              ),
+
+              // 1️⃣ Create 버튼 먼저 배치
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: _CreateFab(
+                  onTap: () {
+                    Navigator.pushNamed(context, kRouteRandomSeatCreate);
+                  },
+                ),
+              ),
+
+              // 2️⃣ HelpBadge를 마지막에 두되 pointer를 허용
+              Positioned(
+                right: 15,
+                bottom: 150,
+                child: IgnorePointer(
+                  ignoring: false, // pointer 이벤트 허용
+                  child: MouseRegion(
+                    opaque: false, // 투명 배경에서도 hover 가능
+                    child: const HelpBadge(
+                      tooltip: "Create a new student seating chart.",
+                      placement: HelpPlacement.left,
+                      size: 28,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        floatingActionButton: _CreateFab(
-          onTap: () {
-            Navigator.pushNamed(context, kRouteRandomSeatCreate);
-          },
-        ),
-        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+        floatingActionButton: null,
+        floatingActionButtonLocation: null,
+        
+        
       ),
     );
   }
@@ -510,26 +542,65 @@ class _CreateFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 200,
-      height: 200,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          child: Tooltip(
-            message: 'Create new random seat file',
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: Image.asset(
-                'assets/logo_bird_create.png',
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const Icon(
-                  Icons.add_circle,
-                  size: 64,
-                  color: Colors.indigo,
-                ),
+    return _MakeButton(
+      scale: 1.0,
+      imageAsset: 'assets/logo_bird_create.png',
+      onTap: onTap,
+    );
+  }
+}
+
+/// 🎨 공통 버튼 컴포넌트 (hover + click 애니메이션)
+class _MakeButton extends StatefulWidget {
+  const _MakeButton({
+    required this.scale,
+    required this.onTap,
+    required this.imageAsset,
+  });
+
+  final double scale;
+  final VoidCallback onTap;
+  final String imageAsset;
+
+  @override
+  State<_MakeButton> createState() => _MakeButtonState();
+}
+
+class _MakeButtonState extends State<_MakeButton> {
+  bool _hover = false;
+  bool _down = false;
+
+  static const _baseW = 195.0;
+  static const _baseH = 172.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = _baseW * widget.scale;
+    final h = _baseH * widget.scale;
+    final scaleAnim = _down ? 0.98 : (_hover ? 1.03 : 1.0);
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _down = true),
+        onTapCancel: () => setState(() => _down = false),
+        onTapUp: (_) => setState(() => _down = false),
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 120),
+          scale: scaleAnim,
+          child: SizedBox(
+            width: w,
+            height: h,
+            child: Image.asset(
+              widget.imageAsset,
+              fit: BoxFit.contain,
+              errorBuilder: (_, __, ___) => const Icon(
+                Icons.add_circle,
+                size: 64,
+                color: Colors.indigo,
               ),
             ),
           ),
@@ -538,6 +609,7 @@ class _CreateFab extends StatelessWidget {
     );
   }
 }
+
 
 DateTime? _readTs(dynamic v) {
   if (v is Timestamp) return v.toDate();

@@ -1,5 +1,6 @@
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:project/widgets/help_badge.dart';
 import 'package:provider/provider.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
@@ -980,76 +981,90 @@ class _DesignSurfaceRandom extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               // 헤더: 좌(총원/배치정보) • 중(Board) • 우(MIX)
-              Row(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Total $assignedCount',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '$cols column / $rows row',
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
+                  Align(
+                    alignment: Alignment.topRight,
+                    child: const HelpBadge(
+                      tooltip: 'Select the space that will be left empty.',
+                      placement: HelpPlacement.left, // 말풍선이 왼쪽으로 펼쳐지게
+                      // gap: 2, // 네가 쓰는 HelpBadge가 gap 지원하면 켜줘서 더 가깝게
+                      size: 32,
+                    ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: SizedBox(
-                      height: 40,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFD3FF6E),
-                          borderRadius: BorderRadius.circular(12.0),
-                        ),
-                        child: const Center(
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 16),
-                            child: Text(
-                              'Board',
-                              maxLines: 1,
-                              overflow: TextOverflow.fade,
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.black,
+                  Row(
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Total $assignedCount',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '$cols column / $rows row',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: SizedBox(
+                          height: 40,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFD3FF6E),
+                              borderRadius: BorderRadius.circular(12.0),
+                            ),
+                            child: const Center(
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 16),
+                                child: Text(
+                                  'Board',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.fade,
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.black,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  TextButton.icon(
-                    onPressed: onMix,
-                    icon: const Icon(Icons.shuffle, size: 18),
-                    label: const Text(
-                      'MIX',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFFFF96F1),
+                      const SizedBox(width: 16),
+                      TextButton.icon(
+                        onPressed: onMix,
+                        icon: const Icon(Icons.shuffle, size: 18),
+                        label: const Text(
+                          'MIX',
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFFFF96F1),
+                          ),
+                        ),
+                        style: TextButton.styleFrom(
+                          fixedSize: const Size(106, 40),
+                          backgroundColor: const Color(0x33FF96F1),
+                          foregroundColor: const Color(0xFFFF96F1),
+                          padding: EdgeInsets.zero,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
                       ),
-                    ),
-                    style: TextButton.styleFrom(
-                      fixedSize: const Size(106, 40),
-                      backgroundColor: const Color(0x33FF96F1),
-                      foregroundColor: const Color(0xFFFF96F1),
-                      padding: EdgeInsets.zero,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
+                    ],
                   ),
                 ],
               ),
@@ -1299,33 +1314,11 @@ class _SaveFabImage extends StatelessWidget {
       bottom: 20,
       child: SafeArea(
         top: false,
-        child: SizedBox(
-          width: 200,
-          height: 200,
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(20),
-              hoverColor: Colors.black.withOpacity(0.05),
-              splashColor: Colors.black.withOpacity(0.1),
-              onTap: onTap,
-              child: Tooltip(
-                message: 'Save seat layout (this card)',
-                child: Padding(
-                  padding: const EdgeInsets.all(10.0),
-                  child: Image.asset(
-                    'assets/logo_bird_save.png',
-                    fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => const Icon(
-                      Icons.save_alt,
-                      size: 64,
-                      color: Colors.indigo,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
+        child: _MakeButton(
+          imageAsset: 'assets/logo_bird_save.png',
+          onTap: onTap,
+          scale: 1.0,
+          tooltip: 'Save seat layout (this card)',
         ),
       ),
     );
@@ -1344,42 +1337,25 @@ class _ShowHideFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Opacity(
-      opacity: disabled ? 0.6 : 1,
-      child: SizedBox(
-        width: 200,
-        height: 200,
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(20),
-            hoverColor: Colors.black.withOpacity(0.05),
-            splashColor: Colors.black.withOpacity(0.1),
-            onTap: disabled ? null : onToggle,
-            child: Tooltip(
-              message: show ? 'Hide on display' : 'Show on display',
-              child: Padding(
-                padding: const EdgeInsets.all(10.0),
-                child: Image.asset(
-                  show ? 'assets/logo_bird_hide.png' : 'assets/logo_bird_show.png',
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => ElevatedButton(
-                    onPressed: disabled ? null : onToggle,
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size(140, 56),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                    child: Text(show ? 'HIDE' : 'SHOW', style: const TextStyle(fontSize: 18)),
-                  ),
-                ),
-              ),
-            ),
-          ),
+    return Positioned(
+      right: 180,
+      bottom: 20,
+      child: SafeArea(
+        top: false,
+        child: _MakeButton(
+          imageAsset: show
+              ? 'assets/logo_bird_hide.png'
+              : 'assets/logo_bird_show.png',
+          onTap: onToggle,
+          enabled: !disabled,
+          scale: 1.0,
+          tooltip: show ? 'Hide on display' : 'Show on display',
         ),
       ),
     );
   }
 }
+
 class _DragGhost extends StatelessWidget {
   final String name;
   const _DragGhost({required this.name});
@@ -1401,6 +1377,86 @@ class _DragGhost extends StatelessWidget {
             const SizedBox(width: 6),
             Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
           ],
+        ),
+      ),
+    );
+  }
+}
+// ─────────────────────────────────────────────────────────────
+// 공통 Bird Button (Hover/Click Scale 애니메이션)
+// ─────────────────────────────────────────────────────────────
+class _MakeButton extends StatefulWidget {
+  const _MakeButton({
+    required this.imageAsset,
+    required this.onTap,
+    this.scale = 1.0,
+    this.enabled = true,
+    this.tooltip,
+  });
+
+  final String imageAsset;
+  final VoidCallback onTap;
+  final double scale;
+  final bool enabled;
+  final String? tooltip;
+
+  @override
+  State<_MakeButton> createState() => _MakeButtonState();
+}
+
+class _MakeButtonState extends State<_MakeButton> {
+  bool _hover = false;
+  bool _down = false;
+
+  static const _baseW = 195.0;
+  static const _baseH = 172.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = _baseW * widget.scale;
+    final h = _baseH * widget.scale;
+    final scaleAnim = _down
+        ? 0.96
+        : (_hover ? 1.05 : 1.0);
+
+    return MouseRegion(
+      cursor: widget.enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      onEnter: (_) {
+        if (widget.enabled) setState(() => _hover = true);
+      },
+      onExit: (_) {
+        if (widget.enabled) setState(() => _hover = false);
+      },
+      child: GestureDetector(
+        onTapDown: (_) {
+          if (widget.enabled) setState(() => _down = true);
+        },
+        onTapUp: (_) {
+          if (widget.enabled) setState(() => _down = false);
+        },
+        onTapCancel: () {
+          if (widget.enabled) setState(() => _down = false);
+        },
+        onTap: widget.enabled ? widget.onTap : null,
+        child: AnimatedScale(
+          scale: scaleAnim,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          child: Opacity(
+            opacity: widget.enabled ? 1.0 : 0.5,
+            child: Tooltip(
+              message: widget.tooltip ?? '',
+              child: SizedBox(
+                width: w,
+                height: h,
+                child: Image.asset(
+                  widget.imageAsset,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Icon(Icons.error, size: 48),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

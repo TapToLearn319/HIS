@@ -298,7 +298,9 @@ class _TimerPageState extends State<TimerPage> {
                   Positioned(
                     right: _birdRight,
                     bottom: _birdBottom,
-                    child: GestureDetector(
+                    child: _MakeButton(
+                      scale: _birdSize / 195.0, // 기본 크기 기준으로 스케일 조정
+                      imageAsset: _birdAsset,
                       onTap: () {
                         if (isRunning) {
                           _pauseTimer();
@@ -306,23 +308,6 @@ class _TimerPageState extends State<TimerPage> {
                           _startTimer();
                         }
                       },
-                      child: SizedBox(
-                        width: _birdSize,
-                        height: _birdSize,
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 180),
-                          switchInCurve: Curves.easeOut,
-                          switchOutCurve: Curves.easeIn,
-                          transitionBuilder: (child, anim) => FadeTransition(opacity: anim, child: child),
-                          child: Image.asset(
-                            _birdAsset,
-                            key: ValueKey<String>(_birdAsset),
-                            width: _birdSize,
-                            height: _birdSize,
-                            fit: BoxFit.contain,
-                          ),
-                        ),
-                      ),
                     ),
                   ),
                 ],
@@ -368,3 +353,86 @@ class _TimerPageState extends State<TimerPage> {
     );
   }
 }
+// ─────────────────────────────────────────────
+// 공통 Bird Button (Hover/Click Scale 애니메이션)
+// ─────────────────────────────────────────────
+class _MakeButton extends StatefulWidget {
+  const _MakeButton({
+    required this.scale,
+    required this.imageAsset,
+    required this.onTap,
+    this.enabled = true,
+  });
+
+  final double scale;
+  final String imageAsset;
+  final VoidCallback onTap;
+  final bool enabled;
+
+  @override
+  State<_MakeButton> createState() => _MakeButtonState();
+}
+
+class _MakeButtonState extends State<_MakeButton> {
+  bool _hover = false;
+  bool _down = false;
+
+  static const _baseW = 195.0;
+  static const _baseH = 172.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = _baseW * widget.scale;
+    final h = _baseH * widget.scale;
+    final scaleAnim = _down
+        ? 0.96
+        : (_hover ? 1.05 : 1.0);
+
+    return MouseRegion(
+      cursor: widget.enabled
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
+      onEnter: (_) {
+        if (widget.enabled) setState(() => _hover = true);
+      },
+      onExit: (_) {
+        if (widget.enabled) setState(() => _hover = false);
+      },
+      child: GestureDetector(
+        onTapDown: (_) {
+          if (widget.enabled) setState(() => _down = true);
+        },
+        onTapUp: (_) {
+          if (widget.enabled) setState(() => _down = false);
+        },
+        onTapCancel: () {
+          if (widget.enabled) setState(() => _down = false);
+        },
+        onTap: widget.enabled ? widget.onTap : null,
+        child: AnimatedScale(
+          scale: scaleAnim,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          child: Opacity(
+            opacity: widget.enabled ? 1.0 : 0.5,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, anim) =>
+                  FadeTransition(opacity: anim, child: child),
+              child: Image.asset(
+                widget.imageAsset,
+                key: ValueKey<String>(widget.imageAsset),
+                width: w,
+                height: h,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+

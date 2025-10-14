@@ -38,6 +38,28 @@ class _PresenterRandomDrawPageState extends State<PresenterRandomDrawPage> {
   AutovalidateMode _autoValidate = AutovalidateMode.disabled;
 
   @override
+void initState() {
+  super.initState();
+  _resetDisplayOnEnter();
+}
+
+Future<void> _resetDisplayOnEnter() async {
+  final hubId = context.read<HubProvider>().hubId;
+  if (hubId == null) return;
+
+  final fs = FirebaseFirestore.instance;
+  final doc = fs.doc('hubs/$hubId/draws/display');
+
+  await doc.set({
+    'show': false,
+    'names': [],
+    'title': '',
+    'mode': 'lots',
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+}
+
+  @override
   void dispose() {
     _titleCtrl.dispose();
     _numToPickCtrl.dispose();
@@ -61,7 +83,7 @@ class _PresenterRandomDrawPageState extends State<PresenterRandomDrawPage> {
     final picked = shuffled.take(take).toList();
 
     // 쓰는 문서 경로(둘 다 동일하게 맞춰서 사용)
-    final doc = fs.doc('hubs/$hubId/draw/display');
+    final doc = fs.doc('hubs/$hubId/draws/display');
 
     if (type == DrawType.lots) {
       await doc.set({
@@ -451,7 +473,8 @@ class _PresenterRandomDrawPageState extends State<PresenterRandomDrawPage> {
                           (420 * scale).clamp(360, 520).toDouble();
 
                       // ⬇️ 가운데 정렬된 영역 내부에서 Stack으로 본문+버튼 배치
-                      return Center(
+                      return Align(
+                        alignment: Alignment.topCenter,
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 980),
                           child: Stack(
@@ -661,22 +684,25 @@ class _PresenterRandomDrawPageState extends State<PresenterRandomDrawPage> {
                                               width: 1,
                                             ),
                                           ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                '$totalCount',
-                                                style: const TextStyle(
-                                                  fontSize: 20,
-                                                  fontWeight:
-                                                      FontWeight.w800,
-                                                  color: Colors.black,
+                                          child: SizedBox(
+                                            width: 180 ,
+                                            child: Row(
+                                              
+                                              children: [
+                                                Text(
+                                                  '$totalCount',
+                                                  style: const TextStyle(
+                                                    fontSize: 20,
+                                                    fontWeight:
+                                                        FontWeight.w800,
+                                                    color: Colors.black,
+                                                  ),
                                                 ),
-                                              ),
-                                              const SizedBox(width: 10),
-                                              const Icon(Icons.settings,
-                                                  color: Colors.black87),
-                                            ],
+                                                const Spacer(),
+                                                const Icon(Icons.mode,
+                                                    color: Colors.black87),
+                                              ],
+                                            ),
                                           ),
                                         ),
                                       ),
@@ -691,102 +717,49 @@ class _PresenterRandomDrawPageState extends State<PresenterRandomDrawPage> {
                               Positioned(
                                 right: 16,
                                 bottom: 16,
-                                child: SizedBox(
-                                  width: 160,
-                                  height: 160,
-                                  child: Material(
-                                    color: Colors.transparent,
-                                    child: InkWell(
-                                      borderRadius: BorderRadius.circular(12),
-                                      onTap: () async {
-                                        final hubId = context
-                                            .read<HubProvider>()
-                                            .hubId;
-                                        if (hubId == null) {
-                                          return;
-                                        }
+                                child: _MakeButton(
+                                  scale: 160 / 195, // 기존 크기(160)에 맞게 스케일 조정
+                                  imageAsset: 'assets/logo_bird_show.png',
+                                  onTap: () async {
+                                    final hubId = context.read<HubProvider>().hubId;
+                                    if (hubId == null) return;
 
-                                        // 폼 검증: 실패 시 빨간 테두리/문구만 표시
-                                        if (!_formKey.currentState!
-                                            .validate()) {
-                                          setState(() {
-                                            _autoValidate =
-                                                AutovalidateMode.always;
-                                          });
-                                          return;
-                                        }
+                                    // 폼 검증
+                                    if (!_formKey.currentState!.validate()) {
+                                      setState(() => _autoValidate = AutovalidateMode.always);
+                                      return;
+                                    }
 
-                                        // 전체 풀/선택 풀 결정
-                                        final snap = await FirebaseFirestore
-                                            .instance
-                                            .collection(
-                                                'hubs/$hubId/students')
-                                            .get();
+                                    // 전체 풀 결정
+                                    final snap = await FirebaseFirestore.instance
+                                        .collection('hubs/$hubId/students')
+                                        .get();
 
-                                        final allFromFirebase = <String>[];
-                                        for (final d in snap.docs) {
-                                          final name = (d.data()['name']
-                                                  as String?)
-                                              ?.trim();
-                                          if (name != null &&
-                                              name.isNotEmpty) {
-                                            allFromFirebase.add(name);
-                                          }
-                                        }
-                                        allFromFirebase.sort(
-                                          (a, b) => a
-                                              .toLowerCase()
-                                              .compareTo(
-                                                  b.toLowerCase()),
-                                        );
+                                    final allFromFirebase = <String>[];
+                                    for (final d in snap.docs) {
+                                      final name = (d.data()['name'] as String?)?.trim();
+                                      if (name != null && name.isNotEmpty) allFromFirebase.add(name);
+                                    }
+                                    allFromFirebase.sort(
+                                        (a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-                                        final full = <String>{
-                                          ...allFromFirebase,
-                                          ..._tempAdded
-                                        }.toList()
-                                          ..sort((a, b) => a
-                                              .toLowerCase()
-                                              .compareTo(
-                                                  b.toLowerCase()));
+                                    final full = <String>{...allFromFirebase, ..._tempAdded}.toList()
+                                      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
 
-                                        final list = _selected.isNotEmpty
-                                            ? _selected.toList()
-                                            : full;
+                                    final list = _selected.isNotEmpty ? _selected.toList() : full;
+                                    final raw = _type == DrawType.lots
+                                        ? _numToPickCtrl.text
+                                        : _numToOrderCtrl.text;
+                                    final count = int.parse(raw.trim());
 
-                                        final raw =
-                                            _type == DrawType.lots
-                                                ? _numToPickCtrl.text
-                                                : _numToOrderCtrl.text;
-                                        final count =
-                                            int.parse(raw.trim()); // 검증 OK
-
-                                        await _broadcastToDisplay(
-                                          hubId: hubId,
-                                          type: _type,
-                                          title:
-                                              _titleCtrl.text.trim(),
-                                          pool: list,
-                                          count: count,
-                                        );
-                                      },
-                                      child: Padding(
-                                        padding:
-                                            const EdgeInsets.all(10.0),
-                                        child: Image.asset(
-                                          'assets/logo_bird_show.png',
-                                          fit: BoxFit.contain,
-                                          errorBuilder: (_, __, ___) =>
-                                              const Center(
-                                            child: Icon(
-                                              Icons.play_circle_fill,
-                                              size: 72,
-                                              color: Colors.indigo,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
+                                    await _broadcastToDisplay(
+                                      hubId: hubId,
+                                      type: _type,
+                                      title: _titleCtrl.text.trim(),
+                                      pool: list,
+                                      count: count,
+                                    );
+                                  },
                                 ),
                               ),
                             ],
@@ -804,3 +777,86 @@ class _PresenterRandomDrawPageState extends State<PresenterRandomDrawPage> {
     );
   }
 }
+// ─────────────────────────────────────────────
+// 공통 Bird Button (Hover/Click Scale 애니메이션)
+// ─────────────────────────────────────────────
+class _MakeButton extends StatefulWidget {
+  const _MakeButton({
+    required this.scale,
+    required this.imageAsset,
+    required this.onTap,
+    this.enabled = true,
+  });
+
+  final double scale;
+  final String imageAsset;
+  final VoidCallback onTap;
+  final bool enabled;
+
+  @override
+  State<_MakeButton> createState() => _MakeButtonState();
+}
+
+class _MakeButtonState extends State<_MakeButton> {
+  bool _hover = false;
+  bool _down = false;
+
+  static const _baseW = 195.0;
+  static const _baseH = 172.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final w = _baseW * widget.scale;
+    final h = _baseH * widget.scale;
+    final scaleAnim = _down
+        ? 0.96
+        : (_hover ? 1.05 : 1.0);
+
+    return MouseRegion(
+      cursor: widget.enabled
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
+      onEnter: (_) {
+        if (widget.enabled) setState(() => _hover = true);
+      },
+      onExit: (_) {
+        if (widget.enabled) setState(() => _hover = false);
+      },
+      child: GestureDetector(
+        onTapDown: (_) {
+          if (widget.enabled) setState(() => _down = true);
+        },
+        onTapUp: (_) {
+          if (widget.enabled) setState(() => _down = false);
+        },
+        onTapCancel: () {
+          if (widget.enabled) setState(() => _down = false);
+        },
+        onTap: widget.enabled ? widget.onTap : null,
+        child: AnimatedScale(
+          scale: scaleAnim,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          child: Opacity(
+            opacity: widget.enabled ? 1.0 : 0.5,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              transitionBuilder: (child, anim) =>
+                  FadeTransition(opacity: anim, child: child),
+              child: Image.asset(
+                widget.imageAsset,
+                key: ValueKey<String>(widget.imageAsset),
+                width: w,
+                height: h,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
