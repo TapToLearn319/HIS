@@ -15,6 +15,7 @@ class _CreateTopicPageState extends State<CreateTopicPage> {
   final _titleCtrl = TextEditingController();
   int _maxQuestions = 5; // 1~20
   bool _saving = false;
+  bool _hovering = false;
 
   int? _nextOrdinal; // Quiz n 표시용
 
@@ -97,28 +98,58 @@ class _CreateTopicPageState extends State<CreateTopicPage> {
     return Scaffold(
       backgroundColor: const Color(0xFFF6FAFF),
       appBar: AppBar(
-  elevation: 0,
-  backgroundColor: const Color(0xFFF6FAFF),
-  leading: IconButton(
-    tooltip: 'Back',
-    icon: const Icon(Icons.arrow_back),
-    onPressed: () {
-      FocusScope.of(context).unfocus(); // 키보드 닫기 (웹/모바일에서 가끔 필요)
-      final nav = Navigator.of(context);
-      if (nav.canPop()) {
-        nav.pop(false); // 결과값 false로 반환
-      } else {
-        // 중첩 Navigator에 걸려 있을 때 대비
-        Navigator.of(context, rootNavigator: true).maybePop(false);
-      }
-    },
-  ),
-  title: const Text('Create a Quiz'),
-),
+        elevation: 0,
+        backgroundColor: const Color(0xFFF6FAFF),
+        leading: IconButton(
+          tooltip: 'Back',
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            FocusScope.of(context).unfocus();
+            final nav = Navigator.of(context);
+            if (nav.canPop()) {
+              nav.pop(false);
+            } else {
+              Navigator.of(context, rootNavigator: true).maybePop(false);
+            }
+          },
+        ),
+        title: const Text('Create a Quiz'),
+      ),
+
+      floatingActionButton: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(right: 24, bottom: 24),
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            onEnter: (_) => setState(() => _hovering = true),
+            onExit: (_) => setState(() => _hovering = false),
+            child: GestureDetector(
+              onTap: _saving ? null : _save,
+              child: AnimatedScale(
+                scale: _hovering ? 1.08 : 1.0, // 🪶 hover 시 살짝 확대
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                child: Opacity(
+                  opacity: _saving ? 0.4 : 1.0, // 저장 중이면 흐릿하게
+                  child: SizedBox(
+                    width: 160,
+                    height: 160,
+                    child: Image.asset(
+                      'assets/logo_bird_make.png',
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+
       body: LayoutBuilder(
         builder: (context, c) {
+          // 기존 body 코드 그대로 유지
           final w = c.maxWidth;
-          // 화면 크기에 따른 스케일 (데스크톱일수록 커짐)
           double scale = 1.0;
           if (w > 1800)
             scale = 1.4;
@@ -168,11 +199,11 @@ class _CreateTopicPageState extends State<CreateTopicPage> {
                     child: TextField(
                       controller: _titleCtrl,
                       decoration: const InputDecoration(
-                        hintText: '예: 3-1 분수 덧셈',
+                        hintText: 'Please enter your content.',
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
-    focusedBorder: InputBorder.none,
-    disabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        disabledBorder: InputBorder.none,
                         isCollapsed: true,
                       ),
                       style: TextStyle(

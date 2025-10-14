@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import '../../provider/hub_provider.dart';
 import 'question_options_page.dart';
+import 'edit_question_page.dart';
+import 'create_question_page.dart';
 
 class TopicDetailPage extends StatelessWidget {
   const TopicDetailPage({required this.topicId, super.key});
@@ -143,31 +145,64 @@ class TopicDetailPage extends StatelessWidget {
                               children: [
                                 // 질문 목록
                                 for (int i = 0; i < docs.length; i++) ...[
-                                  _QuestionCard(
-                                    key: ValueKey(
-                                      '${docs[i].id}-$multipleSelections',
-                                    ),
-                                    index: i,
-                                    quizDoc: docs[i],
-                                    scale: s,
-                                    multipleSelections: multipleSelections,
-                                    onTogglePublic: (v) async {
-                                      await docs[i].reference.set({
-                                        'public': v,
-                                        'updatedAt':
-                                            FieldValue.serverTimestamp(),
-                                      }, SetOptions(merge: true));
-                                    },
-                                    onMore:
-                                        () =>
-                                            _openEditOptions(context, docs[i]),
-                                    onDelete: () async {
-                                      await _deleteQuestion(
-                                        context,
-                                        docs[i],
-                                        status: status,
-                                      );
-                                    },
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: _QuestionCard(
+                                          index: i + 1,
+                                          quizDoc: docs[i],
+                                          public:
+                                              (docs[i].data()['public']
+                                                  as bool?) ??
+                                              false,
+                                          onTogglePublic: (v) async {
+                                            await docs[i].reference.set({
+                                              'public': v,
+                                              'updatedAt':
+                                                  FieldValue.serverTimestamp(),
+                                            }, SetOptions(merge: true));
+                                          },
+                                          onMore: () {
+                                            _openEditOptions(context, docs[i]);
+                                          },
+                                          onDelete: () async {
+                                            await _deleteQuestion(
+                                              context,
+                                              docs[i],
+                                              status: status,
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                      Container(
+                                        alignment: Alignment.center,
+                                        margin: const EdgeInsets.only(
+                                          left: 12,
+                                          right: 20,
+                                        ),
+                                        child: IconButton(
+                                          tooltip: 'Delete question',
+                                          padding: EdgeInsets.zero,
+                                          constraints: const BoxConstraints(),
+                                          icon: const Icon(
+                                            Icons.delete_outline,
+                                            color: Color(0xFFFF9A6E),
+                                            size: 32, // 약간 키워서 비율 맞춤
+                                          ),
+                                          onPressed: () async {
+                                            await _deleteQuestion(
+                                              context,
+                                              docs[i],
+                                              status: status,
+                                            );
+                                          },
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                   SizedBox(
                                     height: (8 * s).clamp(8, 12).toDouble(),
@@ -176,12 +211,14 @@ class TopicDetailPage extends StatelessWidget {
 
                                 // 새 항목 추가 입력란
                                 _AddQuestionInput(
+                                  topicId: topicId,
                                   onAdd: (text) async {
                                     if (text.trim().isEmpty) return;
                                     await topicRef.collection('quizzes').add({
                                       'question': text.trim(),
                                       'choices': ['A', 'B'],
                                       'triggers': ['S1_CLICK', 'S2_CLICK'],
+                                      'counts': [0, 0],
                                       'correctIndexes': [0],
                                       'public': true,
                                       'createdAt': FieldValue.serverTimestamp(),
@@ -467,13 +504,6 @@ class _QuestionRow extends StatelessWidget {
 
           // more (편집)
           _MoreChevron(onTap: onMore, scale: scale),
-
-          // 제거 아이콘(시안에는 잘 안 보이니 옅게)
-          IconButton(
-            tooltip: 'Delete',
-            icon: const Icon(Icons.delete_outline, color: Color(0xFFEF4444)),
-            onPressed: onDelete,
-          ),
         ],
       ),
     );
@@ -1167,677 +1197,181 @@ void _openEditOptions(
     context,
     MaterialPageRoute(
       builder:
-          (_) => QuestionOptionsPage(
-            topicId:
-                quizDoc.reference.parent.parent!.id, // quizzes 상위 = topicId
+          (_) => EditQuestionPage(
+            topicId: quizDoc.reference.parent.parent!.id,
             quizId: quizDoc.id,
           ),
     ),
   );
 }
 
-class _QuestionCard extends StatefulWidget {
-  const _QuestionCard({
-    super.key,
-    required this.index,
-    required this.quizDoc,
-    required this.onTogglePublic,
-    required this.scale,
-    required this.onMore,
-    required this.onDelete,
-    required this.multipleSelections,
-  });
-
+class _QuestionCard extends StatelessWidget {
   final int index;
-  final QueryDocumentSnapshot<Map<String, dynamic>> quizDoc;
+  final DocumentSnapshot quizDoc;
+  final bool public;
   final ValueChanged<bool> onTogglePublic;
-  final double scale;
   final VoidCallback onMore;
   final VoidCallback onDelete;
-  final bool multipleSelections;
 
-  @override
-  State<_QuestionCard> createState() => _QuestionCardState();
-}
-
-class _QuestionCardState extends State<_QuestionCard>
-    with SingleTickerProviderStateMixin {
-  bool expanded = false;
-  late List<int> correctIndexes; // 로컬 상태 캐시
-
-  @override
-  void initState() {
-    super.initState();
-    final data = widget.quizDoc.data();
-    final correctIndexRaw = data['correctIndexes'] ?? data['correctIndex'];
-    correctIndexes =
-        correctIndexRaw is List
-            ? List<int>.from(correctIndexRaw)
-            : [if (correctIndexRaw is int) correctIndexRaw];
-  }
-
-  @override
-  void didUpdateWidget(covariant _QuestionCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Firestore snapshot이 갱신되더라도, 로컬에서 수동 클릭 중이면 덮어쓰지 않음
-    final newData = widget.quizDoc.data();
-    final correctIndexRaw =
-        newData['correctIndexes'] ?? newData['correctIndex'];
-    final newIndexes =
-        correctIndexRaw is List
-            ? List<int>.from(correctIndexRaw)
-            : [if (correctIndexRaw is int) correctIndexRaw];
-    if (!listEquals(newIndexes, correctIndexes)) {
-      correctIndexes = newIndexes;
-    }
-  }
+  const _QuestionCard({
+    required this.index,
+    required this.quizDoc,
+    required this.public,
+    required this.onTogglePublic,
+    required this.onMore,
+    required this.onDelete,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final data = widget.quizDoc.data();
-    final question = (data['question'] as String?) ?? '';
-    final public = (data['public'] as bool?) ?? true;
-    final choices = List<String>.from(data['choices'] ?? []);
-    final triggers = List<String>.from(data['triggers'] ?? []);
-    final multipleSelections = widget.multipleSelections;
-
-    Color updatedColor(int index) {
-      if (multipleSelections) {
-        return correctIndexes.contains(index)
-            ? const Color(0xFFA9E817)
-            : Colors.white;
-      } else {
-        return (correctIndexes.isNotEmpty && correctIndexes.first == index)
-            ? const Color(0xFFA9E817)
-            : Colors.white;
-      }
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // ───────── 질문 행 ─────────
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: (41 * widget.scale).clamp(41, 45),
-              child: Text(
-                '${widget.index + 1}.',
-                textAlign: TextAlign.right,
-                style: const TextStyle(
-                  color: Color(0xFF000000),
-                  fontSize: 24,
-                  fontWeight: FontWeight.w600,
-                ),
+    return Padding(
+      padding: const EdgeInsets.only(left: 28, right: 20, top: 6, bottom: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          // 번호
+          SizedBox(
+            width: 24,
+            child: Text(
+              '$index.',
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF000000),
               ),
             ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Container(
-                height: (61 * widget.scale).clamp(56, 68),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(color: const Color(0xFFDAE2EE)),
-                  borderRadius: BorderRadius.circular(
-                    (12 * widget.scale).clamp(12, 14),
+          ),
+          const SizedBox(width: 36),
+
+          // 문항 박스
+          Flexible(
+            child: Container(
+              height: 56,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: Color(0xFFDAE2EE)),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 18),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // 질문 내용
+                  Expanded(
+                    child: Text(
+                      quizDoc['question'] ?? '',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        color: Color(0xFF001A36),
+                        fontWeight: FontWeight.w500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // 왼쪽: 질문 + Public 스위치
-                    Row(
-                      children: [
-                        Text(
-                          question,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w400,
-                            color: Color(0xFF000000),
-                          ),
+
+                  // 오른쪽 버튼 그룹
+                  Row(
+                    children: [
+                      const Text(
+                        'Public',
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: Color(0xFF8A8A8A),
+                          fontWeight: FontWeight.w500,
                         ),
-                        const SizedBox(width: 14),
-                        Row(
+                      ),
+                      const SizedBox(width: 6),
+                      Switch(
+                        value: public,
+                        activeColor: Color(0xFFA9E817),
+                        onChanged: onTogglePublic,
+                      ),
+                      const SizedBox(width: 20),
+                      InkWell(
+                        onTap: onMore,
+                        child: const Row(
                           children: [
-                            const Text(
-                              'Public',
+                            Text(
+                              'Edit',
                               style: TextStyle(
-                                color: Color(0xFFA2A2A2),
-                                fontSize: 20,
-                                fontWeight: FontWeight.w400,
+                                fontSize: 15,
+                                color: Color(0xFF6E6E6E),
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
-                            Transform.scale(
-                              scale: 0.95,
-                              child: Switch(
-                                value: public,
-                                onChanged: widget.onTogglePublic,
-                                activeColor: Colors.white,
-                                activeTrackColor: const Color(0xFFA9E817),
-                                inactiveTrackColor: const Color(0xFFA2A2A2),
-                                inactiveThumbColor: Colors.white,
-                              ),
+                            SizedBox(width: 3),
+                            Icon(
+                              Icons.edit,
+                              size: 16,
+                              color: Color(0xFF6E6E6E),
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                    // 오른쪽 more/less + 삭제 버튼
-                    Row(
-                      children: [
-                        IconButton(
-                          tooltip: 'Delete question',
-                          icon: const Icon(
-                            Icons.close_rounded,
-                            color: Color(0xFFEF4444),
-                            size: 26,
-                          ),
-                          onPressed: widget.onDelete, // ✅ 부모 콜백 사용
-                        ),
-                        const SizedBox(width: 6),
-                        InkWell(
-                          onTap: () => setState(() => expanded = !expanded),
-                          child: Row(
-                            children: const [
-                              Text(
-                                'more',
-                                style: TextStyle(
-                                  color: Color(0xFFA2A2A2),
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w400,
-                                ),
-                              ),
-                              Icon(Icons.expand_more, color: Color(0xFFA2A2A2)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
-
-        AnimatedSize(
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeInOut,
-          child:
-              expanded
-                  ? Container(
-                    margin: const EdgeInsets.only(
-                      left: 52,
-                      top: 10,
-                      bottom: 20,
-                    ),
-                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: Colors.transparent),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: const [
-                            Text(
-                              'Answer Options',
-                              style: TextStyle(
-                                color: Color(0xFF001A36),
-                                fontSize: 24,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            SizedBox(width: 6),
-                            Text(
-                              '*Up to 4',
-                              style: TextStyle(
-                                color: Color(0xFF001A36),
-                                fontSize: 15,
-                                fontWeight: FontWeight.w400,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            border: Border.all(color: const Color(0xFFDAE2EE)),
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              for (int i = 0; i < choices.length; i++)
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 6,
-                                  ),
-                                  child: Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    children: [
-                                      GestureDetector(
-                                        onTap: () async {
-                                          setState(() {
-                                            if (correctIndexes.contains(i)) {
-                                              correctIndexes.remove(i);
-                                            } else {
-                                              if (multipleSelections) {
-                                                correctIndexes.add(i);
-                                              } else {
-                                                correctIndexes
-                                                  ..clear()
-                                                  ..add(i);
-                                              }
-                                            }
-                                          });
-                                          await widget.quizDoc.reference.set({
-                                            'correctIndexes': List<int>.from(
-                                              correctIndexes,
-                                            ),
-                                            'updatedAt':
-                                                FieldValue.serverTimestamp(),
-                                          }, SetOptions(merge: true));
-                                        },
-                                        child: AnimatedContainer(
-                                          duration: const Duration(
-                                            milliseconds: 180,
-                                          ),
-                                          width: 30,
-                                          height: 30,
-                                          decoration: BoxDecoration(
-                                            shape: BoxShape.circle,
-                                            color:
-                                                correctIndexes.contains(i)
-                                                    ? const Color(
-                                                      0xFFA9E817,
-                                                    ) // ✅ 선택됨 (#A9E817)
-                                                    : Colors
-                                                        .transparent, // ✅ 선택 안됨: 투명
-                                            border: Border.all(
-                                              color:
-                                                  correctIndexes.contains(i)
-                                                      ? Colors
-                                                          .transparent // 선택된 상태는 외곽선 없음
-                                                      : const Color(
-                                                        0xFFA2A2A2,
-                                                      ), // 선택 안됨: 회색 외곽선
-                                              width: 1,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 12),
-
-                                      // 옵션 입력 필드
-                                      Expanded(
-                                        child: Container(
-                                          height: 49,
-                                          decoration: BoxDecoration(
-                                            color: Colors.white,
-                                            border: Border.all(
-                                              color: const Color(0xFFD2D2D2),
-                                              width: 1,
-                                            ),
-                                            borderRadius: BorderRadius.circular(
-                                              32.5,
-                                            ),
-                                          ),
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 18,
-                                          ),
-                                          alignment: Alignment.centerLeft,
-                                          child: Row(
-                                            children: [
-                                              Expanded(
-                                                child: TextField(
-                                                  controller:
-                                                      TextEditingController(
-                                                        text: choices[i],
-                                                      ),
-                                                  style: const TextStyle(
-                                                    fontSize: 20,
-                                                    fontWeight: FontWeight.w500,
-                                                    color: Color(0xFF001A36),
-                                                  ),
-                                                  decoration:
-                                                      const InputDecoration(
-                                                        border:
-                                                            InputBorder.none,
-                                                        enabledBorder:
-                                                            InputBorder.none,
-                                                        focusedBorder:
-                                                            InputBorder.none,
-                                                        disabledBorder:
-                                                            InputBorder.none,
-                                                        isCollapsed: true,
-                                                        contentPadding:
-                                                            EdgeInsets.zero,
-                                                      ),
-                                                  onSubmitted: (v) async {
-                                                    choices[i] = v;
-                                                    await widget
-                                                        .quizDoc
-                                                        .reference
-                                                        .set(
-                                                          {
-                                                            'choices': choices,
-                                                            'updatedAt':
-                                                                FieldValue.serverTimestamp(),
-                                                          },
-                                                          SetOptions(
-                                                            merge: true,
-                                                          ),
-                                                        );
-                                                  },
-                                                ),
-                                              ),
-                                              // 드롭다운 (트리거 매핑)
-                                              DropdownButton<String>(
-                                                value: triggers[i],
-                                                underline: const SizedBox(),
-                                                icon: const Icon(
-                                                  Icons.arrow_drop_down,
-                                                  color: Color(0xFF6B7280),
-                                                ),
-                                                items: const [
-                                                  DropdownMenuItem(
-                                                    value: 'S1_CLICK',
-                                                    child: Text('1 - single'),
-                                                  ),
-                                                  DropdownMenuItem(
-                                                    value: 'S1_HOLD',
-                                                    child: Text('1 - hold'),
-                                                  ),
-                                                  DropdownMenuItem(
-                                                    value: 'S2_CLICK',
-                                                    child: Text('2 - single'),
-                                                  ),
-                                                  DropdownMenuItem(
-                                                    value: 'S2_HOLD',
-                                                    child: Text('2 - hold'),
-                                                  ),
-                                                ],
-                                                onChanged: (v) async {
-                                                  if (v == null) return;
-                                                  String newTrigger = v;
-                                                  final used = Set<String>.from(
-                                                    triggers,
-                                                  );
-
-                                                  // 중복 트리거 방지
-                                                  if (used.contains(
-                                                        newTrigger,
-                                                      ) &&
-                                                      triggers[i] !=
-                                                          newTrigger) {
-                                                    const all = [
-                                                      'S1_CLICK',
-                                                      'S1_HOLD',
-                                                      'S2_CLICK',
-                                                      'S2_HOLD',
-                                                    ];
-                                                    final available =
-                                                        all
-                                                            .where(
-                                                              (t) =>
-                                                                  !used
-                                                                      .contains(
-                                                                        t,
-                                                                      ),
-                                                            )
-                                                            .toList();
-                                                    if (available.isNotEmpty) {
-                                                      newTrigger =
-                                                          available.first;
-                                                    } else {
-                                                      debugPrint(
-                                                        '⚠️ No available triggers left.',
-                                                      );
-                                                      return;
-                                                    }
-                                                  }
-
-                                                  triggers[i] = newTrigger;
-                                                  await widget.quizDoc.reference.set({
-                                                    'triggers': triggers,
-                                                    'updatedAt':
-                                                        FieldValue.serverTimestamp(),
-                                                  }, SetOptions(merge: true));
-                                                  setState(() {});
-                                                },
-                                              ),
-
-                                              // 삭제 버튼
-                                              IconButton(
-                                                padding: EdgeInsets.zero,
-                                                constraints:
-                                                    const BoxConstraints.tightFor(
-                                                      width: 28,
-                                                      height: 28,
-                                                    ),
-                                                icon: const Icon(
-                                                  Icons.more_vert,
-                                                  color: Color(0xFFA2A2A2),
-                                                  size: 22,
-                                                ),
-                                                onPressed: () async {
-                                                  final confirm = await showModalBottomSheet<
-                                                    bool
-                                                  >(
-                                                    context: context,
-                                                    shape: const RoundedRectangleBorder(
-                                                      borderRadius:
-                                                          BorderRadius.vertical(
-                                                            top:
-                                                                Radius.circular(
-                                                                  16,
-                                                                ),
-                                                          ),
-                                                    ),
-                                                    builder:
-                                                        (_) => SafeArea(
-                                                          child: Padding(
-                                                            padding:
-                                                                const EdgeInsets.all(
-                                                                  20,
-                                                                ),
-                                                            child: Column(
-                                                              mainAxisSize:
-                                                                  MainAxisSize
-                                                                      .min,
-                                                              children: [
-                                                                const Text(
-                                                                  'Delete this option?',
-                                                                  style: TextStyle(
-                                                                    fontSize:
-                                                                        20,
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .w600,
-                                                                  ),
-                                                                ),
-                                                                const SizedBox(
-                                                                  height: 16,
-                                                                ),
-                                                                Row(
-                                                                  mainAxisAlignment:
-                                                                      MainAxisAlignment
-                                                                          .end,
-                                                                  children: [
-                                                                    TextButton(
-                                                                      onPressed:
-                                                                          () => Navigator.pop(
-                                                                            context,
-                                                                            false,
-                                                                          ),
-                                                                      child: const Text(
-                                                                        'Cancel',
-                                                                      ),
-                                                                    ),
-                                                                    const SizedBox(
-                                                                      width: 8,
-                                                                    ),
-                                                                    ElevatedButton(
-                                                                      style: ElevatedButton.styleFrom(
-                                                                        backgroundColor:
-                                                                            Colors.red,
-                                                                      ),
-                                                                      onPressed:
-                                                                          () => Navigator.pop(
-                                                                            context,
-                                                                            true,
-                                                                          ),
-                                                                      child: const Text(
-                                                                        'Delete',
-                                                                      ),
-                                                                    ),
-                                                                  ],
-                                                                ),
-                                                              ],
-                                                            ),
-                                                          ),
-                                                        ),
-                                                  );
-
-                                                  if (confirm == true) {
-                                                    choices.removeAt(i);
-                                                    triggers.removeAt(i);
-                                                    await widget
-                                                        .quizDoc
-                                                        .reference
-                                                        .set(
-                                                          {
-                                                            'choices': choices,
-                                                            'triggers':
-                                                                triggers,
-                                                            'updatedAt':
-                                                                FieldValue.serverTimestamp(),
-                                                          },
-                                                          SetOptions(
-                                                            merge: true,
-                                                          ),
-                                                        );
-                                                    setState(() {});
-                                                  }
-                                                },
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              const SizedBox(height: 8),
-                              if (choices.length < 4)
-                                Builder(
-                                  builder: (context) {
-                                    final addController =
-                                        TextEditingController();
-
-                                    return Container(
-                                      margin: const EdgeInsets.only(top: 12),
-                                      height: 49,
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        border: Border.all(
-                                          color: const Color(0xFFD2D2D2),
-                                          width: 1,
-                                        ),
-                                        borderRadius: BorderRadius.circular(
-                                          32.5,
-                                        ),
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 18,
-                                      ),
-                                      alignment: Alignment.centerLeft,
-                                      child: Row(
-                                        children: [
-                                          // 입력창
-                                          Expanded(
-                                            child: TextField(
-                                              controller: addController,
-                                              decoration: const InputDecoration(
-                                                hintText: 'Type your option...',
-                                                hintStyle: TextStyle(
-                                                  color: Color(0xFFA2A2A2),
-                                                  fontSize: 20,
-                                                ),
-                                                border: InputBorder.none,
-                                                enabledBorder: InputBorder.none,
-                                                focusedBorder: InputBorder.none,
-                                                isCollapsed: true,
-                                                contentPadding: EdgeInsets.zero,
-                                              ),
-                                              style: const TextStyle(
-                                                fontSize: 20,
-                                                color: Color(0xFF001A36),
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ),
-
-                                          // 추가 버튼 (+)
-                                          GestureDetector(
-                                            onTap: () async {
-                                              final newText =
-                                                  addController.text.trim();
-                                              if (newText.isEmpty) return;
-
-                                              choices.add(newText);
-                                              triggers.add('S1_CLICK');
-                                              await widget.quizDoc.reference.set({
-                                                'choices': choices,
-                                                'triggers': triggers,
-                                                'updatedAt':
-                                                    FieldValue.serverTimestamp(),
-                                              }, SetOptions(merge: true));
-
-                                              addController.clear();
-                                              setState(() {});
-                                            },
-                                            child: const Icon(
-                                              Icons.add_circle_outline,
-                                              color: Color(0xFFA2A2A2),
-                                              size: 28,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                  },
-                                ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                  : const SizedBox.shrink(),
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 }
 
+class CustomMiniSwitch extends StatelessWidget {
+  final bool value;
+  final ValueChanged<bool> onChanged;
+  const CustomMiniSwitch({
+    super.key,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => onChanged(!value),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: 28.5,
+        height: 14,
+        decoration: BoxDecoration(
+          color: value ? const Color(0xFFA9E817) : const Color(0xFFD2D2D2),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+        padding: const EdgeInsets.symmetric(horizontal: 1.5),
+        child: Container(
+          width: 12,
+          height: 12,
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Binding {
+  final int button;
+  final String gesture;
+  const _Binding({required this.button, required this.gesture});
+}
+
 class _AddQuestionInput extends StatefulWidget {
   const _AddQuestionInput({
+    required this.topicId,
     required this.onAdd,
     required this.index,
     required this.scale,
   });
+
+  final String topicId;
   final Function(String) onAdd;
   final int index;
   final double scale;
@@ -1851,81 +1385,65 @@ class _AddQuestionInputState extends State<_AddQuestionInput> {
 
   @override
   Widget build(BuildContext context) {
-    final h = (56 * widget.scale).clamp(56, 68).toDouble();
-    final r = (12 * widget.scale).clamp(12, 14).toDouble();
-    final fs = (16 * widget.scale).clamp(16, 18).toDouble();
-
     return Padding(
-      padding: EdgeInsets.symmetric(
-        vertical: (4 * widget.scale).clamp(4, 8).toDouble(),
-      ),
+      padding: const EdgeInsets.only(left: 28, right: 36, top: 6, bottom: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          // 번호
           SizedBox(
-            width: (41 * widget.scale).clamp(41, 45).toDouble(),
+            width: 24,
             child: Text(
               '${widget.index}.',
               textAlign: TextAlign.right,
               style: const TextStyle(
-                color: Color(0xFF000000),
-                fontSize: 24,
+                fontSize: 20,
                 fontWeight: FontWeight.w600,
+                color: Color(0xFF000000),
               ),
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 36),
 
-          Expanded(
-            child: Container(
-              height: h,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: const Color(0xFFDAE2EE)),
-                borderRadius: BorderRadius.circular(r),
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              alignment: Alignment.centerLeft,
-              child: TextField(
-                controller: controller,
-                style: TextStyle(
-                  fontSize: fs,
-                  fontWeight: FontWeight.w500,
-                  color: const Color(0xFF001A36),
-                ),
-                decoration: const InputDecoration(
-                  hintText: 'Type your question...',
-                  hintStyle: TextStyle(
-                    color: Color(0xFF9CA3AF),
-                    fontWeight: FontWeight.w400,
+          // 문항 입력 박스 (디자인 그대로)
+          Flexible(
+            child: GestureDetector(
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => CreateQuestionPage(topicId: widget.topicId),
                   ),
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  isCollapsed: true,
-                  contentPadding: EdgeInsets.zero,
+                );
+              },
+              child: Container(
+                height: 56,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: const Color(0xFFDAE2EE)),
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                onSubmitted: (text) {
-                  widget.onAdd(text);
-                  controller.clear();
-                },
+                padding: const EdgeInsets.symmetric(horizontal: 18),
+                alignment: Alignment.centerLeft,
+                child: const Row(
+                  children: [
+                    Icon(
+                      Icons.add_circle_outline_outlined,
+                      color: Color(0xFFD2D2D2),
+                      size: 22,
+                    ),
+                    SizedBox(width: 8),
+                    Text(
+                      'Add Question',
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: Color(0xFF9CA3AF),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
-
-          const SizedBox(width: 10),
-
-          GestureDetector(
-            onTap: () {
-              final text = controller.text.trim();
-              if (text.isEmpty) return;
-              widget.onAdd(text);
-              controller.clear();
-            },
-            child: const Icon(
-              Icons.add_circle_outline_outlined,
-              color: Color(0xFFD2D2D2),
-              size: 36,
             ),
           ),
         ],

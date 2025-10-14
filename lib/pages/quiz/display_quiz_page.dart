@@ -215,15 +215,18 @@ class _ActiveQuizView extends StatefulWidget {
 }
 
 class _ActiveQuizViewState extends State<_ActiveQuizView> {
+  static final Map<String, int> _lastProcessedTs = {};
+
   String? _lastQuizIdShown;
   String? _lastSkippedQuizId;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _liveSub;
+  Map<String, Set<String>>? _deviceVotedSlots;
   final Map<String, Map<String, dynamic>> _quizCache = {};
 
   Duration? _remaining; // ← null이면 타이머 표시 안 함
   Timer? _timer;
   bool _isTimerRunning = false;
   int? _timerTotalSeconds; // Firestore에서 불러온 원래 설정값
-
   int _currentIndex = 1;
   int _totalCount = 1;
 
@@ -231,9 +234,119 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
   bool get _isLastQuiz => _currentIndex >= _totalCount;
 
   @override
+  void initState() {
+    super.initState();
+
+    final fs = FirebaseFirestore.instance;
+    final hubPath = context.read<HubProvider>().hubDocPath;
+    print('🧩 hubPath in quiz display: $hubPath');
+    if (hubPath != null) {
+      _liveSub = fs
+          .collection('$hubPath/liveByDevice')
+          .snapshots()
+          .listen(_handleLiveEvent);
+    }
+  }
+
+  @override
   void dispose() {
+    _liveSub?.cancel();
     _timer?.cancel();
     super.dispose();
+  }
+
+  void _handleLiveEvent(QuerySnapshot<Map<String, dynamic>> snap) async {
+    if (snap.docs.isEmpty) return;
+
+    final hubId = context.read<HubProvider>().hubId;
+    if (hubId == null) return;
+
+    for (final doc in snap.docs) {
+      final data = doc.data();
+      final deviceId = doc.id;
+      final slotIndex = data['slotIndex']?.toString();
+      final clickTypeRaw =
+          (data['clickType'] ?? '').toString().toLowerCase().trim();
+      final lastHubTs = (data['lastHubTs'] as num?)?.toInt() ?? 0;
+
+      // 🔸 유효성 검사
+      if (clickTypeRaw.isEmpty ||
+          !(clickTypeRaw == 'click' || clickTypeRaw == 'hold'))
+        continue;
+      if (slotIndex == null || slotIndex.isEmpty) continue;
+      if (widget.startMs != null && lastHubTs < widget.startMs!) continue;
+
+      // 🔸 중복 이벤트 방지
+      if (_lastProcessedTs[deviceId] == lastHubTs) continue;
+      _lastProcessedTs[deviceId] = lastHubTs;
+
+      final topicId = widget.topicId;
+      final quizId = widget.currentQuizId;
+      if (topicId.isEmpty || quizId.isEmpty) continue;
+
+      final quizRef = FirebaseFirestore.instance.doc(
+        'hubs/$hubId/quizTopics/$topicId/quizzes/$quizId',
+      );
+
+      try {
+        await FirebaseFirestore.instance.runTransaction((tx) async {
+          final snap = await tx.get(quizRef);
+          if (!snap.exists) return;
+          final data = snap.data() ?? {};
+          final triggers = (data['triggers'] as List?)?.cast<String>() ?? [];
+          var counts =
+              (data['counts'] as List?)?.cast<int>() ??
+              List.filled(triggers.length, 0);
+          final allowMultiple = data['allowMultiple'] == true; // 🔹 퀴즈 세팅 기준
+
+          final targetTrigger = 'S${slotIndex}_${clickTypeRaw.toUpperCase()}';
+          final idx = triggers.indexOf(targetTrigger);
+          if (idx < 0) return;
+
+          // ✅ device 투표 기록 초기화
+          _deviceVotedSlots ??= {};
+          _deviceVotedSlots![deviceId] ??= <String>{};
+
+          // 🔹 단일 선택 모드일 경우 기존 투표 취소 (-1)
+          if (!allowMultiple && _deviceVotedSlots![deviceId]!.isNotEmpty) {
+            final prevSlot = _deviceVotedSlots![deviceId]!.first;
+            final prevTrigger = 'S${prevSlot}_${clickTypeRaw.toUpperCase()}';
+            final prevIdx = triggers.indexOf(prevTrigger);
+            if (prevIdx >= 0 && counts[prevIdx] > 0) {
+              counts[prevIdx] -= 1;
+              print(
+                '♻️ $deviceId changed vote from slot $prevSlot → $slotIndex',
+              );
+            }
+            _deviceVotedSlots![deviceId]!.clear();
+          }
+
+          // 🔹 중복 클릭 무시
+          if (_deviceVotedSlots![deviceId]!.contains(slotIndex)) {
+            print('⚪ $deviceId already voted for slot $slotIndex → ignore');
+            return;
+          }
+
+          // ✅ 새로운 투표 반영
+          _deviceVotedSlots![deviceId]!.add(slotIndex);
+          counts[idx] += 1;
+
+          tx.update(quizRef, {'counts': counts});
+
+          setState(() {
+            _quizCache[quizId] ??= {};
+            _quizCache[quizId]!['counts'] = counts;
+          });
+
+          print(
+            '✅ [QUIZ] ${deviceId} → slot $slotIndex '
+            '(multi=$allowMultiple) updated counts → $counts',
+          );
+        });
+      } catch (e) {
+        print('❌ [QUIZ] Firestore update failed: $e');
+      }
+    }
   }
 
   Widget _quizBarRow({
@@ -335,12 +448,6 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
           _remaining = Duration.zero;
           _isTimerRunning = false;
         });
-
-        // 🔔 타이머 종료 시 자동 phase 전환
-        FirebaseFirestore.instance
-            .collection('${context.read<HubProvider>().hubDocPath}/quizTopics')
-            .doc(widget.topicId)
-            .update({'phase': 'reveal'});
       } else {
         setState(() {
           _remaining = Duration(seconds: _remaining!.inSeconds - 1);
@@ -439,79 +546,6 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                         ),
               ),
             ),
-            Positioned(
-              bottom: 40,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: InkWell(
-                  onTap: () async {
-                    final fs = FirebaseFirestore.instance;
-                    final hubPath = context.read<HubProvider>().hubDocPath;
-                    if (hubPath == null) return;
-
-                    final topicRef = fs
-                        .collection('$hubPath/quizTopics')
-                        .doc(widget.topicId);
-
-                    if (widget.phase == 'question') {
-                      _timer?.cancel();
-                      _isTimerRunning = false;
-                      _remaining = null;
-
-                      await topicRef.update({
-                        'phase': 'reveal',
-                        'updatedAt': FieldValue.serverTimestamp(),
-                      });
-                    } else if (widget.phase == 'reveal') {
-                      if (_isLastQuiz) {
-                        await topicRef.update({
-                          'status': 'finished',
-                          'phase': 'finished',
-                        });
-                        return;
-                      }
-
-                      await _goToNextPublicQuiz(fs, hubPath, _currentIndex);
-
-                      final qs =
-                          await fs
-                              .collection(
-                                '$hubPath/quizTopics/${widget.topicId}/quizzes',
-                              )
-                              .orderBy('createdAt')
-                              .get();
-                      final nextIndex = _currentIndex;
-                      if (nextIndex < 0 || nextIndex >= qs.docs.length) return;
-                      final nextQuizId = qs.docs[nextIndex].id;
-
-                      _timer?.cancel();
-                      _isTimerRunning = false;
-                      _remaining = null;
-
-                      await topicRef.update({
-                        'currentQuizIndex': _currentIndex + 1,
-                        'currentQuizId': nextQuizId,
-                        'phase': 'question',
-                        'questionStartedAt': FieldValue.serverTimestamp(),
-                        'questionStartedAtMs':
-                            DateTime.now().millisecondsSinceEpoch,
-                        'updatedAt': FieldValue.serverTimestamp(),
-                      });
-                    }
-                  },
-                  child: Image.asset(
-                    widget.phase == 'question'
-                        ? 'assets/logo_bird_stop.png'
-                        : (_isLastQuiz
-                            ? 'assets/test/logo_bird_done.png'
-                            : 'assets/test/logo_bird_next.png'),
-                    width: 120,
-                    height: 120,
-                  ),
-                ),
-              ),
-            ),
           ],
         );
       },
@@ -583,7 +617,7 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
 
       if (nextPublicIndex == -1) {
         // 다음 public 문항 없음 → 퀴즈 종료
-        await topicRef.update({'status': 'finished', 'phase': 'finished'});
+        // await topicRef.update({'status': 'finished', 'phase': 'finished'});
         return;
       }
 
@@ -637,7 +671,7 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
         });
       } else {
         // 마지막까지 다 비공개면 종료 처리
-        await topicRef.update({'phase': 'finished', 'status': 'finished'});
+        // await topicRef.update({'phase': 'finished', 'status': 'finished'});
       }
     } catch (e) {
       debugPrint('❌ skipToNextPublicQuiz error: $e');
@@ -650,7 +684,7 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
     DocumentReference<Map<String, dynamic>> quizRef,
     int totalStudents,
   ) {
-    // 🔹 quiz 문서 스트림 (문제 + 선택지)
+    // 🔹 quiz 문서 스트림 (문제 + 선택지 + counts)
     final quizStream =
         fs
             .doc(
@@ -678,15 +712,13 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: quizStream,
           builder: (context, quizSnap) {
-            // 🔹 quizSnap 데이터가 아직 안 왔으면 기다림
             if (!quizSnap.hasData) {
               return const _WaitingScreen();
             }
 
             final qx = quizSnap.data!.data();
-            if (qx == null) {
-              return const _WaitingScreen();
-            }
+            if (qx == null) return const _WaitingScreen();
+            // _quizCache[widget.currentQuizId] = qx;
 
             // 🔹 public 필드가 없으면 대기 (절대 스킵하지 않음)
             if (!qx.containsKey('public')) {
@@ -694,8 +726,6 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
             }
 
             final isPublic = qx['public'] == true;
-
-            // 🔹 public이 명시적으로 false일 때만 스킵
             if (isPublic == false) {
               debugPrint(
                 '⏭️ Skipping non-public quiz: ${widget.currentQuizId}',
@@ -704,6 +734,7 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
               return const _WaitingScreen();
             }
 
+            // 🔹 타이머 초기화
             if (isPublic && timerSec != null && timerSec > 0) {
               if (_lastQuizIdShown != widget.currentQuizId) {
                 _lastQuizIdShown = widget.currentQuizId;
@@ -718,14 +749,23 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
               }
             }
 
-            // 🔹 이하 동일
+            // 🔹 문제, 선택지, 카운트 정보
             final question = (qx['question'] as String?) ?? '';
             final List<String> choices =
                 (qx['choices'] as List?)?.map((e) => e.toString()).toList() ??
                 const [];
+            final List<int> counts =
+                (qx['counts'] as List?)
+                    ?.map((e) => (e as num).toInt())
+                    .toList() ??
+                List<int>.filled(choices.length, 0);
+
+            final total = counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
+
+            // 🔹 실시간 결과 표시 여부
             final showResultsMode =
                 (topicData['showResultsMode'] as String?) ?? 'afterEnd';
-            final hide = showResultsMode != 'realtime';
+            final hide = showResultsMode != 'realtime'; // realtime이면 바로 표시
 
             return Center(
               child: ConstrainedBox(
@@ -744,11 +784,11 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      const Align(
+                      Align(
                         alignment: Alignment.centerRight,
                         child: Text(
-                          '—',
-                          style: TextStyle(
+                          hide ? '—' : '$total VOTERS',
+                          style: const TextStyle(
                             fontSize: 19,
                             fontWeight: FontWeight.w500,
                           ),
@@ -786,8 +826,8 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                             for (var i = 0; i < choices.length; i++) ...[
                               _quizBarRow(
                                 label: choices[i],
-                                votes: 0,
-                                total: 0,
+                                votes: (i < counts.length) ? counts[i] : 0,
+                                total: total,
                                 hideResults: hide,
                               ),
                               if (i != choices.length - 1)

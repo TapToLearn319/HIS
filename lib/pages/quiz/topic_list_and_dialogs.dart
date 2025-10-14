@@ -3,6 +3,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:dotted_border/dotted_border.dart';
 
 import 'package:provider/provider.dart';
 import '../../provider/hub_provider.dart';
@@ -188,26 +189,112 @@ Future<void> _deleteTopicWithSubcollections(
   final running = (status == 'running');
   final ok = await showDialog<bool>(
     context: context,
+    barrierDismissible: true,
     builder:
-        (_) => AlertDialog(
-          title: const Text('Delete topic'),
-          content: Text(
-            running
-                ? '이 토픽은 현재 진행 중입니다.\n삭제하면 진행이 중단되고, 모든 퀴즈/결과가 함께 삭제됩니다. 계속할까요?'
-                : '토픽과 그 안의 모든 퀴즈/결과가 삭제됩니다. 계속할까요?',
+        (_) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: DottedBorder(
+            options: const RoundedRectDottedBorderOptions(
+              dashPattern: [6, 4],
+              strokeWidth: 1,
+              radius: Radius.circular(10),
+              color: Color(0xFFA2A2A2),
+            ),
+            child: Container(
+              width: 357,
+              height: 167,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Would you like to delete it?',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF001A36),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // 🟣 Delete 버튼 (dashed)
+                      Expanded(
+                        child: DottedBorder(
+                          options: const RoundedRectDottedBorderOptions(
+                            dashPattern: [6, 4],
+                            strokeWidth: 1,
+                            radius: Radius.circular(10),
+                            color: Color(0xFFA2A2A2),
+                          ),
+                          child: Container(
+                            width: 143,
+                            height: 43,
+                            decoration: BoxDecoration(
+                              color: Color(0xFFF6F6F6),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: TextButton(
+                              onPressed: () => Navigator.pop(context, true),
+                              child: const Text(
+                                'Delete',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF001A36),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // 🟣 Cancel 버튼 (dashed)
+                      Expanded(
+                        child: DottedBorder(
+                          options: const RoundedRectDottedBorderOptions(
+                            dashPattern: [6, 4],
+                            strokeWidth: 1,
+                            radius: Radius.circular(10),
+                            color: Color(0xFFA2A2A2),
+                          ),
+                          child: Container(
+                            width: 143,
+                            height: 43,
+                            decoration: BoxDecoration(
+                              color: Color(0xFFF6F6F6),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: TextButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              child: const Text(
+                                'Cancel',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF001A36),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete'),
-            ),
-          ],
         ),
   );
+
   if (ok != true) return;
 
   // root navigator를 미리 캡쳐 (context가 dispose돼도 사용 가능)
@@ -427,8 +514,9 @@ class TopicList extends StatelessWidget {
                   itemCount: topics.length + 1,
                   separatorBuilder: (_, __) => const SizedBox(height: 16),
                   itemBuilder: (context, i) {
-                    // Create a Quiz
-                    if (i == topics.length) {
+                    // ✅ Create Box를 맨 위에 배치
+                    if (i == 0) {
+                      final s = _uiScale(context);
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -462,12 +550,14 @@ class TopicList extends StatelessWidget {
                       );
                     }
 
-                    final d = topics[i];
+                    // 나머지 토픽 리스트 (index-1로 보정)
+                    final d = topics[i - 1];
                     final x = d.data();
+                    final s = _uiScale(context);
                     final title =
                         (x['title'] as String?)?.trim().isNotEmpty == true
                             ? (x['title'] as String).trim()
-                            : 'Quiz ${i + 1}';
+                            : 'Quiz ${i}';
 
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -476,43 +566,46 @@ class TopicList extends StatelessWidget {
                           future: _quizCount(d.id),
                           builder: (context, cntSnap) {
                             final cnt = cntSnap.data ?? 0;
-                            return _RowHeader(
-                              text: 'Quiz ${i + 1}',
-                              scale: s,
-                              onDelete:
-                                  () => _deleteTopicWithSubcollections(
-                                    context,
-                                    fs,
+
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _RowHeader(
+                                  text: 'Quiz ${i}',
+                                  scale: s,
+                                  onDelete:
+                                      () => _deleteTopicWithSubcollections(
+                                        context,
+                                        fs,
+                                        topicId: d.id,
+                                        status: (x['status'] as String?),
+                                      ),
+                                  trailing: _MorePill(scale: s),
+                                  onMoreTap: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder:
+                                            (_) =>
+                                                TopicDetailPage(topicId: d.id),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                SizedBox(
+                                  height: (12 * s).clamp(12, 18).toDouble(),
+                                ),
+
+                                _InputLikeTile(
+                                  title: title,
+                                  scale: s,
+                                  trailing: _StartButton(
+                                    enabled: cnt != 0,
+                                    scale: s,
                                     topicId: d.id,
-                                    status: (x['status'] as String?),
                                   ),
-                              trailing: _StartButton(
-                                enabled: cnt != 0,
-                                scale: s,
-                                topicId: d.id,
-                              ),
-                            );
-                          },
-                        ),
-                        SizedBox(height: (12 * s).clamp(12, 18).toDouble()),
-                        _InputLikeTile(
-                          title: title,
-                          scale: s,
-                          trailing: _MorePill(scale: s),
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => TopicDetailPage(topicId: d.id),
-                              ),
-                            );
-                          },
-                          onMore: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => TopicDetailPage(topicId: d.id),
-                              ),
+                                ),
+                              ],
                             );
                           },
                         ),
@@ -591,7 +684,7 @@ class _StartButtonState extends State<_StartButton> {
         });
   }
 
-  Future<void> _toggleQuiz() async {
+  Future<void> _startQuiz() async {
     if (_hubPath == null) {
       _snack(context, '허브 경로가 없습니다. 다시 시도해 주세요.');
       return;
@@ -599,90 +692,37 @@ class _StartButtonState extends State<_StartButton> {
 
     final path = '$_hubPath/quizTopics/${widget.topicId}';
 
-    if (_isRunning) {
-      // 🔴 STOP 상태로 전환
-      _snack(context, '퀴즈를 종료합니다...');
-      setState(() => _isRunning = false); // 버튼 즉시 반응
-
-      // 🔒 리스너 일시 정지 (Firestore가 'stopped' emit해도 무시)
-      _statusSub?.pause();
-
-      await _fs.doc(path).set({
-        'status': 'stopped',
-        'phase': 'finished',
-        'currentQuizId': null,
-        'currentIndex': null,
-        'endedAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'showSummaryOnDisplay': false,
-      }, SetOptions(merge: true));
-
-      // 🕒 Firestore sync 기다린 후 리스너 재개
-      await Future.delayed(const Duration(seconds: 1));
-      _statusSub?.resume();
-
-      _snack(context, '퀴즈가 종료되었습니다.');
-      return;
-    }
-
-    // ✅ START 시도 전에 다른 running 퀴즈 있는지 확인
     final running =
         await _fs
             .collection('$_hubPath/quizTopics')
             .where('status', isEqualTo: 'running')
             .get();
-
     if (running.docs.isNotEmpty) {
-      _snack(context, '이미 진행 중인 퀴즈를 종료해 주세요.');
+      _snack(context, '이미 진행 중인 퀴즈가 있습니다.');
       return;
     }
 
-    // 🔹 현재 토픽 데이터와 퀴즈 불러오기
-    final topicDoc = await _fs.doc(path).get();
-    final topicData = topicDoc.data() ?? {};
-    final timeLimitSeconds =
-        (topicData['timeLimitSeconds'] as num?)?.toInt() ?? 0;
-
     final qSnap =
         await _fs.collection('$path/quizzes').orderBy('createdAt').get();
-
     if (qSnap.docs.isEmpty) {
       _snack(context, '먼저 문제를 추가해 주세요.');
       return;
     }
 
-    // 🔹 public=true인 첫 문항 찾기
-    QueryDocumentSnapshot<Map<String, dynamic>>? firstPublic;
-    for (final doc in qSnap.docs) {
-      final data = doc.data();
-      if (data['public'] == true) {
-        firstPublic = doc;
-        break;
-      }
-    }
+    final first = qSnap.docs.first;
 
-    if (firstPublic == null) {
-      _snack(context, '공개된(public=true) 문항이 없습니다.');
-      return;
-    }
-
-    // 🔹 START 로직
     await _fs.doc(path).set({
       'status': 'running',
       'phase': 'question',
-      'currentQuizIndex': qSnap.docs.indexOf(firstPublic) + 1,
+      'currentQuizIndex': 1,
       'totalQuizCount': qSnap.docs.length,
-      'currentQuizId': firstPublic.id,
+      'currentQuizId': first.id,
       'questionStartedAt': FieldValue.serverTimestamp(),
       'questionStartedAtMs': DateTime.now().millisecondsSinceEpoch,
       'startedAt': FieldValue.serverTimestamp(),
       'endedAt': null,
       'updatedAt': FieldValue.serverTimestamp(),
       'showSummaryOnDisplay': false,
-      if (timeLimitSeconds > 0)
-        'timerSeconds': timeLimitSeconds
-      else
-        'timerSeconds': FieldValue.delete(),
     }, SetOptions(merge: true));
 
     _snack(context, '퀴즈가 시작되었습니다.');
@@ -690,34 +730,40 @@ class _StartButtonState extends State<_StartButton> {
 
   @override
   Widget build(BuildContext context) {
-    final h = (61 * widget.scale).clamp(61, 96).toDouble();
-    final fs = (24 * widget.scale).clamp(24, 36).toDouble();
+    const normalBorder = Color(0xFF001A36);
+    const normalText = Color(0xFF001A36);
+    const runningBg = Color.fromRGBO(68, 160, 255, 0.2);
+    const runningText = Color(0xFF44A0FF);
 
-    return TextButton.icon(
-      onPressed: widget.enabled ? _toggleQuiz : null,
-      icon: Icon(
-        _isRunning ? Icons.stop : Icons.play_arrow,
-        size: (18 * widget.scale).clamp(18, 28).toDouble(),
-        color: Colors.black,
-      ),
-      label: Text(
-        _isRunning ? 'STOP' : 'START !',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: Colors.black,
-          fontSize: fs,
-          fontWeight: FontWeight.w500,
-          height: 1.0,
+    final text = _isRunning ? 'running' : 'START !';
+
+    return IgnorePointer(
+      ignoring: _isRunning, // running일 때 모든 터치 차단
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent, // 부모 터치 방지
+        onTap: (_isRunning || !widget.enabled) ? null : _startQuiz,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          width: 98,
+          height: 34,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: _isRunning ? runningBg : Colors.transparent,
+            borderRadius: BorderRadius.circular(30),
+            border:
+                _isRunning ? null : Border.all(color: normalBorder, width: 1),
+          ),
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _isRunning ? runningText : normalText,
+              fontSize: 17,
+              fontWeight: FontWeight.w600,
+              height: 1.0,
+            ),
+          ),
         ),
-      ),
-      style: TextButton.styleFrom(
-        padding: EdgeInsets.symmetric(
-          horizontal: (8 * widget.scale).clamp(8, 16),
-        ),
-        minimumSize: Size(0, h),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        foregroundColor: Colors.black,
-        disabledForegroundColor: const Color(0xFFA2A2A2),
       ),
     );
   }
@@ -737,19 +783,28 @@ class _MorePill extends StatelessWidget {
   Widget build(BuildContext context) {
     final h = (61 * scale).clamp(61, 96).toDouble();
     final w = (74 * scale).clamp(74, 120).toDouble();
-    final fs = (24 * scale).clamp(24, 36).toDouble();
+    final fs = (22 * scale).clamp(22, 28).toDouble();
+
     return Container(
-      constraints: BoxConstraints.tightFor(width: w, height: h),
-      alignment: Alignment.center,
-      child: Text(
-        'more',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: const Color(0xFFA2A2A2),
-          fontSize: fs,
-          fontWeight: FontWeight.w400,
-          height: 34 / 24,
-        ),
+      width: w,
+      height: h,
+      alignment: Alignment.centerRight,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.end,
+        children: [
+          Icon(Icons.edit_outlined, size: 24, color: const Color(0xFFA2A2A2)),
+          const SizedBox(width: 4),
+          Text(
+            'Edit',
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: const Color(0xFFA2A2A2),
+              fontSize: fs,
+              fontWeight: FontWeight.w500,
+              height: 34 / 22,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -762,12 +817,14 @@ class _RowHeader extends StatelessWidget {
     required this.text,
     this.onDelete,
     this.trailing,
+    this.onMoreTap,
     required this.scale,
   });
 
   final String text;
   final VoidCallback? onDelete;
   final Widget? trailing;
+  final VoidCallback? onMoreTap;
   final double scale;
 
   @override
@@ -794,9 +851,9 @@ class _RowHeader extends StatelessWidget {
             SizedBox(width: (6 * scale).clamp(6, 10).toDouble()),
             IconButton(
               icon: Icon(
-                Icons.close,
+                Icons.delete_outline_outlined,
                 size: iconSize,
-                color: const Color(0xFF001A36),
+                color: const Color(0xFFFF9A6E),
               ),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
@@ -805,7 +862,12 @@ class _RowHeader extends StatelessWidget {
             ),
           ],
           const Spacer(),
-          if (trailing != null) trailing!,
+          if (trailing != null)
+            InkWell(
+              onTap: onMoreTap,
+              borderRadius: BorderRadius.circular(8),
+              child: trailing!,
+            ),
         ],
       ),
     );
