@@ -246,10 +246,10 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
                           _titleField(),
                           const SizedBox(height: 20),
 
-                          _sectionLabel('Type'),
-                          const SizedBox(height: 6),
-                          _typeCard(),
-                          const SizedBox(height: 20),
+                          // _sectionLabel('Type'),
+                          // const SizedBox(height: 6),
+                          // _typeCard(),
+                          // const SizedBox(height: 20),
 
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -273,7 +273,7 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    _sectionLabel('Column / Row'),
+                                    _sectionLabel('Classroom Seat Column / Row'),
                                     const SizedBox(height: 6),
                                     Row(
                                       children: [
@@ -291,8 +291,8 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
 
                           // ── 새 규칙 섹션: 같이 앉히기 ─────────────────────────
                           _ruleGroupsSection(
-                            title: 'Pairing groups (sit together)',
-                            help: 'Add group → Add students 에서 학생을 선택하세요.',
+                            title: 'Pairing',
+                            help: '*Write students to pair together',
                             groups: _pairGroups,
                             together: true,
                           ),
@@ -300,8 +300,8 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
 
                           // ── 새 규칙 섹션: 떨어뜨리기 ────────────────────────
                           _ruleGroupsSection(
-                            title: 'Separation groups (do not sit together)',
-                            help: '같은 그룹의 학생들은 서로 인접하지 않게 배치됩니다.',
+                            title: 'Separation',
+                            help: '*Write students to not pair together',
                             groups: _separateGroups,
                             together: false,
                           ),
@@ -360,6 +360,15 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
                   fontWeight: FontWeight.w700,
                 ),
               ),
+              const SizedBox(width: 4),
+              Text(
+                help,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF6B7280),
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
               const Spacer(),
               OutlinedButton.icon(
                 onPressed: () => _addRuleGroup(together: together),
@@ -376,15 +385,8 @@ class _RandomSeatCreatePageState extends State<RandomSeatCreatePage> {
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            help,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF6B7280),
-              fontWeight: FontWeight.w500,
-            ),
-          ),
+        
+          
           const SizedBox(height: 12),
 
           // 그룹 카드들

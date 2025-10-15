@@ -117,64 +117,65 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
   bool _boundOnce = false;
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _ensureSessionAndBindSeatMap();
+void initState() {
+  super.initState();
+
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    await _ensureSessionAndBindSeatMap();
+
+    // ✅ hubId 준비될 때까지 대기
+    final hub = context.read<HubProvider>();
+    if (hub.hubId == null || hub.hubId!.isEmpty) {
+      debugPrint('⏳ Waiting for hubId to be set...');
+      await Future.delayed(const Duration(milliseconds: 500));
+    }
+
+    // ✅ hubId가 준비된 후에만 실행
+    if (mounted && hub.hubId != null && hub.hubId!.isNotEmpty) {
       _listenDisplayReady();
-    });
-  }
+    }
+  });
+}
 
 void _listenDisplayReady() async {
   final hubId = context.read<HubProvider>().hubId;
-  debugPrint('🔍 hubId in _listenDisplayReady(): $hubId');
-  if (hubId == null) return;
+  if (hubId == null || !mounted) return;
+  debugPrint('✅ Start listening displayStatus for hubId=$hubId');
 
   final fs = FirebaseFirestore.instance;
-  final colRef = fs
+  final docRef = fs
       .collection('hubs')
       .doc(hubId)
       .collection('displayStatus')
-      .withConverter<Map<String, dynamic>>(
-        fromFirestore: (snap, _) => snap.data() ?? {},
-        toFirestore: (data, _) => data,
-      );
+      .doc('display-main');
 
-  // ✅ display-main 문서만 관리
-  const displayId = 'display-main';
-  final docRef = colRef.doc(displayId);
-
-  // 🔹 문서 존재 확인 후 생성/초기화
-  final docSnap = await docRef.get();
-  if (!docSnap.exists) {
-    await docRef.set({
-      'ready': false,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-    debugPrint('🆕 Created new displayStatus/$displayId document');
-  } else {
-    await docRef.set({
-      'ready': false,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-    debugPrint('♻️ Reset displayStatus/$displayId to ready:false');
+  try {
+    final docSnap = await docRef.get();
+    if (!docSnap.exists) {
+      await docRef.set({
+        'ready': false,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      debugPrint('🆕 Created display-main doc');
+    } else {
+      // ✅ 기존 문서가 있으면 상태만 갱신
+      await docRef.set({'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+    }
+  } catch (e) {
+    debugPrint('⚠️ Firestore init failed: $e');
+    return;
   }
 
-  // ✅ 단일 문서 실시간 감시
   _readySub?.cancel();
-  _readySub = docRef.snapshots().listen(
-    (DocumentSnapshot<Map<String, dynamic>> snap) {
-      final data = snap.data();
-      if (data == null) return;
-
-      final ready = data['ready'] == true;
-      debugPrint('📡 Display ready (display-main): $ready');
-
-      if (mounted) setState(() => _displayReady = ready);
-    },
-  );
+  _readySub = docRef.snapshots().listen((snap) {
+    final data = snap.data();
+    final ready = data?['ready'] == true;
+    debugPrint('📡 Display ready = $ready');
+    if (mounted) setState(() => _displayReady = ready);
+  });
 }
+
 
 
   @override
@@ -182,15 +183,19 @@ void _listenDisplayReady() async {
     _readySub?.cancel();
     super.dispose();
   }
+  String? _currentHubId;
+ // ✅ 추가 (State 클래스 맨 위에 선언)
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (!_boundOnce) {
-      _boundOnce = true;
-      _ensureSessionAndBindSeatMap();
-    }
+@override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  if (!_boundOnce) {
+    _boundOnce = true;
+    _ensureSessionAndBindSeatMap();
   }
+}
+
+
 
   Future<void> _ensureSessionAndBindSeatMap() async {
     final fs = FirebaseFirestore.instance;
@@ -363,6 +368,17 @@ void _listenDisplayReady() async {
 
   @override
   Widget build(BuildContext context) {
+    final hubId = context.watch<HubProvider>().hubId;
+
+  // ✅ 허브 로딩이 안 끝났으면 Firestore 접근 금지
+  if (hubId == null || hubId.isEmpty) {
+    return const Scaffold(
+      backgroundColor: Colors.white,
+      body: Center(
+        child: CircularProgressIndicator(color: Colors.black),
+      ),
+    );
+  }
     final width = MediaQuery.sizeOf(context).width;
 
     return Stack(

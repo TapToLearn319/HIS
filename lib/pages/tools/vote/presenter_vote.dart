@@ -23,7 +23,7 @@ class _PresenterVotePageState extends State<PresenterVotePage>
     with WidgetsBindingObserver {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _activeSub;
   String? _activeVoteId;
-  bool _isRunning = false;
+  String _votePhase = 'idle'; // ✅ idle → running → done → idle
   bool _busy = false;
 
   final _formKey = GlobalKey<FormState>();
@@ -41,11 +41,12 @@ class _PresenterVotePageState extends State<PresenterVotePage>
   String _show = 'realtime'; // 'realtime' | 'after'
   bool _anonymous = true;
   bool _multi = true;
+  bool _isRunning = false;
+bool _done = false;
 
   bool _loading = false;
 
   void plog(Object? msg) {
-    // ignore: avoid_print
     print('[Presenter] $msg');
   }
 
@@ -58,36 +59,32 @@ class _PresenterVotePageState extends State<PresenterVotePage>
   }
 
   @override
-void initState() {
-  super.initState();
-  WidgetsBinding.instance.addObserver(this);
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
-  // ✨ 텍스트를 채우지 않는다(placeholder만 보이게)
-  _optionCtrls.add(TextEditingController());
-  _bindings.add(const _Binding(button: 1, gesture: 'single')); // 1 - click
+    _optionCtrls.add(TextEditingController());
+    _bindings.add(const _Binding(button: 1, gesture: 'single')); // 1 - click
 
-  _optionCtrls.add(TextEditingController());
-  _bindings.add(const _Binding(button: 2, gesture: 'single')); // 2 - click
+    _optionCtrls.add(TextEditingController());
+    _bindings.add(const _Binding(button: 2, gesture: 'single')); // 2 - click
 
-  _ensureUniqueAll();
-  setState(() => _loading = false);
+    _ensureUniqueAll();
+    setState(() => _loading = false);
 
-  WidgetsBinding.instance.addPostFrameCallback((_) async {
-    final hubId = context.read<HubProvider>().hubId;
-    if (hubId == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final hubId = context.read<HubProvider>().hubId;
+      if (hubId == null) return;
 
-    // ✅ 1) 입장하자마자 강제 리셋
-    await _forceResetOnEnter(hubId);
+      await _forceResetOnEnter(hubId);
 
-    // 2) 특정 voteId로 열어야 하면 로드
-    if (widget.voteId != null) {
-      await _load(hubId, widget.voteId!);
-    }
+      if (widget.voteId != null) {
+        await _load(hubId, widget.voteId!);
+      }
 
-    // 3) (선택) 이후부터는 active 감시(다른 기기에서 시작하면 따라가게)
-    _watchActive(hubId);
-  });
-}
+      _watchActive(hubId);
+    });
+  }
 
   @override
   void dispose() {
@@ -97,16 +94,13 @@ void initState() {
     for (final c in _optionCtrls) {
       c.dispose();
     }
-
     _autoCloseIfRunning();
     _newOptionCtrl.dispose();
-
     super.dispose();
   }
 
   Future<void> _autoCloseIfRunning() async {
-    if (!_isRunning) return;
-    _isRunning = false;
+    if (_votePhase != 'running') return;
 
     final id = _activeVoteId ?? widget.voteId;
     final hubId = context.read<HubProvider>().hubId;
@@ -120,28 +114,26 @@ void initState() {
         'endedAtMs': DateTime.now().millisecondsSinceEpoch,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
+      await _updateHub(sid: null, voteId: null);
 
-      await _updateHub(sid: null, voteId: null); // sid는 안씀
-
-      if (mounted) setState(() => _isRunning = false);
+      if (mounted) setState(() => _votePhase = 'idle');
     } catch (e) {
       debugPrint('[PresenterVote] autoCloseIfRunning error: $e');
     }
   }
 
-  // 시그니처는 유지, 내부에서 HubProvider로 hubId 사용
   Future<void> _updateHub({required String? sid, String? voteId}) async {
     final hubId = context.read<HubProvider>().hubId;
     if (hubId == null) return;
     final ref = FirebaseFirestore.instance.doc('hubs/$hubId');
     await ref.set({
-      'currentSessionId': sid, // 그대로 유지 (표시용이면 사용)
-      'currentVoteId': voteId, // 시작 시 voteId, 종료 시 null
+      'currentSessionId': sid,
+      'currentVoteId': voteId,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
   }
 
-  Future<void> _load(String sid /* hubId */, String id) async {
+  Future<void> _load(String sid, String id) async {
     setState(() => _loading = true);
     final doc =
         await FirebaseFirestore.instance.doc('hubs/$sid/votes/$id').get();
@@ -168,12 +160,7 @@ void initState() {
         _optionCtrls.add(TextEditingController(text: title));
         _bindings.add(_Binding(button: btn, gesture: ges));
       }
-      while (_optionCtrls.length < 2) {
-        _optionCtrls.add(TextEditingController());
-        _bindings.add(const _Binding(button: 1, gesture: 'hold'));
-      }
 
-      // 설정
       final s = (d['settings'] as Map?) ?? {};
       _show = (s['show'] ?? _show).toString();
       _anonymous = (s['anonymous'] == true);
@@ -181,117 +168,17 @@ void initState() {
 
       final status = (d['status'] ?? '').toString();
       _activeVoteId = doc.id;
-      _isRunning = status == 'active';
+      _votePhase = status == 'active' ? 'running' : 'idle';
     }
     if (mounted) setState(() => _loading = false);
   }
 
-  // 가능한 모든 매핑 (총 4개)
   static const List<_Binding> _allBindings = [
     _Binding(button: 1, gesture: 'single'),
     _Binding(button: 1, gesture: 'hold'),
     _Binding(button: 2, gesture: 'single'),
     _Binding(button: 2, gesture: 'hold'),
   ];
-
-  // i번 문항을 next로 설정하고, 나머지에서 중복을 해소한다.
-  void _setUniqueBinding(int i, _Binding next) {
-    setState(() {
-      // 1) 우선 적용
-      _bindings[i] = next;
-
-      // 2) 중복 정리
-      final used = <String>{};
-      for (int k = 0; k < _bindings.length; k++) {
-        if (k == i) continue;
-        used.add('${_bindings[k].button}-${_bindings[k].gesture}');
-      }
-      used.add('${next.button}-${next.gesture}');
-
-      final free =
-          _allBindings
-              .where((b) => !used.contains('${b.button}-${b.gesture}'))
-              .toList();
-
-      for (int k = 0; k < _bindings.length; k++) {
-        if (k == i) continue;
-        final key = '${_bindings[k].button}-${_bindings[k].gesture}';
-        if (key == '${next.button}-${next.gesture}') {
-          if (free.isNotEmpty) {
-            _bindings[k] = free.removeAt(0);
-          }
-        }
-      }
-    });
-  }
-
-  _Binding _firstUnusedBinding({
-    _Binding fallback = const _Binding(button: 1, gesture: 'hold'),
-  }) {
-    final used = _bindings.map((b) => '${b.button}-${b.gesture}').toSet();
-    for (final b in _allBindings) {
-      if (!used.contains('${b.button}-${b.gesture}')) return b;
-    }
-    return fallback;
-  }
-
-  void _ensureUniqueAll() {
-    final seen = <String>{};
-    for (int i = 0; i < _bindings.length; i++) {
-      final key = '${_bindings[i].button}-${_bindings[i].gesture}';
-      if (seen.contains(key)) {
-        _bindings[i] = _firstUnusedBinding(fallback: _bindings[i]);
-      }
-      seen.add('${_bindings[i].button}-${_bindings[i].gesture}');
-    }
-  }
-
-  void _watchActive(String sid /* hubId */) {
-    _activeSub?.cancel();
-    _activeSub = FirebaseFirestore.instance
-        .collection('hubs/$sid/votes')
-        .where('status', isEqualTo: 'active')
-        .snapshots()
-        .listen(
-          (qs) {
-            if (qs.docs.isEmpty) {
-              if (mounted) {
-                setState(() {
-                  _isRunning = false;
-                  _activeVoteId = null;
-                });
-              }
-              return;
-            }
-
-            int _scoreOf(Map<String, dynamic> d) {
-              final updated = d['updatedAt'];
-              final started = d['startedAt'];
-              if (updated is Timestamp) return updated.millisecondsSinceEpoch;
-              if (started is Timestamp) return started.millisecondsSinceEpoch;
-              return 0;
-            }
-
-            final docs = qs.docs.toList();
-            docs.sort((a, b) {
-              final ta = _scoreOf(a.data());
-              final tb = _scoreOf(b.data());
-              return tb.compareTo(ta); // 최신이 앞
-            });
-            final latest = docs.first;
-
-            if (mounted) {
-              setState(() {
-                _isRunning = true;
-                _activeVoteId = latest.id;
-              });
-            }
-          },
-          onError: (e) {
-            debugPrint('[PresenterVote] active watcher error: $e');
-          },
-        );
-  }
 
   void _addFromScratch() {
   if (_optionCtrls.length >= _maxOptions) {
@@ -314,133 +201,209 @@ void initState() {
   });
 }
 
-Future<void> _forceResetOnEnter(String hubId) async {
-  try {
-    // 1) 이 허브에서 active인 투표 모두 종료
-    await _stopAllActive(hubId);
+  void _setUniqueBinding(int i, _Binding next) {
+    setState(() {
+      _bindings[i] = next;
+      final used = <String>{};
+      for (int k = 0; k < _bindings.length; k++) {
+        if (k == i) continue;
+        used.add('${_bindings[k].button}-${_bindings[k].gesture}');
+      }
+      used.add('${next.button}-${next.gesture}');
+      final free =
+          _allBindings.where((b) => !used.contains('${b.button}-${b.gesture}')).toList();
+      for (int k = 0; k < _bindings.length; k++) {
+        if (k == i) continue;
+        final key = '${_bindings[k].button}-${_bindings[k].gesture}';
+        if (key == '${next.button}-${next.gesture}') {
+          if (free.isNotEmpty) _bindings[k] = free.removeAt(0);
+        }
+      }
+    });
+  }
 
-    // 2) 허브 currentVoteId 정리 (표시용 sid도 같이 넣어둠)
-    final sid = context.read<SessionProvider>().sessionId;
-    await _updateHub(sid: sid, voteId: null);
-
-    // 3) 로컬 상태도 확실히 Stop으로
-    if (mounted) {
-      setState(() {
-        _isRunning = false;
-        _activeVoteId = null;
-      });
+  _Binding _firstUnusedBinding({
+    _Binding fallback = const _Binding(button: 1, gesture: 'hold'),
+  }) {
+    final used = _bindings.map((b) => '${b.button}-${b.gesture}').toSet();
+    for (final b in _allBindings) {
+      if (!used.contains('${b.button}-${b.gesture}')) return b;
     }
-  } catch (e) {
-    debugPrint('[PresenterVote] forceResetOnEnter error: $e');
+    return fallback;
+  }
+
+  void _ensureUniqueAll() {
+    final seen = <String>{};
+    for (int i = 0; i < _bindings.length; i++) {
+      final key = '${_bindings[i].button}-${_bindings[i].gesture}';
+      if (seen.contains(key)) {
+        _bindings[i] = _firstUnusedBinding(fallback: _bindings[i]);
+      }
+      seen.add(key);
+    }
+  }
+
+  void _watchActive(String sid) {
+    _activeSub?.cancel();
+    _activeSub = FirebaseFirestore.instance
+        .collection('hubs/$sid/votes')
+        .where('status', isEqualTo: 'active')
+        .snapshots()
+        .listen(
+      (qs) {
+        if (qs.docs.isEmpty) {
+          if (mounted) setState(() => _votePhase = 'idle');
+          return;
+        }
+        if (mounted) setState(() => _votePhase = 'running');
+      },
+      onError: (e) => debugPrint('[PresenterVote] watch error: $e'),
+    );
+  }
+
+  Future<void> _forceResetOnEnter(String hubId) async {
+    try {
+      await FirebaseFirestore.instance.doc('hubs/$hubId').set({
+        'revealNow': false,
+        'votePaused': false,
+      }, SetOptions(merge: true));
+      await _stopAllActive(hubId);
+      final sid = context.read<SessionProvider>().sessionId;
+      await _updateHub(sid: sid, voteId: null);
+      if (mounted) setState(() => _votePhase = 'idle');
+    } catch (e) {
+      debugPrint('[PresenterVote] forceReset error: $e');
+    }
+  }
+
+  // ✅ Start → Stop → Done → Start 순환
+  Future<void> _handleStartStop() async {
+  if (_busy) return;
+  _busy = true;
+
+  try {
+    final hubId = context.read<HubProvider>().hubId;
+    final sid = context.read<SessionProvider>().sessionId;
+    if (hubId == null) return;
+
+    if (_votePhase == 'idle') {
+      // ▶ START
+      final voteId = await _persistVote(hubId);
+      if (voteId == null) return;
+
+      await _stopAllActive(hubId);
+      final doc = FirebaseFirestore.instance.doc('hubs/$hubId/votes/$voteId');
+
+      await doc.set({
+        'status': 'active',
+        'revealNow': false,
+        'votePaused': false,
+        'startedAt': FieldValue.serverTimestamp(),
+        'startedAtMs': DateTime.now().millisecondsSinceEpoch,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      await FirebaseFirestore.instance.doc('hubs/$hubId').set({
+        'currentVoteId': voteId,
+        'revealNow': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      await _updateHub(sid: sid, voteId: voteId);
+
+      if (mounted) {
+        setState(() {
+          _votePhase = 'running';
+          _activeVoteId = voteId;
+          _isRunning = true;
+          _done = false;
+        });
+      }
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('✅ Vote started!')));
+      return;
+    }
+
+    if (_votePhase == 'running') {
+      // ▶ STOP
+      final id = _activeVoteId;
+      if (id == null) return;
+
+      final doc = FirebaseFirestore.instance.doc('hubs/$hubId/votes/$id');
+      final voteSnap = await doc.get();
+      final settings = (voteSnap.data()?['settings'] ?? {}) as Map?;
+      final showMode = (settings?['show'] ?? 'realtime').toString();
+
+      // showMode가 'after'면 결과 공개, 아니면 그냥 종료
+      final revealNow = (showMode == 'after');
+
+      await FirebaseFirestore.instance.doc('hubs/$hubId').set({
+        'revealNow': revealNow,
+        'votePaused': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      await doc.set({
+        'status': 'stopped',
+        'revealNow': revealNow,
+        'endedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      await _updateHub(sid: sid, voteId: null);
+
+      if (mounted) {
+        setState(() {
+          _votePhase = 'done';
+          _isRunning = false;
+          _done = true;
+        });
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(revealNow
+            ? '📊 Vote stopped. Results revealed (AFTER mode).'
+            : '🛑 Vote stopped. Real-time tally frozen.'),
+      ));
+      return;
+    }
+
+    if (_votePhase == 'done') {
+      // ▶ DONE → RESET
+      await _forceResetOnEnter(hubId);
+
+      // 투표 상태를 완전히 닫음
+      final id = _activeVoteId;
+      if (id != null) {
+        final doc = FirebaseFirestore.instance.doc('hubs/$hubId/votes/$id');
+        await doc.set({
+          'status': 'closed',
+          'revealNow': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+
+      if (mounted) {
+        setState(() {
+          _votePhase = 'idle';
+          _isRunning = false;
+          _done = false;
+          _activeVoteId = null;
+        });
+      }
+
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('🔄 Ready for next vote.')));
+      return;
+    }
+  } catch (e, st) {
+    debugPrint('[VOTE] handleStartStop error: $e\n$st');
+  } finally {
+    _busy = false;
   }
 }
 
-
-  Future<void> _handleStartStop() async {
-    if (_busy) return;
-    _busy = true;
-    try {
-      print('[VOTE] handleStartStop 실행됨. 현재 상태: _isRunning=$_isRunning');
-
-      final hubId = context.read<HubProvider>().hubId;
-      final sid = context.read<SessionProvider>().sessionId; // 필요시 허브 문서에 표시용
-      print('[VOTE] hubId=$hubId, 세션ID=$sid');
-
-      if (hubId == null) {
-        if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('허브가 설정되지 않았습니다.')));
-        }
-        return;
-      }
-
-      if (!_isRunning) {
-        // ▶ START
-        print('[VOTE] START 시도');
-        final voteId = await _persistVote(hubId);
-        print('[VOTE] persistVote 결과 voteId=$voteId');
-
-        if (voteId == null) return;
-
-        await _stopAllActive(hubId); // 다른 active 모두 종료
-        print('[VOTE] 기존 active 투표 모두 종료 완료');
-
-        final doc = FirebaseFirestore.instance.doc(
-          'hubs/$hubId/votes/$voteId',
-        );
-        print('[VOTE] Firestore doc path = hubs/$hubId/votes/$voteId');
-
-        // ▶ START 직후
-        await doc.set({
-          'status': 'active',
-          'startedAt': FieldValue.serverTimestamp(),
-          'startedAtMs': DateTime.now().millisecondsSinceEpoch,
-          'endedAt': null,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-
-        // ★ 허브에 현재 투표 반영 (sid는 표시용으로 넣어둠)
-        await _updateHub(sid: sid, voteId: voteId);
-
-        if (!mounted) return;
-        setState(() {
-          _isRunning = true;
-          _activeVoteId = voteId;
-        });
-
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Vote started!')));
-      } else {
-        // ▶ STOP
-        print('[VOTE] STOP 시도');
-        final id = widget.voteId ?? _activeVoteId;
-        print('[VOTE] 중지할 투표ID=$id');
-
-        if (id == null) {
-          if (mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('중지할 투표를 찾지 못했습니다.')));
-          }
-          return;
-        }
-
-        final doc = FirebaseFirestore.instance.doc('hubs/$hubId/votes/$id');
-        print('[VOTE] Firestore doc path = hubs/$hubId/votes/$id');
-
-        // ▶ STOP 직후
-        await doc.set({
-          'status': 'closed',
-          'endedAt': FieldValue.serverTimestamp(),
-          'endedAtMs': DateTime.now().millisecondsSinceEpoch,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-
-        // ★ 허브에서 현재 투표 해제
-        await _updateHub(sid: sid, voteId: null);
-
-        if (!mounted) return;
-        setState(() => _isRunning = false);
-
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Vote stopped.')));
-      }
-    } catch (e, st) {
-      print('[VOTE][toggle] 에러 발생: $e\n$st');
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('처리 실패: $e')));
-      }
-    } finally {
-      if (mounted) setState(() {}); // UI 갱신
-      _busy = false;
-      print('[VOTE] handleStartStop 종료됨. 최종 상태: _isRunning=$_isRunning');
-    }
-  }
 
   int _tsFrom(dynamic v) {
     if (v is Timestamp) return v.millisecondsSinceEpoch;
@@ -591,12 +554,14 @@ Future<void> _forceResetOnEnter(String hubId) async {
                 bottom: 16,
                 child: SafeArea(
                   top: false,
-                  child: _MakeButton(
-                    scale: 0.8, // 🔹 버튼 크기 비율 (1.0이면 원본)
-                    imageAsset: _isRunning
-                        ? 'assets/logo_bird_stop.png'
-                        : 'assets/logo_bird_start.png',
-                    onTap: _handleStartStop,
+                  child:_MakeButton(
+                    scale: 0.8,
+                    imageAsset: _done
+                        ? 'assets/logo_bird_done.png' // ✅ 새 완료 이미지 (없으면 임시로 stop.png 사용)
+                        : (_isRunning
+                            ? 'assets/logo_bird_stop.png'
+                            : 'assets/logo_bird_start.png'),
+                    onTap: _handleStartStop,// ✅ Done이면 비활성화
                   ),
                 ),
               ),
@@ -710,7 +675,10 @@ Future<void> _forceResetOnEnter(String hubId) async {
         enabled: false,
         child: Text(
           '— Button mapping —',
-          style: TextStyle(fontWeight: FontWeight.w700),
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: Colors.black,
+            ),
         ),
       ),
       PopupMenuDivider(),
@@ -753,7 +721,7 @@ Future<void> _forceResetOnEnter(String hubId) async {
       }
       _setUniqueBinding(i, next);
     }
-
+    final popupKey = GlobalKey<PopupMenuButtonState<int>>(); 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -789,12 +757,13 @@ Future<void> _forceResetOnEnter(String hubId) async {
                 suffixIcon: ConstrainedBox(
                   constraints: const BoxConstraints(
                     minWidth: 150,
-                    maxWidth: 200, // ✅ suffixIcon 전체 폭 제한
+                    maxWidth: 240, // ✅ 기존보다 폭을 약간 넉넉히
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min, // ✅ 내부 요소 크기에만 맞춤
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
+                      // ✅ 첫 번째 항목일 때 HelpBadge 표시
                       if (i == 0) ...[
                         const HelpBadge(
                           tooltip: 'You can customize how students select the correct answer.',
@@ -804,18 +773,22 @@ Future<void> _forceResetOnEnter(String hubId) async {
                         const SizedBox(width: 6),
                       ],
 
-                      // ✅ 텍스트 영역 유연하게 줄임
+                      // ✅ 텍스트를 눌러도 PopupMenu가 열리도록 InkWell 적용
                       Flexible(
                         child: Padding(
                           padding: const EdgeInsets.only(right: 4),
-                          child: Text(
-                            '${bind.button} - ${bind.gesture}',
-                            textAlign: TextAlign.left,
-                            overflow: TextOverflow.ellipsis, // ✅ 넘치면 자동 줄임
-                            style: const TextStyle(
-                              color: Color(0xFF8D8D8D),
-                              fontSize: 20,
-                              fontWeight: FontWeight.w400,
+                          child: InkWell(
+                            onTap: () => popupKey.currentState?.showButtonMenu(), // ✅ 메뉴 열기
+                            child: Text(
+                              '${bind.button} - ${bind.gesture}',
+                              textAlign: TextAlign.left,
+                              softWrap: false, // ✅ 줄바꿈 방지
+                              overflow: TextOverflow.fade, // ✅ ... 대신 자연스러운 페이드
+                              style: const TextStyle(
+                                color: Color(0xFF8D8D8D),
+                                fontSize: 20,
+                                fontWeight: FontWeight.w400,
+                              ),
                             ),
                           ),
                         ),
@@ -833,13 +806,14 @@ Future<void> _forceResetOnEnter(String hubId) async {
                               borderRadius: BorderRadius.circular(10),
                             ),
                             textStyle: const TextStyle(
-                              color: Color(0xFF8D8D8D),
+                              color: Colors.black, // ✅ 메뉴 글씨 전부 검정
                               fontSize: 21,
                               fontWeight: FontWeight.w400,
                             ),
                           ),
                         ),
                         child: PopupMenuButton<int>(
+                          key: popupKey,
                           tooltip: 'More',
                           icon: const Icon(
                             Icons.more_vert,
@@ -855,7 +829,6 @@ Future<void> _forceResetOnEnter(String hubId) async {
                                 .toSet();
 
                             final currentKey = '${bind.button}-${bind.gesture}';
-
                             const opts = [
                               _MenuOpt(1, '1 - single', '1-single'),
                               _MenuOpt(2, '1 - hold', '1-hold'),
@@ -877,11 +850,8 @@ Future<void> _forceResetOnEnter(String hubId) async {
                                     SizedBox(
                                       width: 24,
                                       child: selected
-                                          ? const Icon(
-                                              Icons.check,
-                                              size: 18,
-                                              color: Colors.black87,
-                                            )
+                                          ? const Icon(Icons.check,
+                                              size: 18, color: Colors.black87)
                                           : const SizedBox.shrink(),
                                     ),
                                     const SizedBox(width: 6),
@@ -889,6 +859,7 @@ Future<void> _forceResetOnEnter(String hubId) async {
                                       child: Text(
                                         o.label,
                                         style: TextStyle(
+                                          color: Colors.black, // ✅ 글씨 검정
                                           decoration: disabled
                                               ? TextDecoration.lineThrough
                                               : null,
@@ -907,9 +878,10 @@ Future<void> _forceResetOnEnter(String hubId) async {
                   ),
                 ),
                 suffixIconConstraints: const BoxConstraints(
-                  minWidth: 170,
-                  maxWidth: 170,
+                  minWidth: 200,
+                  maxWidth: 200, // ✅ 폭을 조금 늘려 HelpBadge + 텍스트 공간 확보
                 ),
+                
               ),
               validator: (v) => (v ?? '').trim().isEmpty ? '문항을 입력하세요.' : null,
             ),
@@ -971,10 +943,10 @@ Future<void> _forceResetOnEnter(String hubId) async {
               // ),
               _settingRow(
                 title: 'Multiple selections',
-                left: _choice<bool>('yes', _multi, () {
+                left: _choice<bool>('No', _multi, () {
                   setState(() => _multi = true);
                 }),
-                right: _choice<bool>('no', !_multi, () {
+                right: _choice<bool>('Yes', !_multi, () {
                   setState(() => _multi = false);
                 }),
               ),
@@ -1245,7 +1217,7 @@ class _MakeButton extends StatefulWidget {
   });
 
   final double scale;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final String imageAsset;
 
   @override
