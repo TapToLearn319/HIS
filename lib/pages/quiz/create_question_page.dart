@@ -4,8 +4,14 @@ import 'package:provider/provider.dart';
 import '../../../provider/hub_provider.dart';
 
 class CreateQuestionPage extends StatefulWidget {
+  final String hubId;
   final String topicId;
-  const CreateQuestionPage({super.key, required this.topicId});
+
+  const CreateQuestionPage({
+    super.key,
+    required this.hubId,
+    required this.topicId,
+  });
 
   @override
   State<CreateQuestionPage> createState() => _CreateQuestionPageState();
@@ -55,10 +61,9 @@ class _CreateQuestionPageState extends State<CreateQuestionPage> {
 
   Future<void> _loadNextQuestionNumber() async {
     try {
-      final hub = context.read<HubProvider>().hubDocPath;
       final quizzesCol = FirebaseFirestore.instance.collection(
-        '$hub/quizTopics/${widget.topicId}/quizzes',
-      );
+  'hubs/${widget.hubId}/quizTopics/${widget.topicId}/quizzes',
+);
 
       final snap = await quizzesCol.get();
       setState(() {
@@ -71,10 +76,9 @@ class _CreateQuestionPageState extends State<CreateQuestionPage> {
 
   // ───────────────────────── 저장 ─────────────────────────
   Future<void> _saveQuestion() async {
-    final hub = context.read<HubProvider>().hubDocPath;
     final quizzesCol = FirebaseFirestore.instance.collection(
-      '$hub/quizTopics/${widget.topicId}/quizzes',
-    );
+  'hubs/${widget.hubId}/quizTopics/${widget.topicId}/quizzes',
+);
 
     if (_titleCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(
@@ -98,11 +102,12 @@ class _CreateQuestionPageState extends State<CreateQuestionPage> {
     }
 
     final newRef = await quizzesCol.add({
-      'question': _titleCtrl.text.trim(),
-      'multi': _multi,
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+  'question': _titleCtrl.text.trim(),
+  'multi': _multi,
+  'public': true, // ✅ 이 한 줄 추가
+  'createdAt': FieldValue.serverTimestamp(),
+  'updatedAt': FieldValue.serverTimestamp(),
+});
 
     final choicesRef = newRef.collection('choices');
     for (int i = 0; i < titles.length; i++) {

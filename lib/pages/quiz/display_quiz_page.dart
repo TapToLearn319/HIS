@@ -6,7 +6,7 @@ import 'package:provider/provider.dart';
 import '../../provider/hub_provider.dart';
 
 const Color kWaitingBgColor = Color.fromARGB(255, 246, 250, 255);
-const String kWaitingImageAsset = 'assets/logo_bird_standby.png';
+const String kWaitingImageAsset = 'assets/logo_bird_main.png';
 
 const kQuizBarColor = Color(0xFFA9E817);
 
@@ -256,10 +256,13 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
   }
 
   void _handleLiveEvent(QuerySnapshot<Map<String, dynamic>> snap) async {
+    if (widget.phase == 'reveal') return; // 결과 공개 중엔 투표 차단
     if (snap.docs.isEmpty) return;
 
     final hubId = context.read<HubProvider>().hubId;
     if (hubId == null) return;
+
+    final fs = FirebaseFirestore.instance;
 
     for (final doc in snap.docs) {
       final data = doc.data();
@@ -269,14 +272,12 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
           (data['clickType'] ?? '').toString().toLowerCase().trim();
       final lastHubTs = (data['lastHubTs'] as num?)?.toInt() ?? 0;
 
-      // 🔸 유효성 검사
       if (clickTypeRaw.isEmpty ||
           !(clickTypeRaw == 'click' || clickTypeRaw == 'hold'))
         continue;
       if (slotIndex == null || slotIndex.isEmpty) continue;
       if (widget.startMs != null && lastHubTs < widget.startMs!) continue;
 
-      // 🔸 중복 이벤트 방지
       if (_lastProcessedTs[deviceId] == lastHubTs) continue;
       _lastProcessedTs[deviceId] = lastHubTs;
 
@@ -284,68 +285,82 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
       final quizId = widget.currentQuizId;
       if (topicId.isEmpty || quizId.isEmpty) continue;
 
-      final quizRef = FirebaseFirestore.instance.doc(
-        'hubs/$hubId/quizTopics/$topicId/quizzes/$quizId',
-      );
+      final deviceRef = fs.doc('hubs/$hubId/devices/$deviceId');
+      final locked = (await deviceRef.get()).data()?['voteLock'] == true;
+      if (locked) continue;
 
-      try {
-        await FirebaseFirestore.instance.runTransaction((tx) async {
-          final snap = await tx.get(quizRef);
-          if (!snap.exists) return;
-          final data = snap.data() ?? {};
-          final triggers = (data['triggers'] as List?)?.cast<String>() ?? [];
-          var counts =
-              (data['counts'] as List?)?.cast<int>() ??
-              List.filled(triggers.length, 0);
-          final allowMultiple = data['allowMultiple'] == true; // 🔹 퀴즈 세팅 기준
+      await deviceRef.set({'voteLock': true}, SetOptions(merge: true));
+      Future.delayed(const Duration(milliseconds: 500), () {
+        deviceRef.set({'voteLock': false}, SetOptions(merge: true));
+      });
 
-          final targetTrigger = 'S${slotIndex}_${clickTypeRaw.toUpperCase()}';
-          final idx = triggers.indexOf(targetTrigger);
-          if (idx < 0) return;
+      final quizRef = fs.doc('hubs/$hubId/quizTopics/$topicId/quizzes/$quizId');
 
-          // ✅ device 투표 기록 초기화
-          _deviceVotedSlots ??= {};
-          _deviceVotedSlots![deviceId] ??= <String>{};
+      await fs.runTransaction((tx) async {
+        final snap = await tx.get(quizRef);
+        if (!snap.exists) return;
 
-          // 🔹 단일 선택 모드일 경우 기존 투표 취소 (-1)
-          if (!allowMultiple && _deviceVotedSlots![deviceId]!.isNotEmpty) {
-            final prevSlot = _deviceVotedSlots![deviceId]!.first;
-            final prevTrigger = 'S${prevSlot}_${clickTypeRaw.toUpperCase()}';
-            final prevIdx = triggers.indexOf(prevTrigger);
-            if (prevIdx >= 0 && counts[prevIdx] > 0) {
-              counts[prevIdx] -= 1;
-              print(
-                '♻️ $deviceId changed vote from slot $prevSlot → $slotIndex',
-              );
-            }
-            _deviceVotedSlots![deviceId]!.clear();
-          }
+        final data = snap.data()!;
+        final List triggers = (data['triggers'] as List?) ?? const [];
+        final allowMultiple = data['allowMultiple'] == true;
 
-          // 🔹 중복 클릭 무시
-          if (_deviceVotedSlots![deviceId]!.contains(slotIndex)) {
-            print('⚪ $deviceId already voted for slot $slotIndex → ignore');
+        final List<int> counts =
+            (data['counts'] as List?)
+                ?.map((e) => (e as num).toInt())
+                .toList() ??
+            List<int>.filled(triggers.length, 0);
+
+        final Map<String, dynamic> votesByDevice = Map<String, dynamic>.from(
+          (data['votesByDevice'] as Map?) ?? {},
+        );
+
+        final newSlot = slotIndex!;
+        final newTrigger = 'S${newSlot}_${clickTypeRaw.toUpperCase()}';
+        final newIdx = triggers.indexOf(newTrigger);
+        if (newIdx < 0) return;
+
+        if (!allowMultiple) {
+          final prevSlot = votesByDevice[deviceId]?.toString();
+
+          // 🔹 동일 보기 재클릭 → 무시
+          if (prevSlot == newSlot) {
+            print('⚪ [$deviceId] same slot → ignore');
             return;
           }
 
-          // ✅ 새로운 투표 반영
-          _deviceVotedSlots![deviceId]!.add(slotIndex);
-          counts[idx] += 1;
+          // 🔹 이전 선택 감산
+          if (prevSlot != null && prevSlot.isNotEmpty) {
+            for (int i = 0; i < triggers.length; i++) {
+              final t = triggers[i].toString().toUpperCase();
+              if (t.startsWith('S${prevSlot}_') && counts[i] > 0) {
+                counts[i] -= 1;
+              }
+            }
+            print('♻️ [$deviceId] moved $prevSlot → $newSlot');
+          }
 
-          tx.update(quizRef, {'counts': counts});
+          // 🔹 새 선택 증가
+          counts[newIdx] += 1;
+          votesByDevice[deviceId] = newSlot;
+        } else {
+          final prevList =
+              (votesByDevice[deviceId] as List?)
+                  ?.map((e) => e.toString())
+                  .toList() ??
+              [];
+          if (prevList.contains(newSlot)) return;
+          counts[newIdx] += 1;
+          prevList.add(newSlot);
+          votesByDevice[deviceId] = prevList;
+        }
 
-          setState(() {
-            _quizCache[quizId] ??= {};
-            _quizCache[quizId]!['counts'] = counts;
-          });
+        // 🔹 안전처리
+        for (int i = 0; i < counts.length; i++) {
+          if (counts[i] < 0) counts[i] = 0;
+        }
 
-          print(
-            '✅ [QUIZ] ${deviceId} → slot $slotIndex '
-            '(multi=$allowMultiple) updated counts → $counts',
-          );
-        });
-      } catch (e) {
-        print('❌ [QUIZ] Firestore update failed: $e');
-      }
+        tx.update(quizRef, {'counts': counts, 'votesByDevice': votesByDevice});
+      });
     }
   }
 
@@ -354,10 +369,35 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
     required int votes,
     required int total,
     required bool hideResults,
+    bool isRevealPhase = false, // ✅ phase 구분용
+    bool isMax = false, // ✅ 최다 득표 구분용
   }) {
     final double ratio = (!hideResults && total > 0) ? (votes / total) : 0.0;
     final String percentText =
         hideResults ? '—' : (total == 0 ? '0%' : '${(ratio * 100).round()}%');
+
+    // ✅ bar 색상
+    final Color barColor =
+        hideResults
+            ? Colors.transparent
+            : (isRevealPhase
+                ? (isMax ? kQuizBarColor : const Color(0xFFA2A2A2)) // 리빌 중
+                : kQuizBarColor); // 투표 중
+
+    // ✅ 퍼센트 텍스트 스타일
+    final TextStyle percentStyle =
+        (isRevealPhase && isMax)
+            ? const TextStyle(
+              color: Colors.black,
+              fontSize: 26,
+              fontWeight: FontWeight.w600,
+              height: 1.21,
+            )
+            : const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 16,
+              color: Colors.black87,
+            );
 
     return Row(
       children: [
@@ -376,16 +416,28 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                 return Stack(
                   alignment: Alignment.centerLeft,
                   children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 220),
-                      width: fillW,
-                      height: double.infinity,
-                      decoration: BoxDecoration(
-                        color: kQuizBarColor,
-                        borderRadius: BorderRadius.circular(32),
+                    if (fillW > 0)
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 220),
+                        width: fillW,
+                        height: double.infinity,
+                        decoration: BoxDecoration(
+                          color: barColor,
+                          borderRadius: BorderRadius.circular(32),
+                        ),
+                      ),
+                    Positioned(
+                      left: 12,
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: votes > 0 ? barColor : Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
                       ),
                     ),
-                    const Positioned(left: 12, child: _QuizBubble()),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 18),
                       child: Row(
@@ -403,15 +455,6 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                               ),
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          if (hideResults)
-                            const Text(
-                              'Hidden',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.black54,
-                              ),
-                            ),
                         ],
                       ),
                     ),
@@ -423,11 +466,11 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
         ),
         const SizedBox(width: 12),
         SizedBox(
-          width: 48,
+          width: 64,
           child: Text(
             percentText,
             textAlign: TextAlign.right,
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+            style: percentStyle,
           ),
         ),
       ],
@@ -490,150 +533,54 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
             else
               _buildRevealPhase(fs, hubPath, quizRef, totalStudents),
             Positioned(
-              top: 30,
-              right: 40,
-              child: Align(
-                alignment: Alignment.topRight,
-                child:
-                    (_remaining != null && _remaining!.inSeconds > 0)
-                        ? Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF0F172A),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.timer_outlined,
-                                color: Colors.white,
-                                size: 26,
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                _formattedTime,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: 0.5,
-                                ),
-                              ),
-                            ],
-                          ),
-                        )
-                        : Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 10,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE2E8F0),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            '$_currentIndex / $_totalCount',
-                            style: const TextStyle(
-                              color: Color(0xFF1E293B),
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                            ),
+              top: 32,
+              left: 32,
+              right: 32,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // ✅ 타이머 설정이 있을 때만 표시
+                  if (_remaining != null &&
+                      _timerTotalSeconds != null &&
+                      _timerTotalSeconds! > 0)
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.alarm_outlined,
+                          color: Color(0xFF001A36),
+                          size: 42,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _formattedTime,
+                          style: const TextStyle(
+                            color: Color(0xFF001A36),
+                            fontSize: 42,
+                            fontWeight: FontWeight.w500,
+                            height: 1.0,
                           ),
                         ),
+                      ],
+                    )
+                  else
+                    const SizedBox(), // ✅ 아무것도 표시하지 않음
+                  // 🔢 오른쪽: 현재 문제 / 전체 문항
+                  Text(
+                    '$_currentIndex / $_totalCount',
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      color: Color(0xFF001A36),
+                      fontSize: 42,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
         );
       },
     );
-  }
-
-  Widget _buildTimerBox() {
-    // 남은 시간이 없으면 아무것도 안 그림
-    if (_remaining == null) return const SizedBox.shrink();
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(Icons.alarm, color: Color(0xFF0F172A), size: 28),
-        const SizedBox(width: 8),
-        Text(
-          _formattedTime,
-          style: const TextStyle(
-            color: Color(0xFF0F172A),
-            fontSize: 28,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildProgressBox() {
-    // 타이머가 끝난 뒤 우측 상단에 (현재/전체) 표기
-    // 스타일은 상단 우측 타이머 스타일과 톤을 맞춤
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(Icons.list_alt, color: Color(0xFF0F172A), size: 26),
-        const SizedBox(width: 8),
-        Text(
-          '$_currentIndex / $_totalCount',
-          style: const TextStyle(
-            color: Color(0xFF0F172A),
-            fontSize: 26,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _goToNextPublicQuiz(
-    FirebaseFirestore fs,
-    String hubPath,
-    int currentIndex,
-  ) async {
-    try {
-      final topicRef = fs.collection('$hubPath/quizTopics').doc(widget.topicId);
-      final quizCol = fs.collection(
-        '$hubPath/quizTopics/${widget.topicId}/quizzes',
-      );
-      final qs = await quizCol.orderBy('createdAt').get();
-
-      int nextPublicIndex = -1;
-      for (int i = currentIndex; i < qs.docs.length; i++) {
-        final doc = qs.docs[i];
-        final data = doc.data();
-        if (data['public'] == true) {
-          nextPublicIndex = i;
-          break;
-        }
-      }
-
-      if (nextPublicIndex == -1) {
-        // 다음 public 문항 없음 → 퀴즈 종료
-        // await topicRef.update({'status': 'finished', 'phase': 'finished'});
-        return;
-      }
-
-      final nextQuizId = qs.docs[nextPublicIndex].id;
-
-      await topicRef.update({
-        'currentQuizIndex': nextPublicIndex + 1,
-        'currentQuizId': nextQuizId,
-        'phase': 'question',
-        'questionStartedAt': FieldValue.serverTimestamp(),
-        'questionStartedAtMs': DateTime.now().millisecondsSinceEpoch,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      debugPrint('❌ goToNextPublicQuiz error: $e');
-    }
   }
 
   Future<void> _skipToNextPublicQuiz(
@@ -747,6 +694,16 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                   }
                 });
               }
+            } else {
+              // 🔹 타이머 필드가 삭제된 경우에도 즉시 초기화
+              if (_isTimerRunning || _remaining != null) {
+                debugPrint('⏹️ Firestore에서 timerSeconds 없음 → 타이머 종료');
+              }
+              _timer?.cancel();
+              _isTimerRunning = false;
+              _timerTotalSeconds = null;
+              _remaining = null;
+              _lastQuizIdShown = null; // ✅ 이 줄 추가: 타이머가 다시 갱신되도록 강제 초기화
             }
 
             // 🔹 문제, 선택지, 카운트 정보
@@ -760,6 +717,12 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                     .toList() ??
                 List<int>.filled(choices.length, 0);
 
+            // 🔹 유니크 투표자 수 계산 (votesByDevice 기준)
+            final Map<String, dynamic> votersMap = Map<String, dynamic>.from(
+              (qx['votesByDevice'] as Map?) ?? const {},
+            );
+            final int totalVoters = votersMap.length;
+
             final total = counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
 
             // 🔹 실시간 결과 표시 여부
@@ -771,7 +734,7 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1100),
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+                  padding: const EdgeInsets.fromLTRB(24, 95, 24, 24),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
@@ -787,7 +750,7 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                       Align(
                         alignment: Alignment.centerRight,
                         child: Text(
-                          hide ? '—' : '$total VOTERS',
+                          hide ? '—' : '$totalVoters VOTERS',
                           style: const TextStyle(
                             fontSize: 19,
                             fontWeight: FontWeight.w500,
@@ -866,23 +829,31 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
           return const _WaitingScreen();
         }
 
+        // 🔹 문제, 선택지, 카운트 정보
         final question = (qx['question'] as String?) ?? '';
         final List<String> choices =
             (qx['choices'] as List?)?.map((e) => e.toString()).toList() ??
             const [];
-        final List<String> triggers =
-            (qx['triggers'] as List?)?.map((e) => e.toString()).toList() ??
-            const [];
-        final counts =
+        final List<int> counts =
             (qx['counts'] as List?)?.map((e) => (e as num).toInt()).toList() ??
             List<int>.filled(choices.length, 0);
 
+        // 🔹 유니크 투표자 수 계산
+        final Map<String, dynamic> votersMap = Map<String, dynamic>.from(
+          (qx['votesByDevice'] as Map?) ?? const {},
+        );
+        final int totalVoters = votersMap.length;
+
+        // 🔹 전체 투표수 / 최다득표 계산
         final total = counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
+        final int maxVotes =
+            counts.isEmpty ? 0 : counts.reduce((a, b) => a > b ? a : b);
+
         return Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 1100),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+              padding: const EdgeInsets.fromLTRB(24, 95, 24, 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -898,7 +869,7 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: Text(
-                      '${total} VOTERS',
+                      '$totalVoters VOTERS',
                       style: const TextStyle(
                         fontSize: 19,
                         fontWeight: FontWeight.w500,
@@ -906,6 +877,8 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                     ),
                   ),
                   const SizedBox(height: 12),
+
+                  // 결과 박스
                   Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -920,9 +893,11 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                         for (var i = 0; i < choices.length; i++) ...[
                           _quizBarRow(
                             label: choices[i],
-                            votes: (i < counts.length) ? counts[i] : 0,
+                            votes: counts[i],
                             total: total,
                             hideResults: false,
+                            isRevealPhase: true,
+                            isMax: counts[i] == maxVotes,
                           ),
                           if (i != choices.length - 1)
                             const SizedBox(height: 12),
@@ -936,191 +911,6 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
           ),
         );
       },
-    );
-  }
-
-  Widget _statsPill({required int total, required int pressed}) {
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: const Color(0xFF0EA5E9).withOpacity(0.10),
-          border: Border.all(color: const Color(0xFF0EA5E9).withOpacity(0.6)),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.people_alt, size: 18, color: Color(0xFF0369A1)),
-            const SizedBox(width: 8),
-            Text(
-              '총원 $total',
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF075985),
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(width: 10),
-            const Text('•', style: TextStyle(color: Color(0xFF075985))),
-            const SizedBox(width: 10),
-            const Icon(Icons.touch_app, size: 18, color: Color(0xFF0369A1)),
-            const SizedBox(width: 8),
-            Text(
-              '참여 $pressed',
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF075985),
-                fontSize: 14,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _centerWrapper(Widget child) {
-    return Container(
-      color: const Color(0xFFF7F9FC),
-      width: double.infinity,
-      height: double.infinity,
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1100),
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(48, 80, 48, 120),
-            child: child,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-Widget _quizBarRow({
-  required String label,
-  required int votes,
-  required int total,
-  required bool hideResults,
-}) {
-  final double ratio = (!hideResults && total > 0) ? (votes / total) : 0.0;
-  final String percentText =
-      hideResults ? '—' : (total == 0 ? '0%' : '${(ratio * 100).round()}%');
-
-  return Row(
-    children: [
-      Expanded(
-        child: Container(
-          height: 64,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(32),
-            border: Border.all(color: Colors.black12.withOpacity(0.12)),
-          ),
-          child: LayoutBuilder(
-            builder: (context, c) {
-              final maxW = c.maxWidth;
-              final fillW = (maxW * ratio).clamp(0.0, maxW);
-
-              return Stack(
-                alignment: Alignment.centerLeft,
-                children: [
-                  AnimatedContainer(
-                    duration: const Duration(milliseconds: 220),
-                    width: fillW,
-                    height: double.infinity,
-                    decoration: BoxDecoration(
-                      color: kQuizBarColor,
-                      borderRadius: BorderRadius.circular(32),
-                    ),
-                  ),
-                  const Positioned(
-                    left: 12,
-                    child: _QuizBubble(),
-                  ), // 투표와 동일한 버블(색만 변경)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 18),
-                    child: Row(
-                      children: [
-                        const SizedBox(width: 34),
-                        Expanded(
-                          child: Text(
-                            label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.1,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        if (hideResults)
-                          const Text(
-                            'Hidden',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.black54,
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
-      const SizedBox(width: 12),
-      SizedBox(
-        width: 48,
-        child: Text(
-          percentText,
-          textAlign: TextAlign.right,
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
-        ),
-      ),
-    ],
-  );
-}
-
-class _QuizBubble extends StatelessWidget {
-  const _QuizBubble();
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: const BoxDecoration(
-        color: kQuizBarColor,
-        shape: BoxShape.circle,
-      ),
-    );
-  }
-}
-
-class _Hit {
-  final String trigger;
-  final int hubTs;
-  _Hit({required this.trigger, required this.hubTs});
-}
-
-/// 동일한 노란 원 (투표 중/결과 공통)
-class _YellowBubble extends StatelessWidget {
-  const _YellowBubble();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 44,
-      height: 44,
-      decoration: const BoxDecoration(
-        color: Color(0xFFFFE483),
-        shape: BoxShape.circle,
-      ),
     );
   }
 }
