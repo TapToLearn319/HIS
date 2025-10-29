@@ -297,70 +297,72 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
       final quizRef = fs.doc('hubs/$hubId/quizTopics/$topicId/quizzes/$quizId');
 
       await fs.runTransaction((tx) async {
-        final snap = await tx.get(quizRef);
-        if (!snap.exists) return;
+  final snap = await tx.get(quizRef);
+  if (!snap.exists) return;
 
-        final data = snap.data()!;
-        final List triggers = (data['triggers'] as List?) ?? const [];
-        final allowMultiple = data['allowMultiple'] == true;
+  final data = snap.data()!;
+  final List triggers = (data['triggers'] as List?) ?? const [];
+  final allowMultiple = data['allowMultiple'] == true;
 
-        final List<int> counts =
-            (data['counts'] as List?)
-                ?.map((e) => (e as num).toInt())
-                .toList() ??
-            List<int>.filled(triggers.length, 0);
+  final List<int> counts =
+      (data['counts'] as List?)
+          ?.map((e) => (e as num).toInt())
+          .toList() ??
+      List<int>.filled(triggers.length, 0);
 
-        final Map<String, dynamic> votesByDevice = Map<String, dynamic>.from(
-          (data['votesByDevice'] as Map?) ?? {},
-        );
+  // ✅ 안전 복제
+  final Map<String, dynamic> votesByDevice =
+      Map<String, dynamic>.from((data['votesByDevice'] as Map?) ?? {});
 
-        final newSlot = slotIndex!;
-        final newTrigger = 'S${newSlot}_${clickTypeRaw.toUpperCase()}';
-        final newIdx = triggers.indexOf(newTrigger);
-        if (newIdx < 0) return;
+  final newSlot = slotIndex!;
+  final newTrigger = 'S${newSlot}_${clickTypeRaw.toUpperCase()}';
+  final newIdx = triggers.indexOf(newTrigger);
+  if (newIdx < 0) return;
 
-        if (!allowMultiple) {
-          final prevSlot = votesByDevice[deviceId]?.toString();
+  if (!allowMultiple) {
+    final prevSlot = votesByDevice[deviceId]?.toString();
 
-          // 🔹 동일 보기 재클릭 → 무시
-          if (prevSlot == newSlot) {
-            print('⚪ [$deviceId] same slot → ignore');
-            return;
-          }
+    // 동일 보기 재클릭 → 무시
+    if (prevSlot == newSlot) return;
 
-          // 🔹 이전 선택 감산
-          if (prevSlot != null && prevSlot.isNotEmpty) {
-            for (int i = 0; i < triggers.length; i++) {
-              final t = triggers[i].toString().toUpperCase();
-              if (t.startsWith('S${prevSlot}_') && counts[i] > 0) {
-                counts[i] -= 1;
-              }
-            }
-            print('♻️ [$deviceId] moved $prevSlot → $newSlot');
-          }
+    // 🔹 이전 선택 감산 먼저
+    if (prevSlot != null && prevSlot.isNotEmpty) {
+      for (int i = 0; i < triggers.length; i++) {
+        final t = triggers[i].toString().toUpperCase();
+        final tSlot = t.split('_').first.replaceAll('S', '');
+        if (tSlot == prevSlot && counts[i] > 0) counts[i] -= 1;
+      }
+    }
 
-          // 🔹 새 선택 증가
-          counts[newIdx] += 1;
-          votesByDevice[deviceId] = newSlot;
-        } else {
-          final prevList =
-              (votesByDevice[deviceId] as List?)
-                  ?.map((e) => e.toString())
-                  .toList() ??
-              [];
-          if (prevList.contains(newSlot)) return;
-          counts[newIdx] += 1;
-          prevList.add(newSlot);
-          votesByDevice[deviceId] = prevList;
-        }
+    // 🔹 새 선택 증가
+    counts[newIdx] += 1;
 
-        // 🔹 안전처리
-        for (int i = 0; i < counts.length; i++) {
-          if (counts[i] < 0) counts[i] = 0;
-        }
+    // 🔹 기존 key 교체 (덮어쓰기)
+    votesByDevice[deviceId] = newSlot;
+  } else {
+    // multiple 모드
+    final prevList =
+        (votesByDevice[deviceId] as List?)
+            ?.map((e) => e.toString())
+            .toList() ??
+        [];
+    if (prevList.contains(newSlot)) return;
+    counts[newIdx] += 1;
+    prevList.add(newSlot);
+    votesByDevice[deviceId] = prevList;
+  }
 
-        tx.update(quizRef, {'counts': counts, 'votesByDevice': votesByDevice});
-      });
+  // 🔹 음수 방지
+  for (int i = 0; i < counts.length; i++) {
+    if (counts[i] < 0) counts[i] = 0;
+  }
+
+  // ✅ 트랜잭션 안전 업데이트 (merge: true)
+  tx.set(quizRef, {
+    'counts': counts,
+    'votesByDevice': votesByDevice,
+  }, SetOptions(merge: true));
+});
     }
   }
 
@@ -631,7 +633,6 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
     DocumentReference<Map<String, dynamic>> quizRef,
     int totalStudents,
   ) {
-    // 🔹 quiz 문서 스트림 (문제 + 선택지 + counts)
     final quizStream =
         fs
             .doc(
@@ -639,7 +640,6 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
             )
             .snapshots();
 
-    // 🔹 topic 문서 스트림 (phase, timerSeconds 등)
     final topicStream =
         fs.doc('$hubPath/quizTopics/${widget.topicId}').snapshots();
 
@@ -649,13 +649,22 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
         final topicData = topicSnap.data?.data();
         if (topicData == null) return const _WaitingScreen();
 
-        // 🔹 진행 인덱스 / 총 문항 수
         _currentIndex = (topicData['currentQuizIndex'] as num?)?.toInt() ?? 1;
-        _totalCount = (topicData['totalQuizCount'] as num?)?.toInt() ?? 1;
+        final quizCol = fs.collection(
+          '$hubPath/quizTopics/${widget.topicId}/quizzes',
+        );
+        quizCol.where('public', isEqualTo: true).get().then((qs) {
+          if (mounted) {
+            setState(() {
+              setState(() {
+                _totalCount = qs.docs.length;
+              });
+            });
+          }
+        });
 
         final timerSec = (topicData['timerSeconds'] as num?)?.toInt();
 
-        // 🔹 문제 데이터 구독
         return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
           stream: quizStream,
           builder: (context, quizSnap) {
@@ -665,9 +674,7 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
 
             final qx = quizSnap.data!.data();
             if (qx == null) return const _WaitingScreen();
-            // _quizCache[widget.currentQuizId] = qx;
 
-            // 🔹 public 필드가 없으면 대기 (절대 스킵하지 않음)
             if (!qx.containsKey('public')) {
               return const _WaitingScreen();
             }
@@ -681,7 +688,6 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
               return const _WaitingScreen();
             }
 
-            // 🔹 타이머 초기화
             if (isPublic && timerSec != null && timerSec > 0) {
               if (_lastQuizIdShown != widget.currentQuizId) {
                 _lastQuizIdShown = widget.currentQuizId;
@@ -695,7 +701,6 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                 });
               }
             } else {
-              // 🔹 타이머 필드가 삭제된 경우에도 즉시 초기화
               if (_isTimerRunning || _remaining != null) {
                 debugPrint('⏹️ Firestore에서 timerSeconds 없음 → 타이머 종료');
               }
@@ -703,10 +708,9 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
               _isTimerRunning = false;
               _timerTotalSeconds = null;
               _remaining = null;
-              _lastQuizIdShown = null; // ✅ 이 줄 추가: 타이머가 다시 갱신되도록 강제 초기화
+              _lastQuizIdShown = null;
             }
 
-            // 🔹 문제, 선택지, 카운트 정보
             final question = (qx['question'] as String?) ?? '';
             final List<String> choices =
                 (qx['choices'] as List?)?.map((e) => e.toString()).toList() ??
@@ -717,18 +721,16 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                     .toList() ??
                 List<int>.filled(choices.length, 0);
 
-            // 🔹 유니크 투표자 수 계산 (votesByDevice 기준)
             final Map<String, dynamic> votersMap = Map<String, dynamic>.from(
               (qx['votesByDevice'] as Map?) ?? const {},
             );
-            final int totalVoters = votersMap.length;
+            final int totalVoters = votersMap.keys.toSet().length;
 
             final total = counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
 
-            // 🔹 실시간 결과 표시 여부
             final showResultsMode =
                 (topicData['showResultsMode'] as String?) ?? 'afterEnd';
-            final hide = showResultsMode != 'realtime'; // realtime이면 바로 표시
+            final hide = showResultsMode != 'realtime';
 
             return Center(
               child: ConstrainedBox(
@@ -810,9 +812,6 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
     );
   }
 
-  // ───────────────────────────────────────────────────────
-  // 리빌 단계 UI
-  // ───────────────────────────────────────────────────────
   Widget _buildRevealPhase(
     FirebaseFirestore fs,
     String hubPath,
@@ -829,7 +828,6 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
           return const _WaitingScreen();
         }
 
-        // 🔹 문제, 선택지, 카운트 정보
         final question = (qx['question'] as String?) ?? '';
         final List<String> choices =
             (qx['choices'] as List?)?.map((e) => e.toString()).toList() ??
@@ -838,16 +836,14 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
             (qx['counts'] as List?)?.map((e) => (e as num).toInt()).toList() ??
             List<int>.filled(choices.length, 0);
 
-        // 🔹 유니크 투표자 수 계산
+        final int? correctIndex = (qx['correctIndex'] as num?)?.toInt();
+
         final Map<String, dynamic> votersMap = Map<String, dynamic>.from(
           (qx['votesByDevice'] as Map?) ?? const {},
         );
-        final int totalVoters = votersMap.length;
+        final int totalVoters = votersMap.keys.toSet().length;
 
-        // 🔹 전체 투표수 / 최다득표 계산
         final total = counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
-        final int maxVotes =
-            counts.isEmpty ? 0 : counts.reduce((a, b) => a > b ? a : b);
 
         return Center(
           child: ConstrainedBox(
@@ -878,7 +874,6 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                   ),
                   const SizedBox(height: 12),
 
-                  // 결과 박스
                   Container(
                     decoration: BoxDecoration(
                       color: Colors.white,
@@ -897,7 +892,7 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                             total: total,
                             hideResults: false,
                             isRevealPhase: true,
-                            isMax: counts[i] == maxVotes,
+                            isMax: (correctIndex != null && i == correctIndex),
                           ),
                           if (i != choices.length - 1)
                             const SizedBox(height: 12),

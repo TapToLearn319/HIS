@@ -59,7 +59,6 @@ class TopicDetailPage extends StatelessWidget {
         final showResultsMode =
             (t?['showResultsMode'] as String?) ?? 'realtime';
         final anonymous = (t?['anonymous'] as bool?) ?? true;
-        final multipleSelections = (t?['multipleSelections'] as bool?) ?? false;
         final timeLimitEnabled = (t?['timeLimitEnabled'] as bool?) ?? false;
         final timeLimitSeconds =
             (t?['timeLimitSeconds'] as num?)?.toInt() ?? 300;
@@ -325,7 +324,6 @@ class TopicDetailPage extends StatelessWidget {
                         topicRef: topicRef,
                         showResultsMode: showResultsMode,
                         anonymous: anonymous,
-                        multipleSelections: multipleSelections,
                         timeLimitEnabled: timeLimitEnabled,
                         timeLimitSeconds: timeLimitSeconds,
                       ),
@@ -470,7 +468,6 @@ class _SettingsCard extends StatelessWidget {
     required this.topicRef,
     required this.showResultsMode,
     required this.anonymous,
-    required this.multipleSelections,
     required this.timeLimitEnabled,
     required this.timeLimitSeconds,
   });
@@ -481,7 +478,6 @@ class _SettingsCard extends StatelessWidget {
   // 현재 설정값들
   final String showResultsMode; // 'realtime' | 'afterEnd'
   final bool anonymous;
-  final bool multipleSelections;
   final bool timeLimitEnabled;
   final int timeLimitSeconds;
 
@@ -885,8 +881,15 @@ Future<void> _deleteQuestion(
         ),
   );
   if (ok == true) {
+    final ref = doc.reference;
+
     await doc.reference.delete();
-    _snack(context, 'Question deleted.');
+
+    if (context.mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _snack(context, 'Question deleted.');
+      });
+    }
   }
 }
 
@@ -1024,7 +1027,6 @@ Future<void> _ensureDefaultSettings(
     await ref.set({
       'showResultsMode': 'realtime',
       'anonymous': true,
-      'multipleSelections': false,
       'timeLimitEnabled': false,
       'timeLimitSeconds': 300,
       'updatedAt': FieldValue.serverTimestamp(),
