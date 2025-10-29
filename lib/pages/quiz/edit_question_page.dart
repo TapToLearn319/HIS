@@ -4,11 +4,13 @@ import 'package:provider/provider.dart';
 import '../../../provider/hub_provider.dart';
 
 class EditQuestionPage extends StatefulWidget {
+  final String hubId;
   final String topicId;
   final String quizId;
 
   const EditQuestionPage({
     super.key,
+    required this.hubId,
     required this.topicId,
     required this.quizId,
   });
@@ -73,29 +75,42 @@ void dispose() {
 
       _titleCtrl.text = quizData['question'] ?? '';
       _multi = quizData['multi'] ?? false;
+      
+final List<dynamic> choices = (quizData?['choices'] ?? []) as List<dynamic>;
+final List<dynamic> triggers = (quizData?['triggers'] ?? []) as List<dynamic>;
+final bool allowMultiple = quizData?['allowMultiple'] ?? false;
+final int? correctIndex = quizData?['correctIndex'];
+final List<dynamic> correctIndices = (quizData?['correctIndices'] ?? []) as List<dynamic>;
 
-      // choices 불러오기
-      final choicesSnap = await quizDoc.collection('choices').get();
-      _optionCtrls.clear();
-      _bindings.clear();
-      for (final doc in choicesSnap.docs) {
-        final d = doc.data();
-        _optionCtrls.add(TextEditingController(text: d['text'] ?? ''));
-        final binding = d['binding'] ?? {};
-        _bindings.add(_Binding(
-          button: binding['button'] ?? 1,
-          gesture: binding['gesture'] ?? 'hold',
-        ));
-        if (d['correct'] == true) {
-          _selectedAnswers.add(_optionCtrls.length - 1);
-        }
-      }
+_optionCtrls.clear();
+_bindings.clear();
+_selectedAnswers.clear();
+
+for (int i = 0; i < choices.length; i++) {
+  _optionCtrls.add(TextEditingController(text: choices[i].toString()));
+  final t = (i < triggers.length) ? triggers[i].toString() : 'S1_CLICK';
+  _bindings.add(_parseTrigger(t));
+
+  if (allowMultiple) {
+    if (correctIndices.contains(i)) _selectedAnswers.add(i);
+  } else if (correctIndex == i) {
+    _selectedAnswers.add(i);
+  }
+}
+_multi = allowMultiple;
 
       setState(() {});
     } catch (e) {
       debugPrint('Failed to load question data: $e');
     }
   }
+
+  _Binding _parseTrigger(String t) {
+  if (t == 'S1_CLICK') return const _Binding(button: 1, gesture: 'single');
+  if (t == 'S1_HOLD') return const _Binding(button: 1, gesture: 'hold');
+  if (t == 'S2_CLICK') return const _Binding(button: 2, gesture: 'single');
+  return const _Binding(button: 2, gesture: 'hold');
+}
 
   // ───────────── 수정 저장 ─────────────
   Future<void> _updateQuestion() async {
@@ -125,31 +140,33 @@ void dispose() {
       return;
     }
 
-    // 메인 문항 업데이트
-    await quizDoc.update({
-      'question': _titleCtrl.text.trim(),
-      'multi': _multi,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    final choices = _optionCtrls.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
+final triggers = _bindings.take(choices.length).map((b) {
+  if (b.button == 1 && b.gesture == 'single') return 'S1_CLICK';
+  if (b.button == 1 && b.gesture == 'hold') return 'S1_HOLD';
+  if (b.button == 2 && b.gesture == 'single') return 'S2_CLICK';
+  return 'S2_HOLD';
+}).toList();
 
-    // 기존 choices 모두 삭제 후 다시 저장 (단순화)
-    final choicesRef = quizDoc.collection('choices');
-    final oldChoices = await choicesRef.get();
-    for (final doc in oldChoices.docs) {
-      await doc.reference.delete();
-    }
+int? correctIndex;
+List<int> correctIndices = [];
 
-    for (int i = 0; i < titles.length; i++) {
-      final b = _bindings[i];
-      await choicesRef.add({
-        'text': titles[i],
-        'correct': _selectedAnswers.contains(i),
-        'index': i + 1,
-        'binding': {'button': b.button, 'gesture': b.gesture},
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    }
+if (_multi) {
+  correctIndices = _selectedAnswers.toList()..sort();
+  correctIndex = correctIndices.isNotEmpty ? correctIndices.first : null;
+} else {
+  correctIndex = _selectedAnswers.isNotEmpty ? _selectedAnswers.first : null;
+}
+
+await quizDoc.update({
+  'question': _titleCtrl.text.trim(),
+  'choices': choices,
+  'triggers': triggers,
+  'allowMultiple': _multi,
+  'correctIndex': correctIndex,
+  'correctIndices': _multi ? correctIndices : FieldValue.delete(),
+  'updatedAt': FieldValue.serverTimestamp(),
+});
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Question updated!')),

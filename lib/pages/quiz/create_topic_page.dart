@@ -200,6 +200,11 @@ class _CreateTopicPageState extends State<CreateTopicPage> {
                       controller: _titleCtrl,
                       decoration: const InputDecoration(
                         hintText: 'Please enter your content.',
+                        hintStyle: TextStyle(
+                          color: Color(0xFFA2A2A2),
+                          fontWeight: FontWeight.w400,
+                          height: 34 / 24,
+                        ),
                         border: InputBorder.none,
                         enabledBorder: InputBorder.none,
                         focusedBorder: InputBorder.none,

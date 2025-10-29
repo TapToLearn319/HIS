@@ -197,7 +197,7 @@ Future<void> _deleteTopicWithSubcollections(
           child: DottedBorder(
             options: const RoundedRectDottedBorderOptions(
               dashPattern: [6, 4],
-              strokeWidth: 1,
+              strokeWidth: 4,
               radius: Radius.circular(10),
               color: Color(0xFFA2A2A2),
             ),
@@ -210,8 +210,9 @@ Future<void> _deleteTopicWithSubcollections(
               ),
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  const SizedBox(height: 8),
                   const Text(
                     'Would you like to delete it?',
                     style: TextStyle(
@@ -221,7 +222,7 @@ Future<void> _deleteTopicWithSubcollections(
                     ),
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 24),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
@@ -230,7 +231,7 @@ Future<void> _deleteTopicWithSubcollections(
                         child: DottedBorder(
                           options: const RoundedRectDottedBorderOptions(
                             dashPattern: [6, 4],
-                            strokeWidth: 1,
+                            strokeWidth: 2,
                             radius: Radius.circular(10),
                             color: Color(0xFFA2A2A2),
                           ),
@@ -261,7 +262,7 @@ Future<void> _deleteTopicWithSubcollections(
                         child: DottedBorder(
                           options: const RoundedRectDottedBorderOptions(
                             dashPattern: [6, 4],
-                            strokeWidth: 1,
+                            strokeWidth: 2,
                             radius: Radius.circular(10),
                             color: Color(0xFFA2A2A2),
                           ),
@@ -830,7 +831,7 @@ class _RowHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fs = (24 * scale).clamp(24, 36).toDouble();
-    final iconSize = (18 * scale).clamp(18, 28).toDouble();
+    final iconSize = (24 * scale).clamp(18, 28).toDouble();
     final h = (34 * scale).clamp(34, 48).toDouble();
 
     return SizedBox(

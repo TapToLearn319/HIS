@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
+import 'package:dotted_border/dotted_border.dart';
 import '../../provider/hub_provider.dart';
 import 'question_options_page.dart';
 import 'edit_question_page.dart';
@@ -44,6 +45,7 @@ class TopicDetailPage extends StatelessWidget {
 
     final quizzesCol = fs
         .collection('$prefix/quizTopics/$topicId/quizzes')
+        .where('createdAt', isGreaterThan: null)
         .orderBy('createdAt', descending: false);
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
@@ -119,13 +121,73 @@ class TopicDetailPage extends StatelessWidget {
                       ),
                       SizedBox(height: (14 * s).clamp(12, 18).toDouble()),
 
-                      // ===== Questions 섹션 =====
-                      _SectionHeader(title: 'Questions', scale: s),
+                      _SectionHeader(
+                        title: 'Questions',
+                        scale: s,
+                        trailing: Padding(
+                          padding: const EdgeInsets.only(
+                            right: 15,
+                          ), // ✅ ← 여기가 핵심 (왼쪽으로 이동)
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              const Text(
+                                'Public',
+                                style: TextStyle(
+                                  color: Color(0xFFA2A2A2),
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w400,
+                                  height: 1.2,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              StreamBuilder<
+                                QuerySnapshot<Map<String, dynamic>>
+                              >(
+                                stream: quizzesCol.snapshots(),
+                                builder: (context, qSnap) {
+                                  if (!qSnap.hasData) return const SizedBox();
+                                  final docs = qSnap.data!.docs;
+                                  final allPublic =
+                                      docs.isNotEmpty &&
+                                      docs.every(
+                                        (doc) =>
+                                            (doc.data()['public'] ?? false) ==
+                                            true,
+                                      );
+                                  return CustomMiniSwitch(
+                                    value: allPublic,
+                                    onChanged: (v) async {
+                                      final batch =
+                                          FirebaseFirestore.instance.batch();
+                                      for (final doc in docs) {
+                                        batch.set(doc.reference, {
+                                          'public': v,
+                                          'updatedAt':
+                                              FieldValue.serverTimestamp(),
+                                        }, SetOptions(merge: true));
+                                      }
+                                      await batch.commit();
+                                    },
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
 
                       StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                         stream: quizzesCol.snapshots(),
                         builder: (context, qSnap) {
                           final docs = qSnap.data?.docs ?? const [];
+
+                          // 🔹 Topic 상태 읽기 (status, phase, currentQuizId)
+                          final topicData = tSnap.data?.data() ?? {};
+                          final currentQuizId = topicData['currentQuizId'];
+                          final status = topicData['status'] ?? 'draft';
+                          final phase = topicData['phase'] ?? 'question';
 
                           return Container(
                             decoration: BoxDecoration(
@@ -143,73 +205,92 @@ class TopicDetailPage extends StatelessWidget {
                             ),
                             child: Column(
                               children: [
-                                // 질문 목록
+                                // 🔸 각 문항 렌더링
                                 for (int i = 0; i < docs.length; i++) ...[
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.center,
-                                    mainAxisAlignment:
-                                        MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Expanded(
-                                        child: _QuestionCard(
-                                          index: i + 1,
-                                          quizDoc: docs[i],
-                                          public:
-                                              (docs[i].data()['public']
-                                                  as bool?) ??
-                                              false,
-                                          onTogglePublic: (v) async {
-                                            await docs[i].reference.set({
-                                              'public': v,
-                                              'updatedAt':
-                                                  FieldValue.serverTimestamp(),
-                                            }, SetOptions(merge: true));
-                                          },
-                                          onMore: () {
-                                            _openEditOptions(context, docs[i]);
-                                          },
-                                          onDelete: () async {
-                                            await _deleteQuestion(
-                                              context,
-                                              docs[i],
+                                  Builder(
+                                    builder: (context) {
+                                      final d = docs[i];
+                                      final isCurrent = currentQuizId == d.id;
+                                      final isLast = i == docs.length - 1;
+
+                                      return Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.center,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Expanded(
+                                            child: _QuestionCard(
+                                              index: i + 1,
+                                              quizDoc: d,
+                                              public:
+                                                  d.data()['public'] is bool
+                                                      ? d.data()['public']
+                                                          as bool
+                                                      : (d.data()['public'] ==
+                                                          'true'),
+                                              onTogglePublic: (v) async {
+                                                await d.reference.set({
+                                                  'public': v,
+                                                  'updatedAt':
+                                                      FieldValue.serverTimestamp(),
+                                                }, SetOptions(merge: true));
+                                              },
+                                              onMore:
+                                                  () => _openEditOptions(
+                                                    context,
+                                                    topicId,
+                                                    d,
+                                                  ),
+                                              onDelete: () async {
+                                                await _deleteQuestion(
+                                                  context,
+                                                  d,
+                                                  status: status,
+                                                );
+                                              },
+                                              topicRef: topicRef,
+                                              phase: phase,
                                               status: status,
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                      Container(
-                                        alignment: Alignment.center,
-                                        margin: const EdgeInsets.only(
-                                          left: 12,
-                                          right: 20,
-                                        ),
-                                        child: IconButton(
-                                          tooltip: 'Delete question',
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(),
-                                          icon: const Icon(
-                                            Icons.delete_outline,
-                                            color: Color(0xFFFF9A6E),
-                                            size: 32, // 약간 키워서 비율 맞춤
+                                              isCurrent: isCurrent,
+                                              isLast: isLast,
+                                            ),
                                           ),
-                                          onPressed: () async {
-                                            await _deleteQuestion(
-                                              context,
-                                              docs[i],
-                                              status: status,
-                                            );
-                                          },
-                                        ),
-                                      ),
-                                    ],
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              left: 8,
+                                              right: 4,
+                                            ),
+                                            child: CustomMiniSwitch(
+                                              value:
+                                                  (() {
+                                                    final p =
+                                                        d.data()['public'];
+                                                    if (p is bool) return p;
+                                                    if (p is String)
+                                                      return p.toLowerCase() ==
+                                                          'true';
+                                                    return false;
+                                                  })(),
+                                              onChanged: (v) async {
+                                                await d.reference.set({
+                                                  'public': v,
+                                                  'updatedAt':
+                                                      FieldValue.serverTimestamp(),
+                                                }, SetOptions(merge: true));
+                                              },
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    },
                                   ),
                                   SizedBox(
                                     height: (8 * s).clamp(8, 12).toDouble(),
                                   ),
                                 ],
 
-                                // 새 항목 추가 입력란
+                                // 🔸 새 항목 추가 입력란
                                 _AddQuestionInput(
                                   topicId: topicId,
                                   onAdd: (text) async {
@@ -219,7 +300,8 @@ class TopicDetailPage extends StatelessWidget {
                                       'choices': ['A', 'B'],
                                       'triggers': ['S1_CLICK', 'S2_CLICK'],
                                       'counts': [0, 0],
-                                      'correctIndexes': [0],
+                                      'correctIndex': 0,
+                                      'correctIndices': [0],
                                       'public': true,
                                       'createdAt': FieldValue.serverTimestamp(),
                                       'updatedAt': FieldValue.serverTimestamp(),
@@ -233,7 +315,6 @@ class TopicDetailPage extends StatelessWidget {
                           );
                         },
                       ),
-
                       SizedBox(height: (22 * s).clamp(18, 28).toDouble()),
 
                       // ===== Settings 섹션 =====
@@ -360,11 +441,12 @@ class _SectionHeader extends StatelessWidget {
       padding: EdgeInsets.only(
         left: 2,
         right: 2,
-        bottom: (6 * scale).clamp(6, 10).toDouble(),
-        top: (6 * scale).clamp(6, 10).toDouble(),
+        bottom: (2 * scale).clamp(6, 10).toDouble(),
+        top: (2 * scale).clamp(6, 10).toDouble(),
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
         children: [
           Text(
             title,
@@ -377,218 +459,6 @@ class _SectionHeader extends StatelessWidget {
           const Spacer(),
           if (trailing != null) trailing!,
         ],
-      ),
-    );
-  }
-}
-
-class _AddBtn extends StatelessWidget {
-  const _AddBtn({
-    required this.enabledStream,
-    required this.maxQuestions,
-    required this.onAdd,
-    required this.scale,
-  });
-
-  final Stream<QuerySnapshot<Map<String, dynamic>>> enabledStream;
-  final int maxQuestions;
-  final VoidCallback onAdd;
-  final double scale;
-
-  @override
-  Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: enabledStream,
-      builder: (context, snap) {
-        final count = snap.data?.docs.length ?? 0;
-        final enabled = count < maxQuestions;
-        final sz = (36 * scale).clamp(36, 44).toDouble();
-
-        return SizedBox(
-          height: sz,
-          child: OutlinedButton.icon(
-            onPressed: enabled ? onAdd : null,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('Add'),
-            style: OutlinedButton.styleFrom(
-              backgroundColor: Colors.white,
-              minimumSize: Size(sz * 2.2, sz),
-              side: const BorderSide(color: Color(0xFFDAE2EE)),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(
-                  (10 * scale).clamp(10, 12).toDouble(),
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-/* ───────────────────────── question row ───────────────────────── */
-
-class _QuestionRow extends StatelessWidget {
-  const _QuestionRow({
-    required this.index,
-    required this.quizDoc,
-    required this.onTogglePublic,
-    required this.onMore,
-    required this.onDelete,
-    required this.scale,
-  });
-
-  final int index;
-  final QueryDocumentSnapshot<Map<String, dynamic>> quizDoc;
-  final ValueChanged<bool> onTogglePublic;
-  final VoidCallback onMore;
-  final VoidCallback onDelete;
-  final double scale;
-
-  @override
-  Widget build(BuildContext context) {
-    final x = quizDoc.data();
-    final question = (x['question'] as String?) ?? '(no question)';
-    final public = (x['public'] as bool?) ?? true;
-
-    final h = (56 * scale).clamp(56, 68).toDouble();
-    final r = (12 * scale).clamp(12, 14).toDouble();
-    final fs = (16 * scale).clamp(16, 18).toDouble();
-
-    return Container(
-      height: h,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: const Color(0xFFDAE2EE)),
-        borderRadius: BorderRadius.circular(r),
-      ),
-      padding: EdgeInsets.symmetric(
-        horizontal: (12 * scale).clamp(12, 16).toDouble(),
-      ),
-      child: Row(
-        children: [
-          // 번호
-          SizedBox(
-            width: (28 * scale).clamp(28, 34).toDouble(),
-            child: Text(
-              '${index + 1}.',
-              textAlign: TextAlign.right,
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: (14 * scale).clamp(14, 16).toDouble(),
-                color: const Color(0xFF0B1324),
-              ),
-            ),
-          ),
-          SizedBox(width: (10 * scale).clamp(10, 12).toDouble()),
-
-          // 질문 제목
-          Expanded(
-            child: Text(
-              question,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontWeight: FontWeight.w600, fontSize: fs),
-            ),
-          ),
-          SizedBox(width: (10 * scale).clamp(8, 12).toDouble()),
-
-          // "Public" pill + 스위치 느낌
-          _PublicSwitch(
-            public: public,
-            onChanged: (v) => onTogglePublic(v),
-            scale: scale,
-          ),
-          SizedBox(width: (8 * scale).clamp(8, 12).toDouble()),
-
-          // more (편집)
-          _MoreChevron(onTap: onMore, scale: scale),
-        ],
-      ),
-    );
-  }
-}
-
-class _PublicSwitch extends StatelessWidget {
-  const _PublicSwitch({
-    required this.public,
-    required this.onChanged,
-    required this.scale,
-  });
-  final bool public;
-  final ValueChanged<bool> onChanged;
-  final double scale;
-
-  @override
-  Widget build(BuildContext context) {
-    final h = (22 * scale).clamp(22, 24).toDouble();
-    final w = (40 * scale).clamp(40, 44).toDouble();
-    final dot = (h - 8);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: () => onChanged(!public),
-      child: Row(
-        children: [
-          Text(
-            'Public',
-            style: TextStyle(
-              color: const Color(0xFF6B7280),
-              fontSize: (12 * scale).clamp(12, 14).toDouble(),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Container(
-            width: w,
-            height: h,
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: public ? const Color(0xFFB6F536) : const Color(0xFFBDBDBD),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            alignment: public ? Alignment.centerRight : Alignment.centerLeft,
-            child: Container(
-              width: dot,
-              height: dot,
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                shape: BoxShape.circle,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MoreChevron extends StatelessWidget {
-  const _MoreChevron({required this.onTap, required this.scale});
-  final VoidCallback onTap;
-  final double scale;
-
-  @override
-  Widget build(BuildContext context) {
-    final w = (56 * scale).clamp(56, 68).toDouble();
-    final h = (32 * scale).clamp(32, 36).toDouble();
-    return InkWell(
-      borderRadius: BorderRadius.circular(10),
-      onTap: onTap,
-      child: Container(
-        width: w,
-        height: h,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF3F4F6),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-        ),
-        child: const Icon(
-          Icons.chevron_right,
-          size: 20,
-          color: Color(0xFF6B7280),
-        ),
       ),
     );
   }
@@ -668,7 +538,7 @@ class _SettingsCard extends StatelessWidget {
                       }),
                 ),
                 _LimeRadioOption(
-                  label: 'After quiz ends',
+                  label: 'after quiz ends',
                   selected: showResultsMode == 'afterEnd',
                   onTap:
                       () => _updateTopic(topicRef, {
@@ -699,29 +569,7 @@ class _SettingsCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 6),
-          row(
-            'Multiple selections',
-            Wrap(
-              spacing: 48,
-              children: [
-                _LimeRadioOption(
-                  label: 'yes',
-                  selected: multipleSelections,
-                  onTap:
-                      () =>
-                          _updateTopic(topicRef, {'multipleSelections': true}),
-                ),
-                _LimeRadioOption(
-                  label: 'no',
-                  selected: !multipleSelections,
-                  onTap:
-                      () =>
-                          _updateTopic(topicRef, {'multipleSelections': false}),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 6),
+
           row(
             'Time Limit',
             Row(
@@ -923,49 +771,6 @@ class _TimeLimitInputState extends State<_TimeLimitInput> {
   }
 }
 
-class _EmptyCard extends StatelessWidget {
-  const _EmptyCard({required this.text});
-  final String text;
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      elevation: 0,
-      color: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: const BorderSide(color: Color(0xFFDAE2EE)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Text(
-          text,
-          textAlign: TextAlign.center,
-          style: const TextStyle(color: Color(0xFF6B7280)),
-        ),
-      ),
-    );
-  }
-}
-
-/* ───────────────────────── dialogs & actions ───────────────────────── */
-
-Future<void> _createBlankQuestion(
-  BuildContext context, {
-  required FirebaseFirestore fs,
-  required DocumentReference<Map<String, dynamic>> topicRef,
-}) async {
-  await topicRef.collection('quizzes').add({
-    'question': 'New question',
-    'choices': ['A', 'B'],
-    'triggers': ['S1_CLICK', 'S2_CLICK'],
-    'correctIndexes': [0],
-    'public': true,
-    'createdAt': FieldValue.serverTimestamp(),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
-  _snack(context, 'Question added.');
-}
-
 Future<void> _deleteQuestion(
   BuildContext context,
   QueryDocumentSnapshot<Map<String, dynamic>> doc, {
@@ -973,20 +778,110 @@ Future<void> _deleteQuestion(
 }) async {
   final ok = await showDialog<bool>(
     context: context,
+    barrierDismissible: true,
     builder:
-        (_) => AlertDialog(
-          title: const Text('Delete question'),
-          content: const Text('이 질문과 관련 결과가 삭제됩니다. 계속할까요?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Cancel'),
+        (_) => Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: DottedBorder(
+            options: const RoundedRectDottedBorderOptions(
+              dashPattern: [6, 4],
+              strokeWidth: 4,
+              radius: Radius.circular(10),
+              color: Color(0xFFA2A2A2),
             ),
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Delete'),
+            child: Container(
+              width: 357,
+              height: 167,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Would you like to delete it?',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF001A36),
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center, // ✅ 가운데 정렬
+                    children: [
+                      // 🟣 Delete 버튼
+                      DottedBorder(
+                        options: const RoundedRectDottedBorderOptions(
+                          dashPattern: [6, 4],
+                          strokeWidth: 2,
+                          radius: Radius.circular(10),
+                          color: Color(0xFFA2A2A2),
+                        ),
+                        child: SizedBox(
+                          width: 120, // ✅ 고정된 버튼 폭
+                          height: 43,
+                          child: TextButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            style: TextButton.styleFrom(
+                              backgroundColor: const Color(0xFFF6F6F6),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            child: const Text(
+                              'Delete',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF001A36),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      // 🟣 Cancel 버튼
+                      DottedBorder(
+                        options: const RoundedRectDottedBorderOptions(
+                          dashPattern: [6, 4],
+                          strokeWidth: 2,
+                          radius: Radius.circular(10),
+                          color: Color(0xFFA2A2A2),
+                        ),
+                        child: SizedBox(
+                          width: 120, // ✅ Delete와 동일한 고정 폭
+                          height: 43,
+                          child: TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            style: TextButton.styleFrom(
+                              backgroundColor: const Color(0xFFF6F6F6),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF001A36),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
   );
   if (ok == true) {
@@ -1101,8 +996,16 @@ Future<void> _updateTopic(
   Map<String, dynamic> data,
 ) async {
   final merged = {...data};
+
+  // ✅ 1. timeLimitSeconds 값이 있을 때 → timerSeconds에 복사
   if (merged.containsKey('timeLimitSeconds')) {
     merged['timerSeconds'] = merged['timeLimitSeconds'];
+  }
+
+  // ✅ 2. timeLimitEnabled가 false일 때는 타이머 관련 필드 제거
+  if (merged['timeLimitEnabled'] == false) {
+    merged['timeLimitSeconds'] = FieldValue.delete();
+    merged['timerSeconds'] = FieldValue.delete();
   }
 
   await ref.set({
@@ -1191,27 +1094,59 @@ Widget _stepBtn(IconData icon, VoidCallback? onTap) {
 
 void _openEditOptions(
   BuildContext context,
+  String topicId,
   QueryDocumentSnapshot<Map<String, dynamic>> quizDoc,
 ) {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder:
-          (_) => EditQuestionPage(
-            topicId: quizDoc.reference.parent.parent!.id,
+  try {
+    final hubId = context.read<HubProvider>().hubId;
+    if (hubId == null) {
+      debugPrint('❗ hubId is null in _openEditOptions');
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('허브를 먼저 선택하세요.')));
+      return;
+    }
+    debugPrint(
+      '✅ Opening EditQuestionPage → topic=$topicId, quiz=${quizDoc.id}',
+    );
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) {
+          final data = quizDoc.data();
+          // ✅ 필드 방어
+          final hasChoices = data.containsKey('choices');
+          final hasTriggers = data.containsKey('triggers');
+          if (!hasChoices || !hasTriggers) {
+            debugPrint('⚠️ Missing choices/triggers in quiz ${quizDoc.id}');
+          }
+          return EditQuestionPage(
+            hubId: hubId,
+            topicId: topicId,
             quizId: quizDoc.id,
-          ),
-    ),
-  );
+          );
+        },
+      ),
+    );
+  } catch (e, st) {
+    debugPrint('🔥 openEditOptions failed: $e\n$st');
+  }
 }
 
 class _QuestionCard extends StatelessWidget {
   final int index;
-  final DocumentSnapshot quizDoc;
+  final QueryDocumentSnapshot<Map<String, dynamic>> quizDoc;
   final bool public;
+  final bool isCurrent;
+  final bool isLast;
   final ValueChanged<bool> onTogglePublic;
   final VoidCallback onMore;
   final VoidCallback onDelete;
+  final DocumentReference topicRef;
+
+  final String phase;
+  final String status;
 
   const _QuestionCard({
     required this.index,
@@ -1220,12 +1155,43 @@ class _QuestionCard extends StatelessWidget {
     required this.onTogglePublic,
     required this.onMore,
     required this.onDelete,
+    required this.topicRef,
+    this.isCurrent = false,
+    this.isLast = false,
+    this.phase = 'question',
+    this.status = 'draft',
   });
 
   @override
   Widget build(BuildContext context) {
+    final question = quizDoc.data()['question'] ?? '';
+    final data = quizDoc.data();
+    final p = data.containsKey('public') ? data['public'] : false;
+    final public = (p is bool) ? p : (p is String && p.toLowerCase() == 'true');
+
+    final boxColor = isCurrent ? const Color(0x3344A0FF) : Colors.white;
+
+    final running = isCurrent;
+    final btnLabel = running ? 'Done !' : (isLast ? 'Finish !' : 'Next !');
+    final icon = Icons.play_arrow_rounded;
+
+    final showButton = () {
+      // 퀴즈 시작 전에는 첫 번째 문항만 Next 표시
+      if (status == 'draft' || status == 'ready') {
+        return index == 1;
+      }
+
+      // 퀴즈 실행 중에는 현재 문항만 표시
+      if (status == 'running') {
+        return isCurrent;
+      }
+
+      // 그 외(종료 등)에는 숨김
+      return false;
+    }();
+
     return Padding(
-      padding: const EdgeInsets.only(left: 28, right: 20, top: 6, bottom: 6),
+      padding: const EdgeInsets.only(left: 28, top: 6, bottom: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -1244,69 +1210,188 @@ class _QuestionCard extends StatelessWidget {
           ),
           const SizedBox(width: 36),
 
-          // 문항 박스
-          Flexible(
+          // 메인 카드
+          Expanded(
             child: Container(
               height: 56,
               decoration: BoxDecoration(
-                color: Colors.white,
-                border: Border.all(color: Color(0xFFDAE2EE)),
+                color: boxColor,
+                border: Border.all(color: const Color(0xFFDAE2EE)),
                 borderRadius: BorderRadius.circular(12),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 18),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // 질문 내용
+                  // 질문 + 버튼 묶음
                   Expanded(
-                    child: Text(
-                      quizDoc['question'] ?? '',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        color: Color(0xFF001A36),
-                        fontWeight: FontWeight.w500,
-                      ),
-                      overflow: TextOverflow.ellipsis,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Flexible(
+                          fit: FlexFit.loose,
+                          child: Text(
+                            question,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              color: Color(0xFF001A36),
+                              fontWeight: FontWeight.w500,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+
+                        if (showButton)
+                          SizedBox(
+                            width: 118,
+                            height: 40,
+                            child: OutlinedButton(
+                              style: OutlinedButton.styleFrom(
+                                padding: EdgeInsets.zero,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(11),
+                                ),
+                                side: const BorderSide(
+                                  color: Color(0xFF001A36),
+                                  width: 1,
+                                ),
+                              ),
+                              onPressed: () async {
+                                final fs = FirebaseFirestore.instance;
+                                final topicRef = this.topicRef;
+                                final quizCol = topicRef.collection('quizzes');
+                                final currentId = quizDoc.id;
+
+                                if (phase == 'question') {
+                                  await topicRef.update({
+                                    'phase': 'reveal',
+                                    'updatedAt': FieldValue.serverTimestamp(),
+                                  });
+                                } else if (phase == 'reveal') {
+                                  final qs =
+                                      await quizCol.orderBy('createdAt').get();
+                                  final docs = qs.docs;
+                                  final curIdx = docs.indexWhere(
+                                    (d) => d.id == currentId,
+                                  );
+
+                                  String? nextPublicId;
+                                  for (
+                                    int i = curIdx + 1;
+                                    i < docs.length;
+                                    i++
+                                  ) {
+                                    final dData = docs[i].data();
+                                    final p = dData['public'];
+                                    final isPublic =
+                                        (p is bool)
+                                            ? p
+                                            : (p is String &&
+                                                p.toLowerCase() == 'true');
+                                    if (isPublic) {
+                                      nextPublicId = docs[i].id;
+                                      break;
+                                    }
+                                  }
+
+                                  if (nextPublicId == null) {
+                                    await topicRef.update({
+                                      'status': 'finished',
+                                      'phase': 'finished',
+                                      'currentQuizId': null,
+                                      'questionStartedAt': null,
+                                      'updatedAt': FieldValue.serverTimestamp(),
+                                    });
+                                  } else {
+                                    await topicRef.update({
+                                      'phase': 'question',
+                                      'currentQuizId': nextPublicId,
+                                      'currentQuizIndex': curIdx + 2,
+                                      'questionStartedAt':
+                                          FieldValue.serverTimestamp(),
+                                      'updatedAt': FieldValue.serverTimestamp(),
+                                    });
+                                  }
+                                }
+                              },
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.play_arrow_rounded,
+                                    size: 24,
+                                    color: Color(0xFF001A36),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    phase == 'question' ? 'Done !' : 'Next !',
+                                    style: const TextStyle(
+                                      color: Color(0xFF001A36),
+                                      fontSize: 19,
+                                      fontWeight: FontWeight.w600,
+                                      height: 1.0,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
 
-                  // 오른쪽 버튼 그룹
+                  // 오른쪽 고정 아이콘
+                  const SizedBox(width: 12),
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Text(
-                        'Public',
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: Color(0xFF8A8A8A),
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      const SizedBox(width: 6),
-                      Switch(
-                        value: public,
-                        activeColor: Color(0xFFA9E817),
-                        onChanged: onTogglePublic,
-                      ),
-                      const SizedBox(width: 20),
-                      InkWell(
-                        onTap: onMore,
-                        child: const Row(
-                          children: [
+                      GestureDetector(
+                        onTap: () {
+                          final hubId = context.read<HubProvider>().hubId;
+                          if (hubId != null) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder:
+                                    (_) => EditQuestionPage(
+                                      hubId: hubId,
+                                      topicId: topicRef.id.split('/').last,
+                                      quizId: quizDoc.id,
+                                    ),
+                              ),
+                            );
+                          }
+                        },
+                        child: Row(
+                          children: const [
                             Text(
                               'Edit',
                               style: TextStyle(
-                                fontSize: 15,
-                                color: Color(0xFF6E6E6E),
-                                fontWeight: FontWeight.w700,
+                                color: Color(0xFFA2A2A2),
+                                fontSize: 21,
+                                fontWeight: FontWeight.w600,
+                                height: 34 / 21,
                               ),
                             ),
-                            SizedBox(width: 3),
                             Icon(
-                              Icons.edit,
-                              size: 16,
-                              color: Color(0xFF6E6E6E),
+                              Icons.edit_outlined,
+                              size: 23,
+                              color: Color(0xFFA2A2A2),
                             ),
+                            SizedBox(width: 4),
                           ],
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      GestureDetector(
+                        onTap: onDelete,
+                        child: const Icon(
+                          Icons.delete_outline,
+                          size: 24,
+                          color: Color(0xFFFF9A6E),
                         ),
                       ),
                     ],
@@ -1324,6 +1409,7 @@ class _QuestionCard extends StatelessWidget {
 class CustomMiniSwitch extends StatelessWidget {
   final bool value;
   final ValueChanged<bool> onChanged;
+
   const CustomMiniSwitch({
     super.key,
     required this.value,
@@ -1336,10 +1422,10 @@ class CustomMiniSwitch extends StatelessWidget {
       onTap: () => onChanged(!value),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        width: 28.5,
+        width: 28.47,
         height: 14,
         decoration: BoxDecoration(
-          color: value ? const Color(0xFFA9E817) : const Color(0xFFD2D2D2),
+          color: value ? const Color(0xFFA9E817) : const Color(0xFFA2A2A2),
           borderRadius: BorderRadius.circular(14),
         ),
         alignment: value ? Alignment.centerRight : Alignment.centerLeft,
@@ -1355,12 +1441,6 @@ class CustomMiniSwitch extends StatelessWidget {
       ),
     );
   }
-}
-
-class _Binding {
-  final int button;
-  final String gesture;
-  const _Binding({required this.button, required this.gesture});
 }
 
 class _AddQuestionInput extends StatefulWidget {
@@ -1386,7 +1466,7 @@ class _AddQuestionInputState extends State<_AddQuestionInput> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(left: 28, right: 36, top: 6, bottom: 6),
+      padding: const EdgeInsets.only(left: 28, right: 4, top: 6, bottom: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -1405,14 +1485,24 @@ class _AddQuestionInputState extends State<_AddQuestionInput> {
           ),
           const SizedBox(width: 36),
 
-          // 문항 입력 박스 (디자인 그대로)
           Flexible(
             child: GestureDetector(
               onTap: () {
+                final hubId = context.read<HubProvider>().hubId;
+                if (hubId == null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('허브를 먼저 선택하세요.')),
+                  );
+                  return;
+                }
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => CreateQuestionPage(topicId: widget.topicId),
+                    builder:
+                        (_) => CreateQuestionPage(
+                          hubId: hubId, // ✅ hubId 추가
+                          topicId: widget.topicId,
+                        ),
                   ),
                 );
               },

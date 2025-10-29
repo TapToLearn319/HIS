@@ -40,7 +40,7 @@ class _DisplayStandByPageState extends State<DisplayStandByPage> {
   Widget build(BuildContext context) {
     return const Scaffold(
       backgroundColor: Color(0xFFF6FAFF),
-      body: Center(child: Image(image: AssetImage('assets/logo_bird_standby.png'))),
+      body: Center(child: Image(image: AssetImage('assets/logo_bird_main.png'))),
     );
   }
 }
