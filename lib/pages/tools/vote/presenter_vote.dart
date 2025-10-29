@@ -202,25 +202,23 @@ bool _done = false;
 }
 
   void _setUniqueBinding(int i, _Binding next) {
-    setState(() {
+  setState(() {
+    // ✅ 이미 그 조합을 쓰고 있는 항목이 있는지 탐색
+    final dupIndex = _bindings.indexWhere(
+      (b) => b.button == next.button && b.gesture == next.gesture,
+    );
+
+    if (dupIndex != -1 && dupIndex != i) {
+      // ✅ 서로 바꿔치기 (swap)
+      final tmp = _bindings[i];
       _bindings[i] = next;
-      final used = <String>{};
-      for (int k = 0; k < _bindings.length; k++) {
-        if (k == i) continue;
-        used.add('${_bindings[k].button}-${_bindings[k].gesture}');
-      }
-      used.add('${next.button}-${next.gesture}');
-      final free =
-          _allBindings.where((b) => !used.contains('${b.button}-${b.gesture}')).toList();
-      for (int k = 0; k < _bindings.length; k++) {
-        if (k == i) continue;
-        final key = '${_bindings[k].button}-${_bindings[k].gesture}';
-        if (key == '${next.button}-${next.gesture}') {
-          if (free.isNotEmpty) _bindings[k] = free.removeAt(0);
-        }
-      }
-    });
-  }
+      _bindings[dupIndex] = tmp;
+    } else {
+      // ✅ 중복이 아니면 그냥 설정
+      _bindings[i] = next;
+    }
+  });
+}
 
   _Binding _firstUnusedBinding({
     _Binding fallback = const _Binding(button: 1, gesture: 'hold'),
@@ -799,14 +797,14 @@ bool _done = false;
                       // ✅ 메뉴 버튼
                       Theme(
                         data: Theme.of(context).copyWith(
-                          popupMenuTheme: PopupMenuThemeData(
-                            color: const Color(0xFFF6F6F6),
+                          popupMenuTheme: const PopupMenuThemeData(
+                            color: Color(0xFFF6F6F6),
                             elevation: 0,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.all(Radius.circular(10)),
                             ),
-                            textStyle: const TextStyle(
-                              color: Colors.black, // ✅ 메뉴 글씨 전부 검정
+                            textStyle: TextStyle(
+                              color: Colors.black,
                               fontSize: 21,
                               fontWeight: FontWeight.w400,
                             ),
@@ -815,10 +813,7 @@ bool _done = false;
                         child: PopupMenuButton<int>(
                           key: popupKey,
                           tooltip: 'More',
-                          icon: const Icon(
-                            Icons.more_vert,
-                            color: Color(0xFF8D8D8D),
-                          ),
+                          icon: const Icon(Icons.more_vert, color: Color(0xFF8D8D8D)),
                           elevation: 0,
                           itemBuilder: (_) {
                             final usedExceptMe = _bindings
@@ -828,50 +823,25 @@ bool _done = false;
                                 .map((e) => '${e.value.button}-${e.value.gesture}')
                                 .toSet();
 
-                            final currentKey = '${bind.button}-${bind.gesture}';
-                            const opts = [
-                              _MenuOpt(1, '1 - single', '1-single'),
-                              _MenuOpt(2, '1 - hold', '1-hold'),
-                              _MenuOpt(3, '2 - single', '2-single'),
-                              _MenuOpt(4, '2 - hold', '2-hold'),
-                            ];
-
-                            return opts.map((o) {
-                              final disabled = usedExceptMe.contains(o.key);
-                              final selected = (o.key == currentKey);
-
-                              return PopupMenuItem<int>(
-                                value: o.value,
-                                enabled: !disabled,
-                                height: 44,
-                                padding: const EdgeInsets.symmetric(horizontal: 12),
-                                child: Row(
-                                  children: [
-                                    SizedBox(
-                                      width: 24,
-                                      child: selected
-                                          ? const Icon(Icons.check,
-                                              size: 18, color: Colors.black87)
-                                          : const SizedBox.shrink(),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Expanded(
-                                      child: Text(
-                                        o.label,
-                                        style: TextStyle(
-                                          color: Colors.black, // ✅ 글씨 검정
-                                          decoration: disabled
-                                              ? TextDecoration.lineThrough
-                                              : null,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }).toList();
+                            final current = _bindings[i];
+                            return _buildMappingMenuItems(
+                              current: current,
+                              usedExceptMe: usedExceptMe,
+                            );
                           },
-                          onSelected: _onMenuSelected,
+                          onSelected: (v) {
+                            if (v == 9) {
+                              if (_optionCtrls.length <= 2) return;
+                              setState(() {
+                                _bindings.removeAt(i);
+                                _optionCtrls.removeAt(i).dispose();
+                              });
+                              return;
+                            }
+
+                            final next = _onMappingSelected(v);
+                            _setUniqueBinding(i, next);
+                          },
                         ),
                       ),
                     ],
@@ -1201,6 +1171,86 @@ class _Binding {
       other is _Binding && other.button == button && other.gesture == gesture;
   @override
   int get hashCode => Object.hash(button, gesture);
+}
+List<PopupMenuEntry<int>> _buildMappingMenuItems({
+  required _Binding current,
+  required Set<String> usedExceptMe,
+}) {
+  final currentKey = '${current.button}-${current.gesture}';
+  const opts = [
+    _MenuOpt(1, '1 - single', '1-single'),
+    _MenuOpt(2, '1 - hold', '1-hold'),
+    _MenuOpt(3, '2 - single', '2-single'),
+    _MenuOpt(4, '2 - hold', '2-hold'),
+  ];
+
+  final items = <PopupMenuEntry<int>>[
+    const PopupMenuItem<int>(
+      enabled: false,
+      child: Text(
+        '— Button mapping —',
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF001A36),
+        ),
+      ),
+    ),
+    const PopupMenuDivider(),
+  ];
+
+  for (final o in opts) {
+    //final disabled = usedExceptMe.contains(o.key);
+    final selected = o.key == currentKey;
+
+    items.add(
+      PopupMenuItem<int>(
+        value: o.value,
+        enabled: true,
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 24,
+              child: selected
+                  ? const Icon(Icons.check, size: 18, color: Colors.black87)
+                  : const SizedBox.shrink(),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                o.label,
+                style: TextStyle(
+                  color: Colors.black,
+                  decoration:
+                      TextDecoration.none,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  items.add(const PopupMenuDivider());
+  items.add(const PopupMenuItem<int>(value: 9, child: Text('문항 삭제')));
+  return items;
+}
+
+_Binding _onMappingSelected(int v) {
+  switch (v) {
+    case 1:
+      return const _Binding(button: 1, gesture: 'single');
+    case 2:
+      return const _Binding(button: 1, gesture: 'hold');
+    case 3:
+      return const _Binding(button: 2, gesture: 'single');
+    case 4:
+      return const _Binding(button: 2, gesture: 'hold');
+    default:
+      return const _Binding(button: 1, gesture: 'single');
+  }
 }
 
 class _MenuOpt {

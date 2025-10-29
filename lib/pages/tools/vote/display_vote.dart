@@ -78,17 +78,16 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
 
   Color _colorForBinding(int button, String gesture) {
     if (button == 1) {
-      return const Color(0xFFF87171);
+      return const Color(0xff70D71C);
     } else {
-      return const Color(0xFF60A5FA);
+      return const Color(0xff9A6EFF);
     }
   }
 
   String _labelForBinding(int button, String gesture) {
-    final b = (button == 1) ? 'red' : 'blue';
-    final g = (gesture == 'hold') ? 'hold' : 'click';
-    return '$b-$g';
-  }
+  // click(=single)일 때는 빈 문자열, hold일 때만 'hold'
+  return (gesture == 'hold') ? 'hold' : '';
+}
 
   @override
   void dispose() {
@@ -491,28 +490,29 @@ void _attachVoteDoc(String sid, String voteId) {
                     const SizedBox(width: 12),
                     if (alwaysShowMapping || !hideResults)
                       Builder(builder: (context) {
-                        final mapColor =
-                            _colorForBinding(button, gesture);
-                        final mapLabel =
-                            _labelForBinding(button, gesture);
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 6),
+                        final mapColor = _colorForBinding(button, gesture);
+                        final isHold = (gesture == 'hold');
+
+                        return AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: isHold ? 80 : 36, // ✅ hold면 가로로 늘림
+                          height: 36,
+                          alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: mapColor.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(999),
-                            border:
-                                Border.all(color: mapColor.withOpacity(0.7)),
+                            color: mapColor,
+                            borderRadius: BorderRadius.circular(999), // ✅ 원형 유지
+                            border: Border.all(color: mapColor.withOpacity(0.7)),
                           ),
-                          child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            Icon(_iconForGesture(gesture),
-                                size: 20, color: mapColor),
-                            const SizedBox(width: 6),
-                            Text(mapLabel,
-                                style: TextStyle(
-                                    color: mapColor,
-                                    fontWeight: FontWeight.w800)),
-                          ]),
+                          child: isHold
+                              ? const Text(
+                                  'hold',
+                                  style: TextStyle(
+                                    color: Colors.white, // ✅ 흰색 텍스트
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 22,
+                                  ),
+                                )
+                              : null, // ✅ single일 때는 텍스트 없음
                         );
                       })
                     else
