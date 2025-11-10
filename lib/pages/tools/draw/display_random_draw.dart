@@ -19,7 +19,7 @@ class _DisplayRandomDrawPageState extends State<DisplayRandomDrawPage>
   List<String> _allNamesPool = [];
   List<bool> _locked = []; // 이미 멈춘 슬롯
   List<AnimationController> _zoomControllers = [];
-  bool _firstLoad = true; 
+  bool _firstLoad = true;
 
   final Random _rand = Random();
 
@@ -97,18 +97,24 @@ class _DisplayRandomDrawPageState extends State<DisplayRandomDrawPage>
     return Scaffold(
       backgroundColor: const Color(0xFFF6FAFF), // 밝은 하늘색
       body: SafeArea(
-        child: Center(
-          child: (hubId == null)
-              ? const Text('No hub', style: TextStyle(color: Colors.black))
-              : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                  stream: FirebaseFirestore.instance
-                      .doc('hubs/$hubId/draws/display')
-                      .snapshots(),
+        child:
+            (hubId == null)
+                ? const Center(
+                  child: Text('No hub', style: TextStyle(color: Colors.black)),
+                )
+                : StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+                  stream:
+                      FirebaseFirestore.instance
+                          .doc('hubs/$hubId/draws/display')
+                          .snapshots(),
                   builder: (context, snap) {
                     if (!snap.hasData || !snap.data!.exists) {
-                      return const Text('Waiting…',
-                          style:
-                              TextStyle(color: Colors.black54, fontSize: 36));
+                      return const Center(
+                        child: Text(
+                          'Waiting…',
+                          style: TextStyle(color: Colors.black54, fontSize: 36),
+                        ),
+                      );
                     }
 
                     final data = snap.data!.data()!;
@@ -117,18 +123,24 @@ class _DisplayRandomDrawPageState extends State<DisplayRandomDrawPage>
                     final title = (data['title'] as String?) ?? '';
                     final names =
                         (data['names'] as List?)?.cast<String>() ?? const [];
+
                     // ✅ 첫 진입일 경우, 이전 show=true 데이터가 있더라도 무조건 Waiting 표시
-                      if (_firstLoad) {
-                        _firstLoad = false;
-                        return const Text(
+                    if (_firstLoad) {
+                      _firstLoad = false;
+                      return const Center(
+                        child: Text(
                           'Waiting…',
                           style: TextStyle(color: Colors.black54, fontSize: 36),
-                        );
-                      }
+                        ),
+                      );
+                    }
                     if (!show || names.isEmpty) {
-                      return const Text('Waiting…',
-                          style:
-                              TextStyle(color: Colors.black54, fontSize: 36));
+                      return const Center(
+                        child: Text(
+                          'Waiting…',
+                          style: TextStyle(color: Colors.black54, fontSize: 36),
+                        ),
+                      );
                     }
 
                     // 전체 학생 풀 가져오기
@@ -136,11 +148,15 @@ class _DisplayRandomDrawPageState extends State<DisplayRandomDrawPage>
                         .collection('hubs/$hubId/students')
                         .get()
                         .then((snap) {
-                      _allNamesPool = snap.docs
-                          .map((d) => (d.data()['name'] as String?)?.trim())
-                          .whereType<String>()
-                          .toList();
-                    });
+                          _allNamesPool =
+                              snap.docs
+                                  .map(
+                                    (d) =>
+                                        (d.data()['name'] as String?)?.trim(),
+                                  )
+                                  .whereType<String>()
+                                  .toList();
+                        });
 
                     // 새로운 draw 시작
                     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -151,62 +167,164 @@ class _DisplayRandomDrawPageState extends State<DisplayRandomDrawPage>
                       }
                     });
 
-                    return Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    // ✅ Stack을 사용해 타이틀은 위, 이름박스는 중앙에 배치
+                    return Stack(
+                      alignment: Alignment.center,
                       children: [
+                        // 중앙 학생 리스트
+                        _buildAnimatedList(
+                          mode,
+                          _displayNames.isEmpty ? names : _displayNames,
+                        ),
+
+                        // 상단 타이틀
                         if (title.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 24),
-                            child: Text(
-                              title,
-                              style: const TextStyle(
-                                color: Colors.black,
-                                fontSize: 40,
-                                fontWeight: FontWeight.w800,
-                              ),
-                              textAlign: TextAlign.center,
+                          Positioned(
+                            top: 120, // ← 원하는 높이 조절 가능 (예: 60~120)
+                            left: 0,
+                            right: 0,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                Text(
+                                  (title.isNotEmpty) ? title : '(Title)',
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: Color(0xFF001A36),
+                                    fontFamily: 'Montserrat',
+                                    fontSize: 59,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Positioned(
+                                  left:
+                                      MediaQuery.of(context).size.width / 2 -
+                                      240,
+                                  child: Container(
+                                    width: 89.9,
+                                    height: 89.9,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0x3344DAAD),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Center(
+                                      child: Icon(
+                                        Icons.check_box_outlined,
+                                        color: Color(0xFF44DAAD),
+                                        size: 57.4,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        _buildAnimatedList(mode, _displayNames.isEmpty ? names : _displayNames),
                       ],
                     );
                   },
                 ),
-        ),
       ),
     );
   }
 
   Widget _buildAnimatedList(String mode, List<String> names) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 40),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD2D2D2), width: 1),
-      ),
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        spacing: 40,
-        runSpacing: 12,
-        children: [
-          for (int i = 0; i < names.length; i++)
-            ScaleTransition(
-              scale: _zoomControllers.length > i
-                  ? _zoomControllers[i]
-                  : const AlwaysStoppedAnimation(1.0),
-              child: Text(
-                mode == 'ordering' ? '${i + 1}. ${names[i]}' : names[i],
-                style: const TextStyle(
-                  color: Colors.black,
-                  fontSize: 30,
-                  fontWeight: FontWeight.w800,
-                ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double baseWidth = 1280;
+        final double scale = (constraints.maxWidth / baseWidth).clamp(0.6, 1.0);
+
+        const int maxPerRow = 3;
+        final int totalRows = (names.length / maxPerRow).ceil();
+        final double dynamicScale =
+            (1.0 - (names.length / 60).clamp(0.0, 0.4)) * scale;
+
+        final double fontSize = (58 * dynamicScale).clamp(26, 58);
+        final double spacing = 100 * dynamicScale;
+        final double runSpacing = 40 * dynamicScale;
+        final double padding = 40 * dynamicScale;
+
+        // 한 줄에 3명씩 분할
+        List<List<String>> grouped = [];
+        for (int i = 0; i < names.length; i += maxPerRow) {
+          grouped.add(
+            names.sublist(
+              i,
+              (i + maxPerRow > names.length) ? names.length : i + maxPerRow,
+            ),
+          );
+        }
+
+        // 화면 높이의 70%까지만 확장 허용
+        final double maxBoxHeight = constraints.maxHeight * 0.7;
+
+        // 실제 내용 높이 예상치 계산 (대략적)
+        final double expectedHeight =
+            (totalRows * (fontSize + runSpacing)) + (padding * 2);
+
+        return Center(
+          child: Container(
+            width: 1200 * scale,
+            constraints: BoxConstraints(
+              maxHeight: maxBoxHeight, // 최대 높이 제한
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12 * scale),
+              border: Border.all(
+                color: const Color(0xFFD2D2D2),
+                width: 1 * scale,
               ),
             ),
-        ],
-      ),
+            padding: EdgeInsets.symmetric(
+              vertical: padding,
+              horizontal: padding * 1.2,
+            ),
+            child: SingleChildScrollView(
+              // ✅ 내용이 넘치면 스크롤
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (int row = 0; row < grouped.length; row++)
+                    Padding(
+                      padding: EdgeInsets.only(bottom: runSpacing),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          for (int j = 0; j < grouped[row].length; j++)
+                            Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: spacing / 2,
+                              ),
+                              child: ScaleTransition(
+                                scale:
+                                    _zoomControllers.length >
+                                            (row * maxPerRow + j)
+                                        ? _zoomControllers[row * maxPerRow + j]
+                                        : const AlwaysStoppedAnimation(1.0),
+                                child: Text(
+                                  mode == 'ordering'
+                                      ? '${row * maxPerRow + j + 1}. ${grouped[row][j]}'
+                                      : grouped[row][j],
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: const Color(0xFF001A36),
+                                    fontSize: fontSize,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 2.0,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

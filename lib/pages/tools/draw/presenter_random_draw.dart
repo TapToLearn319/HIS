@@ -38,26 +38,26 @@ class _PresenterRandomDrawPageState extends State<PresenterRandomDrawPage> {
   AutovalidateMode _autoValidate = AutovalidateMode.disabled;
 
   @override
-void initState() {
-  super.initState();
-  _resetDisplayOnEnter();
-}
+  void initState() {
+    super.initState();
+    _resetDisplayOnEnter();
+  }
 
-Future<void> _resetDisplayOnEnter() async {
-  final hubId = context.read<HubProvider>().hubId;
-  if (hubId == null) return;
+  Future<void> _resetDisplayOnEnter() async {
+    final hubId = context.read<HubProvider>().hubId;
+    if (hubId == null) return;
 
-  final fs = FirebaseFirestore.instance;
-  final doc = fs.doc('hubs/$hubId/draws/display');
+    final fs = FirebaseFirestore.instance;
+    final doc = fs.doc('hubs/$hubId/draws/display');
 
-  await doc.set({
-    'show': false,
-    'names': [],
-    'title': '',
-    'mode': 'lots',
-    'updatedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
-}
+    await doc.set({
+      'show': false,
+      'names': [],
+      'title': '',
+      'mode': 'lots',
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
 
   @override
   void dispose() {
@@ -114,15 +114,17 @@ Future<void> _resetDisplayOnEnter() async {
     final searchFocus = FocusNode();
 
     // 기본: 전부 선택
-    final allMerged = <String>{...allFromFirebase, ..._tempAdded}.toList()
-      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final allMerged =
+        <String>{...allFromFirebase, ..._tempAdded}.toList()
+          ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     Set<String> localSelected =
         _selected.isEmpty ? {...allMerged} : {..._selected};
     Set<String> localTempAdded = {..._tempAdded};
 
     List<String> computeList() {
-      final full = <String>{...allFromFirebase, ...localTempAdded}.toList()
-        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      final full =
+          <String>{...allFromFirebase, ...localTempAdded}.toList()
+            ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
       return full;
     }
 
@@ -152,12 +154,17 @@ Future<void> _resetDisplayOnEnter() async {
             }
 
             return Dialog(
-              insetPadding:
-                  const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: 24,
+              ),
               backgroundColor: Colors.white,
               surfaceTintColor: Colors.white,
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 860, maxHeight: 640),
+                constraints: const BoxConstraints(
+                  maxWidth: 860,
+                  maxHeight: 640,
+                ),
                 child: SafeArea(
                   top: true,
                   bottom: false,
@@ -174,13 +181,17 @@ Future<void> _resetDisplayOnEnter() async {
                               style: TextStyle(
                                 fontSize: 20,
                                 fontWeight: FontWeight.w800,
-                                color: Colors.black),
+                                color: Colors.black,
+                              ),
                             ),
                             const Spacer(),
                             IconButton(
                               onPressed: () => Navigator.of(context).pop(),
                               tooltip: 'Close',
-                              icon: const Icon(Icons.close, color: Colors.black87),
+                              icon: const Icon(
+                                Icons.close,
+                                color: Colors.black87,
+                              ),
                             ),
                           ],
                         ),
@@ -205,8 +216,10 @@ Future<void> _resetDisplayOnEnter() async {
                                 decoration: const InputDecoration(
                                   hintText: 'Search name',
                                   isDense: true,
-                                  prefixIcon:
-                                      Icon(Icons.search, color: Colors.black54),
+                                  prefixIcon: Icon(
+                                    Icons.search,
+                                    color: Colors.black54,
+                                  ),
                                   border: OutlineInputBorder(),
                                   filled: true,
                                   fillColor: Colors.white,
@@ -222,8 +235,8 @@ Future<void> _resetDisplayOnEnter() async {
                         // Select All / Add
                         Row(
                           children: [
-                            TextButton.icon(
-                              onPressed: () {
+                            InkWell(
+                              onTap: () {
                                 setLocal(() {
                                   if (!allChecked) {
                                     localSelected
@@ -234,19 +247,39 @@ Future<void> _resetDisplayOnEnter() async {
                                   }
                                 });
                               },
-                              icon: Icon(
-                                allChecked
-                                    ? Icons.check_circle
-                                    : Icons.radio_button_unchecked,
-                                color: Colors.black87,
-                                size: 18,
+                              borderRadius: BorderRadius.circular(8),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 18,
+                                    height: 18,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color:
+                                          allChecked
+                                              ? const Color(0xFF44DAAD)
+                                              : Colors.white,
+                                      border: Border.all(
+                                        color:
+                                            allChecked
+                                                ? const Color(0xFF44DAAD)
+                                                : const Color(0xFFA2A2A2),
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Select All',
+                                    style: TextStyle(
+                                      color: Color(0xFF868C98),
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w400,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              label: const Text(
-                                'Select All',
-                                style: TextStyle(color: Colors.black, fontSize: 14),
-                              ),
-                              style: TextButton.styleFrom(
-                                  foregroundColor: Colors.black),
                             ),
                             const Spacer(),
                             SizedBox(
@@ -256,10 +289,30 @@ Future<void> _resetDisplayOnEnter() async {
                                 onSubmitted: (_) => addName(),
                                 decoration: InputDecoration(
                                   hintText: 'Add name',
+                                  hintStyle: const TextStyle(
+                                    color: Color(0xFF868C98),
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w400,
+                                  ),
                                   isDense: true,
-                                  border: const OutlineInputBorder(),
-                                  filled: true,
-                                  fillColor: Colors.white,
+                                  border: const UnderlineInputBorder(
+                                    borderSide: BorderSide(
+                                      color: Color(0xFFD2D2D2),
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  focusedBorder: const UnderlineInputBorder(
+                                    borderSide: BorderSide(
+                                      color: Colors.black,
+                                      width: 1.5,
+                                    ),
+                                  ),
+                                  enabledBorder: const UnderlineInputBorder(
+                                    borderSide: BorderSide(
+                                      color: Color(0xFFD2D2D2),
+                                      width: 1.5,
+                                    ),
+                                  ),
                                   suffixIcon: IconButton(
                                     icon: const Icon(Icons.add),
                                     color: Colors.black87,
@@ -267,83 +320,193 @@ Future<void> _resetDisplayOnEnter() async {
                                     tooltip: 'Add',
                                   ),
                                 ),
-                                style: const TextStyle(color: Colors.black),
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontSize: 18,
+                                ),
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 10),
-                        const Divider(height: 16),
 
-                        // 목록
+                        // const Divider(height: 16),
                         Expanded(
                           child: Scrollbar(
-                            child: GridView.builder(
-                              itemCount: filtered.length,
-                              gridDelegate:
-                                  const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                mainAxisExtent: 38,
-                                crossAxisSpacing: 12,
-                                mainAxisSpacing: 4,
-                              ),
-                              itemBuilder: (_, i) {
-                                final name = filtered[i];
-                                final selected = localSelected.contains(name);
-                                return InkWell(
-                                  onTap: () => setLocal(() {
-                                    if (selected) {
-                                      localSelected.remove(name);
-                                    } else {
-                                      localSelected.add(name);
-                                    }
-                                  }),
-                                  child: Row(
-                                    children: [
-                                      // 라디오 점
-                                      Container(
-                                        width: 18,
-                                        height: 18,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: selected
-                                              ? const Color(0xFF6ED3FF)
-                                              : Colors.white,
-                                          border: Border.all(
-                                            color: selected
-                                                ? const Color(0xFF6ED3FF)
-                                                : const Color(0xFFA2A2A2),
-                                            width: 2,
-                                          ),
+                            child: ListView(
+                              children: [
+                                // ✅ 1. 수동 추가된 학생 (_tempAdded)
+                                if (localTempAdded.isNotEmpty) ...[
+                                  GridView.builder(
+                                    shrinkWrap: true,
+                                    physics:
+                                        const NeverScrollableScrollPhysics(),
+                                    itemCount: localTempAdded.length,
+                                    gridDelegate:
+                                        const SliverGridDelegateWithFixedCrossAxisCount(
+                                          crossAxisCount: 2,
+                                          mainAxisExtent: 38,
+                                          crossAxisSpacing: 12,
+                                          mainAxisSpacing: 4,
                                         ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          name,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            fontSize: 18,
-                                            color: Colors.black,
-                                          ),
+                                    itemBuilder: (_, i) {
+                                      final name = localTempAdded.elementAt(i);
+                                      final selected = localSelected.contains(
+                                        name,
+                                      );
+                                      return InkWell(
+                                        onTap:
+                                            () => setLocal(() {
+                                              if (selected) {
+                                                localSelected.remove(name);
+                                              } else {
+                                                localSelected.add(name);
+                                              }
+                                            }),
+                                        child: Row(
+                                          children: [
+                                            // 초록/흰색 원 (라디오)
+                                            Container(
+                                              width: 18,
+                                              height: 18,
+                                              decoration: BoxDecoration(
+                                                shape: BoxShape.circle,
+                                                color:
+                                                    selected
+                                                        ? const Color(
+                                                          0xFF44DAAD,
+                                                        )
+                                                        : Colors.white,
+                                                border: Border.all(
+                                                  color:
+                                                      selected
+                                                          ? const Color(
+                                                            0xFF44DAAD,
+                                                          )
+                                                          : const Color(
+                                                            0xFFA2A2A2,
+                                                          ),
+                                                  width: 2,
+                                                ),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Text(
+                                                name,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 18,
+                                                  color: Colors.black,
+                                                ),
+                                              ),
+                                            ),
+                                            IconButton(
+                                              padding: EdgeInsets.zero,
+                                              constraints:
+                                                  const BoxConstraints(),
+                                              icon: const Icon(
+                                                Icons.close,
+                                                size: 16,
+                                                color: Colors.black87,
+                                              ),
+                                              tooltip: 'Remove temp',
+                                              onPressed:
+                                                  () => setLocal(() {
+                                                    localTempAdded.remove(name);
+                                                    localSelected.remove(name);
+                                                  }),
+                                            ),
+                                          ],
                                         ),
-                                      ),
-                                      if (localTempAdded.contains(name))
-                                        IconButton(
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(),
-                                          icon: const Icon(Icons.close,
-                                              size: 16, color: Colors.black87),
-                                          tooltip: 'Remove temp',
-                                          onPressed: () => setLocal(() {
-                                            localTempAdded.remove(name);
-                                            localSelected.remove(name);
-                                          }),
-                                        ),
-                                    ],
+                                      );
+                                    },
                                   ),
-                                );
-                              },
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 10),
+                                    child: Divider(height: 16, thickness: 1),
+                                  ),
+                                ],
+
+                                // ✅ 2. Firestore에서 불러온 학생 (기존 리스트)
+                                GridView.builder(
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  itemCount:
+                                      filtered
+                                          .where(
+                                            (n) => !localTempAdded.contains(n),
+                                          )
+                                          .length,
+                                  gridDelegate:
+                                      const SliverGridDelegateWithFixedCrossAxisCount(
+                                        crossAxisCount: 2,
+                                        mainAxisExtent: 38,
+                                        crossAxisSpacing: 12,
+                                        mainAxisSpacing: 4,
+                                      ),
+                                  itemBuilder: (_, i) {
+                                    final list =
+                                        filtered
+                                            .where(
+                                              (n) =>
+                                                  !localTempAdded.contains(n),
+                                            )
+                                            .toList();
+                                    final name = list[i];
+                                    final selected = localSelected.contains(
+                                      name,
+                                    );
+                                    return InkWell(
+                                      onTap:
+                                          () => setLocal(() {
+                                            if (selected) {
+                                              localSelected.remove(name);
+                                            } else {
+                                              localSelected.add(name);
+                                            }
+                                          }),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 18,
+                                            height: 18,
+                                            decoration: BoxDecoration(
+                                              shape: BoxShape.circle,
+                                              color:
+                                                  selected
+                                                      ? const Color(0xFF44DAAD)
+                                                      : Colors.white,
+                                              border: Border.all(
+                                                color:
+                                                    selected
+                                                        ? const Color(
+                                                          0xFF44DAAD,
+                                                        )
+                                                        : const Color(
+                                                          0xFFA2A2A2,
+                                                        ),
+                                                width: 2,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Text(
+                                              name,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: const TextStyle(
+                                                fontSize: 18,
+                                                color: Colors.black,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -398,8 +561,7 @@ Future<void> _resetDisplayOnEnter() async {
   }
 
   // ===== Helpers =====
-  String get _typeLabel =>
-      _type == DrawType.lots ? 'Drawing lots' : 'Ordering';
+  String get _typeLabel => _type == DrawType.lots ? 'Drawing lots' : 'Ordering';
 
   @override
   Widget build(BuildContext context) {
@@ -440,11 +602,12 @@ Future<void> _resetDisplayOnEnter() async {
                       (w / 1280.0 < h / 720.0) ? (w / 1280.0) : (h / 720.0);
 
                   return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                    stream: (hubId == null)
-                        ? const Stream.empty()
-                        : FirebaseFirestore.instance
-                            .collection('hubs/$hubId/students')
-                            .snapshots(),
+                    stream:
+                        (hubId == null)
+                            ? const Stream.empty()
+                            : FirebaseFirestore.instance
+                                .collection('hubs/$hubId/students')
+                                .snapshots(),
                     builder: (context, snap) {
                       final allFromFirebase = <String>[];
                       if (snap.data != null) {
@@ -460,10 +623,12 @@ Future<void> _resetDisplayOnEnter() async {
                       );
 
                       // Dialog에서 임시 추가한 이름까지 합친 전체 후보
-                      final full = <String>{...allFromFirebase, ..._tempAdded}
-                          .toList()
-                        ..sort((a, b) =>
-                            a.toLowerCase().compareTo(b.toLowerCase()));
+                      final full =
+                          <String>{...allFromFirebase, ..._tempAdded}.toList()
+                            ..sort(
+                              (a, b) =>
+                                  a.toLowerCase().compareTo(b.toLowerCase()),
+                            );
 
                       final totalCount =
                           _selected.isEmpty ? full.length : _selected.length;
@@ -485,8 +650,8 @@ Future<void> _resetDisplayOnEnter() async {
                                 autovalidateMode: _autoValidate,
                                 child: SingleChildScrollView(
                                   padding: const EdgeInsets.only(
-                                      bottom:
-                                          120), // 버튼과 겹치지 않게 충분한 하단 여백
+                                    bottom: 120,
+                                  ), // 버튼과 겹치지 않게 충분한 하단 여백
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
@@ -495,9 +660,9 @@ Future<void> _resetDisplayOnEnter() async {
                                       const Text(
                                         'Title',
                                         style: TextStyle(
+                                          color: Color(0xFF001A36),
                                           fontSize: 24,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.black,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                       const SizedBox(height: 8),
@@ -506,33 +671,64 @@ Future<void> _resetDisplayOnEnter() async {
                                         child: TextFormField(
                                           controller: _titleCtrl,
                                           style: const TextStyle(
-                                              color: Colors.black,
-                                              fontSize: 20),
-                                          decoration: const InputDecoration(
-                                            hintText: 'Enter title',
-                                            hintStyle: TextStyle(
-                                                color: Colors.black54),
-                                            border: OutlineInputBorder(),
+                                            color: Color(0xFF001A36),
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          decoration: InputDecoration(
+                                            hintText:
+                                                'Please enter your content.',
+                                            hintStyle: const TextStyle(
+                                              color: Color(0xFFA2A2A2),
+                                              fontSize: 24,
+                                            ),
                                             filled: true,
                                             fillColor: Colors.white,
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                  horizontal: 16,
+                                                  vertical: 14,
+                                                ),
+                                            enabledBorder: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                              borderSide: const BorderSide(
+                                                color: Color(0xFFD2D2D2),
+                                                width: 1,
+                                              ),
+                                            ),
+                                            focusedBorder: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                              borderSide: const BorderSide(
+                                                color: Color(0xFF000000),
+                                                width: 1,
+                                              ),
+                                            ),
                                             errorBorder: OutlineInputBorder(
-                                              borderSide: BorderSide(
-                                                  color: Colors.red,
-                                                  width: 1.5),
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                              borderSide: const BorderSide(
+                                                color: Colors.red,
+                                                width: 1.5,
+                                              ),
                                             ),
                                             focusedErrorBorder:
                                                 OutlineInputBorder(
-                                              borderSide: BorderSide(
-                                                  color: Colors.red,
-                                                  width: 1.5),
-                                            ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                  borderSide: const BorderSide(
+                                                    color: Colors.red,
+                                                    width: 1.5,
+                                                  ),
+                                                ),
                                           ),
-                                          validator: (v) {
-                                            if ((v ?? '').trim().isEmpty) {
-                                              return 'Please enter a title.';
-                                            }
-                                            return null;
-                                          },
+                                          // validator: (v) {
+                                          //   if ((v ?? '').trim().isEmpty) {
+                                          //     return 'Please enter a title.';
+                                          //   }
+                                          //   return null;
+                                          // },
                                         ),
                                       ),
                                       const SizedBox(height: 20),
@@ -541,9 +737,9 @@ Future<void> _resetDisplayOnEnter() async {
                                       const Text(
                                         'Type',
                                         style: TextStyle(
+                                          color: Color(0xFF001A36),
                                           fontSize: 24,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.black,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                       const SizedBox(height: 8),
@@ -552,35 +748,96 @@ Future<void> _resetDisplayOnEnter() async {
                                         crossAxisAlignment:
                                             CrossAxisAlignment.start,
                                         children: [
-                                          RadioListTile<DrawType>(
-                                            value: DrawType.lots,
-                                            groupValue: _type,
-                                            onChanged: (v) =>
-                                                setState(() => _type = v!),
-                                            dense: true,
-                                            contentPadding: EdgeInsets.zero,
-                                            title: const Text(
-                                              'Drawing lots',
-                                              style: TextStyle(
-                                                  color: Colors.black,
-                                                  fontSize: 18),
+                                          GestureDetector(
+                                            onTap:
+                                                () => setState(
+                                                  () => _type = DrawType.lots,
+                                                ),
+                                            child: Row(
+                                              children: [
+                                                Container(
+                                                  width: 26,
+                                                  height: 26,
+                                                  decoration: BoxDecoration(
+                                                    shape: BoxShape.circle,
+                                                    color:
+                                                        _type == DrawType.lots
+                                                            ? const Color(
+                                                              0xFF44DAAD,
+                                                            ) // ✅ 선택 시 초록색 (#44DAAD)
+                                                            : Colors
+                                                                .white, // 비선택 시 흰색
+                                                    border: Border.all(
+                                                      color:
+                                                          _type == DrawType.lots
+                                                              ? Colors
+                                                                  .transparent
+                                                              : const Color(
+                                                                0xFF9E9E9E,
+                                                              ), // 비활성 시 회색 테두리
+                                                      width: 2,
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                const Text(
+                                                  'Drawing lots',
+                                                  style: TextStyle(
+                                                    color: Colors.black,
+                                                    fontSize: 24,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
-                                            activeColor: Colors.black,
                                           ),
-                                          RadioListTile<DrawType>(
-                                            value: DrawType.ordering,
-                                            groupValue: _type,
-                                            onChanged: (v) =>
-                                                setState(() => _type = v!),
-                                            dense: true,
-                                            contentPadding: EdgeInsets.zero,
-                                            title: const Text(
-                                              'Ordering',
-                                              style: TextStyle(
-                                                  color: Colors.black,
-                                                  fontSize: 18),
+                                          const SizedBox(height: 12),
+                                          GestureDetector(
+                                            onTap:
+                                                () => setState(
+                                                  () =>
+                                                      _type = DrawType.ordering,
+                                                ),
+                                            child: Row(
+                                              children: [
+                                                Container(
+                                                  width: 26,
+                                                  height: 26,
+                                                  decoration: BoxDecoration(
+                                                    shape: BoxShape.circle,
+                                                    color:
+                                                        _type ==
+                                                                DrawType
+                                                                    .ordering
+                                                            ? const Color(
+                                                              0xFF44DAAD,
+                                                            )
+                                                            : Colors.white,
+                                                    border: Border.all(
+                                                      color:
+                                                          _type ==
+                                                                  DrawType
+                                                                      .ordering
+                                                              ? Colors
+                                                                  .transparent
+                                                              : const Color(
+                                                                0xFF9E9E9E,
+                                                              ),
+                                                      width: 2,
+                                                    ),
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                const Text(
+                                                  'Ordering',
+                                                  style: TextStyle(
+                                                    color: Colors.black,
+                                                    fontSize: 24,
+                                                    fontWeight: FontWeight.w500,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
-                                            activeColor: Colors.black,
                                           ),
                                         ],
                                       ),
@@ -592,45 +849,76 @@ Future<void> _resetDisplayOnEnter() async {
                                         _type == DrawType.lots
                                             ? 'Number of students to be selected'
                                             : 'Number of students to order',
-                                        style: const TextStyle(
+                                        style: TextStyle(
+                                          color: Color(0xFF001A36),
                                           fontSize: 24,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.black,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                       const SizedBox(height: 8),
                                       SizedBox(
                                         width: 200,
                                         child: TextFormField(
-                                          controller: _type == DrawType.lots
-                                              ? _numToPickCtrl
-                                              : _numToOrderCtrl,
+                                          controller:
+                                              _type == DrawType.lots
+                                                  ? _numToPickCtrl
+                                                  : _numToOrderCtrl,
                                           keyboardType: TextInputType.number,
                                           inputFormatters: [
                                             FilteringTextInputFormatter
-                                                .digitsOnly
+                                                .digitsOnly,
                                           ],
                                           style: const TextStyle(
-                                              color: Colors.black,
-                                              fontSize: 20),
-                                          decoration: const InputDecoration(
+                                            color: Color(0xFF001A36),
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                          decoration: InputDecoration(
                                             hintText: 'ex) 3',
-                                            hintStyle: TextStyle(
-                                                color: Colors.black54),
-                                            border: OutlineInputBorder(),
+                                            hintStyle: const TextStyle(
+                                              color: Color(0xFFA2A2A2),
+                                              fontSize: 24,
+                                            ),
                                             filled: true,
                                             fillColor: Colors.white,
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                  horizontal: 16,
+                                                  vertical: 14,
+                                                ),
+                                            enabledBorder: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                              borderSide: const BorderSide(
+                                                color: Color(0xFFD2D2D2),
+                                                width: 1,
+                                              ),
+                                            ),
+                                            focusedBorder: OutlineInputBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                              borderSide: const BorderSide(
+                                                color: Color(0xFF000000),
+                                                width: 1,
+                                              ),
+                                            ),
                                             errorBorder: OutlineInputBorder(
-                                              borderSide: BorderSide(
-                                                  color: Colors.red,
-                                                  width: 1.5),
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                              borderSide: const BorderSide(
+                                                color: Colors.red,
+                                                width: 1.5,
+                                              ),
                                             ),
                                             focusedErrorBorder:
                                                 OutlineInputBorder(
-                                              borderSide: BorderSide(
-                                                  color: Colors.red,
-                                                  width: 1.5),
-                                            ),
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                  borderSide: const BorderSide(
+                                                    color: Colors.red,
+                                                    width: 1.5,
+                                                  ),
+                                                ),
                                           ),
                                           validator: (v) {
                                             final raw = (v ?? '').trim();
@@ -658,49 +946,51 @@ Future<void> _resetDisplayOnEnter() async {
                                       const Text(
                                         'Total Number of students',
                                         style: TextStyle(
+                                          color: Color(0xFF001A36),
                                           fontSize: 24,
-                                          fontWeight: FontWeight.w700,
-                                          color: Colors.black,
+                                          fontWeight: FontWeight.w600,
                                         ),
                                       ),
                                       const SizedBox(height: 8),
 
                                       InkWell(
-                                        onTap: () =>
-                                            _openChooseListDialog(
-                                                allFromFirebase:
-                                                    allFromFirebase),
-                                        borderRadius:
-                                            BorderRadius.circular(12),
+                                        onTap:
+                                            () => _openChooseListDialog(
+                                              allFromFirebase: allFromFirebase,
+                                            ),
+                                        borderRadius: BorderRadius.circular(12),
                                         child: Container(
                                           padding: const EdgeInsets.symmetric(
-                                              horizontal: 16, vertical: 12),
+                                            horizontal: 16,
+                                            vertical: 12,
+                                          ),
                                           decoration: BoxDecoration(
                                             color: Colors.white,
-                                            borderRadius:
-                                                BorderRadius.circular(12),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
                                             border: Border.all(
                                               color: const Color(0xFFD2D2D2),
                                               width: 1,
                                             ),
                                           ),
                                           child: SizedBox(
-                                            width: 180 ,
+                                            width: 180,
                                             child: Row(
-                                              
                                               children: [
                                                 Text(
                                                   '$totalCount',
                                                   style: const TextStyle(
                                                     fontSize: 20,
-                                                    fontWeight:
-                                                        FontWeight.w800,
+                                                    fontWeight: FontWeight.w800,
                                                     color: Colors.black,
                                                   ),
                                                 ),
                                                 const Spacer(),
-                                                const Icon(Icons.mode,
-                                                    color: Colors.black87),
+                                                const Icon(
+                                                  Icons.mode,
+                                                  color: Colors.black87,
+                                                ),
                                               ],
                                             ),
                                           ),
@@ -721,35 +1011,58 @@ Future<void> _resetDisplayOnEnter() async {
                                   scale: 160 / 195, // 기존 크기(160)에 맞게 스케일 조정
                                   imageAsset: 'assets/logo_bird_show.png',
                                   onTap: () async {
-                                    final hubId = context.read<HubProvider>().hubId;
+                                    final hubId =
+                                        context.read<HubProvider>().hubId;
                                     if (hubId == null) return;
 
                                     // 폼 검증
                                     if (!_formKey.currentState!.validate()) {
-                                      setState(() => _autoValidate = AutovalidateMode.always);
+                                      setState(
+                                        () =>
+                                            _autoValidate =
+                                                AutovalidateMode.always,
+                                      );
                                       return;
                                     }
 
                                     // 전체 풀 결정
-                                    final snap = await FirebaseFirestore.instance
-                                        .collection('hubs/$hubId/students')
-                                        .get();
+                                    final snap =
+                                        await FirebaseFirestore.instance
+                                            .collection('hubs/$hubId/students')
+                                            .get();
 
                                     final allFromFirebase = <String>[];
                                     for (final d in snap.docs) {
-                                      final name = (d.data()['name'] as String?)?.trim();
-                                      if (name != null && name.isNotEmpty) allFromFirebase.add(name);
+                                      final name =
+                                          (d.data()['name'] as String?)?.trim();
+                                      if (name != null && name.isNotEmpty)
+                                        allFromFirebase.add(name);
                                     }
                                     allFromFirebase.sort(
-                                        (a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+                                      (a, b) => a.toLowerCase().compareTo(
+                                        b.toLowerCase(),
+                                      ),
+                                    );
 
-                                    final full = <String>{...allFromFirebase, ..._tempAdded}.toList()
-                                      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+                                    final full =
+                                        <String>{
+                                            ...allFromFirebase,
+                                            ..._tempAdded,
+                                          }.toList()
+                                          ..sort(
+                                            (a, b) => a.toLowerCase().compareTo(
+                                              b.toLowerCase(),
+                                            ),
+                                          );
 
-                                    final list = _selected.isNotEmpty ? _selected.toList() : full;
-                                    final raw = _type == DrawType.lots
-                                        ? _numToPickCtrl.text
-                                        : _numToOrderCtrl.text;
+                                    final list =
+                                        _selected.isNotEmpty
+                                            ? _selected.toList()
+                                            : full;
+                                    final raw =
+                                        _type == DrawType.lots
+                                            ? _numToPickCtrl.text
+                                            : _numToOrderCtrl.text;
                                     final count = int.parse(raw.trim());
 
                                     await _broadcastToDisplay(
@@ -777,6 +1090,7 @@ Future<void> _resetDisplayOnEnter() async {
     );
   }
 }
+
 // ─────────────────────────────────────────────
 // 공통 Bird Button (Hover/Click Scale 애니메이션)
 // ─────────────────────────────────────────────
@@ -808,14 +1122,11 @@ class _MakeButtonState extends State<_MakeButton> {
   Widget build(BuildContext context) {
     final w = _baseW * widget.scale;
     final h = _baseH * widget.scale;
-    final scaleAnim = _down
-        ? 0.96
-        : (_hover ? 1.05 : 1.0);
+    final scaleAnim = _down ? 0.96 : (_hover ? 1.05 : 1.0);
 
     return MouseRegion(
-      cursor: widget.enabled
-          ? SystemMouseCursors.click
-          : SystemMouseCursors.basic,
+      cursor:
+          widget.enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
       onEnter: (_) {
         if (widget.enabled) setState(() => _hover = true);
       },
@@ -843,8 +1154,8 @@ class _MakeButtonState extends State<_MakeButton> {
               duration: const Duration(milliseconds: 180),
               switchInCurve: Curves.easeOut,
               switchOutCurve: Curves.easeIn,
-              transitionBuilder: (child, anim) =>
-                  FadeTransition(opacity: anim, child: child),
+              transitionBuilder:
+                  (child, anim) => FadeTransition(opacity: anim, child: child),
               child: Image.asset(
                 widget.imageAsset,
                 key: ValueKey<String>(widget.imageAsset),
@@ -859,4 +1170,3 @@ class _MakeButtonState extends State<_MakeButton> {
     );
   }
 }
-
