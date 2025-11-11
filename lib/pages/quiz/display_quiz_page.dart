@@ -192,6 +192,7 @@ class _WaitingScreen extends StatelessWidget {
   }
 }
 
+
 /// 진행 중 화면(문제/리빌)
 class _ActiveQuizView extends StatefulWidget {
   const _ActiveQuizView({
@@ -210,8 +211,28 @@ class _ActiveQuizView extends StatefulWidget {
   final int? startMs; // ★ liveByDevice 필터 기준
   final String? sessionId; // ★ 있으면 정확도↑
 
+  
+
   @override
   State<_ActiveQuizView> createState() => _ActiveQuizViewState();
+}
+
+class _Ev {
+  final int score;
+  final int button;
+  final String gesture;
+  _Ev({required this.score, required this.button, required this.gesture});
+}
+
+class _Opt {
+  final String label;
+  final int button;
+  final String gesture;
+  final int votes;
+  _Opt({required this.label, required this.button, required this.gesture, this.votes = 0});
+
+  _Opt copyWith({int? votes}) =>
+      _Opt(label: label, button: button, gesture: gesture, votes: votes ?? this.votes);
 }
 
 class _ActiveQuizViewState extends State<_ActiveQuizView> {
@@ -230,23 +251,34 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
   int _currentIndex = 1;
   int _totalCount = 1;
 
+  Color _colorForBinding(int button, String gesture) {
+  if (button == 1) {
+    return const Color(0xff70D71C); // 초록
+  } else {
+    return const Color(0xff9A6EFF); // 보라
+  }
+}
+
+  List<_Opt> _opts = []; // 선택지별 상태 리스트
+int _total = 0;  
+
   // 마지막 퀴즈인지 판별
   bool get _isLastQuiz => _currentIndex >= _totalCount;
 
-  @override
-  void initState() {
-    super.initState();
+ @override
+void initState() {
+  super.initState();
 
-    final fs = FirebaseFirestore.instance;
+  WidgetsBinding.instance.addPostFrameCallback((_) {
     final hubPath = context.read<HubProvider>().hubDocPath;
-    print('🧩 hubPath in quiz display: $hubPath');
-    if (hubPath != null) {
-      _liveSub = fs
-          .collection('$hubPath/liveByDevice')
-          .snapshots()
-          .listen(_handleLiveEvent);
-    }
-  }
+    if (hubPath == null) return;
+
+    _liveSub = FirebaseFirestore.instance
+        .collection('$hubPath/liveByDevice')
+        .snapshots()
+        .listen(_handleLiveEvent);
+  });
+}
 
   @override
   void dispose() {
@@ -255,122 +287,144 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
     super.dispose();
   }
 
-  void _handleLiveEvent(QuerySnapshot<Map<String, dynamic>> snap) async {
-    if (widget.phase == 'reveal') return; // 결과 공개 중엔 투표 차단
-    if (snap.docs.isEmpty) return;
+   void _handleLiveEvent(QuerySnapshot<Map<String, dynamic>> snap) async {
+  if (snap.docs.isEmpty) return;
 
-    final hubId = context.read<HubProvider>().hubId;
-    if (hubId == null) return;
+  final hubId = context.read<HubProvider>().hubId;
+  if (hubId == null) return;
 
-    final fs = FirebaseFirestore.instance;
+  final fs = FirebaseFirestore.instance;
+  final topicRef = fs.doc('hubs/$hubId/quizTopics/${widget.topicId}');
+  final topicSnap = await topicRef.get();
+  final topicData = topicSnap.data();
+  final status = (topicData?['status'] ?? '').toString();
+  final phase = (topicData?['phase'] ?? '').toString(); // ✅ 추가
 
-    for (final doc in snap.docs) {
-      final data = doc.data();
-      final deviceId = doc.id;
-      final slotIndex = data['slotIndex']?.toString();
-      final clickTypeRaw =
-          (data['clickType'] ?? '').toString().toLowerCase().trim();
-      final lastHubTs = (data['lastHubTs'] as num?)?.toInt() ?? 0;
+  // ✅ 1️⃣ status가 running이 아니면 집계 중단
+  if (status != 'running') return;
 
-      if (clickTypeRaw.isEmpty ||
-          !(clickTypeRaw == 'click' || clickTypeRaw == 'hold'))
-        continue;
-      if (slotIndex == null || slotIndex.isEmpty) continue;
-      if (widget.startMs != null && lastHubTs < widget.startMs!) continue;
+  // ✅ 2️⃣ phase가 reveal이면 집계 중단
+  if (phase == 'reveal') {
+    debugPrint('🟡 Display: reveal phase → 집계 중단');
+    return;
+  }
 
-      if (_lastProcessedTs[deviceId] == lastHubTs) continue;
-      _lastProcessedTs[deviceId] = lastHubTs;
+  
 
-      final topicId = widget.topicId;
-      final quizId = widget.currentQuizId;
-      if (topicId.isEmpty || quizId.isEmpty) continue;
+  // 🔹 현재 퀴즈 정보
+  final quizRef = fs.doc(
+      'hubs/$hubId/quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}');
+  final quizSnap = await quizRef.get();
+  
+  if (!quizSnap.exists) return;
 
-      final deviceRef = fs.doc('hubs/$hubId/devices/$deviceId');
-      final locked = (await deviceRef.get()).data()?['voteLock'] == true;
-      if (locked) continue;
+  final quizData = quizSnap.data()!;
+  final List options = (quizData['options'] as List?) ?? const [];
+  final bool allowMultiple = quizData['allowMultiple'] == true;
 
-      await deviceRef.set({'voteLock': true}, SetOptions(merge: true));
-      Future.delayed(const Duration(milliseconds: 500), () {
-        deviceRef.set({'voteLock': false}, SetOptions(merge: true));
+  // 🔹 학생 단위 마지막 이벤트 저장 (vote와 동일 구조)
+  final Map<String, _Ev> lastByStudent = {};
+  for (final d in snap.docs) {
+    final x = d.data();
+    final studentId = (x['studentId'] ?? '').toString();
+    if (studentId.isEmpty) continue;
+
+    final slotIndex = x['slotIndex']?.toString();
+    final clickTypeRaw =
+        (x['clickType'] ?? '').toString().toLowerCase().trim();
+    final lastHubTs = (x['lastHubTs'] as num?)?.toInt() ?? 0;
+
+    if (slotIndex == null || slotIndex.isEmpty) continue;
+    if (widget.startMs != null && lastHubTs < widget.startMs!) continue;
+    if (clickTypeRaw != 'click' && clickTypeRaw != 'hold') continue;
+
+    final cur = lastByStudent[studentId];
+    if (cur == null || lastHubTs > cur.score) {
+      lastByStudent[studentId] = _Ev(
+        score: lastHubTs,
+        button: int.tryParse(slotIndex) ?? 1,
+        gesture: clickTypeRaw == 'hold' ? 'hold' : 'single',
+      );
+    }
+  }
+
+  // 🔹 다중선택 모드일 경우, 한 학생의 두 버튼 모두 반영
+  // 🔹 단일선택 모드일 경우, 가장 마지막 이벤트만 반영
+  final Map<String, Set<String>> votesByStudent = {};
+  for (final entry in lastByStudent.entries) {
+    final studentId = entry.key;
+    final ev = entry.value;
+    final key = '${ev.button}_${ev.gesture}';
+
+    if (!votesByStudent.containsKey(studentId)) {
+      votesByStudent[studentId] = {};
+    }
+
+    if (allowMultiple) {
+      votesByStudent[studentId]!.add(key);
+    } else {
+      // 단일선택 모드면 이전 선택 제거하고 덮어씀
+      votesByStudent[studentId]!
+        ..clear()
+        ..add(key);
+    }
+  }
+
+  // 🔹 옵션별 집계
+  final counts = List<int>.filled(options.length, 0);
+  for (final studentEntry in votesByStudent.entries) {
+    for (final key in studentEntry.value) {
+      final idx = options.indexWhere((opt) {
+        final b = (opt['binding'] as Map?) ?? {};
+        final btn = b['button']?.toString();
+        final ges = (b['gesture'] ?? 'single').toString();
+        return key == '${btn}_${ges}';
       });
-
-      final quizRef = fs.doc('hubs/$hubId/quizTopics/$topicId/quizzes/$quizId');
-
-      await fs.runTransaction((tx) async {
-  final snap = await tx.get(quizRef);
-  if (!snap.exists) return;
-
-  final data = snap.data()!;
-  final List triggers = (data['triggers'] as List?) ?? const [];
-  final allowMultiple = data['allowMultiple'] == true;
-
-  final List<int> counts =
-      (data['counts'] as List?)
-          ?.map((e) => (e as num).toInt())
-          .toList() ??
-      List<int>.filled(triggers.length, 0);
-
-  // ✅ 안전 복제
-  final Map<String, dynamic> votesByDevice =
-      Map<String, dynamic>.from((data['votesByDevice'] as Map?) ?? {});
-
-  final newSlot = slotIndex!;
-  final newTrigger = 'S${newSlot}_${clickTypeRaw.toUpperCase()}';
-  final newIdx = triggers.indexOf(newTrigger);
-  if (newIdx < 0) return;
-
-  if (!allowMultiple) {
-    final prevSlot = votesByDevice[deviceId]?.toString();
-
-    // 동일 보기 재클릭 → 무시
-    if (prevSlot == newSlot) return;
-
-    // 🔹 이전 선택 감산 먼저
-    if (prevSlot != null && prevSlot.isNotEmpty) {
-      for (int i = 0; i < triggers.length; i++) {
-        final t = triggers[i].toString().toUpperCase();
-        final tSlot = t.split('_').first.replaceAll('S', '');
-        if (tSlot == prevSlot && counts[i] > 0) counts[i] -= 1;
+      if (idx >= 0 && idx < counts.length) {
+        counts[idx]++;
       }
     }
-
-    // 🔹 새 선택 증가
-    counts[newIdx] += 1;
-
-    // 🔹 기존 key 교체 (덮어쓰기)
-    votesByDevice[deviceId] = newSlot;
-  } else {
-    // multiple 모드
-    final prevList =
-        (votesByDevice[deviceId] as List?)
-            ?.map((e) => e.toString())
-            .toList() ??
-        [];
-    if (prevList.contains(newSlot)) return;
-    counts[newIdx] += 1;
-    prevList.add(newSlot);
-    votesByDevice[deviceId] = prevList;
   }
 
-  // 🔹 음수 방지
-  for (int i = 0; i < counts.length; i++) {
-    if (counts[i] < 0) counts[i] = 0;
-  }
-
-  // ✅ 트랜잭션 안전 업데이트 (merge: true)
-  tx.set(quizRef, {
-    'counts': counts,
-    'votesByDevice': votesByDevice,
-  }, SetOptions(merge: true));
-});
+  // 🔹 UI 갱신
+  if (!mounted) return;
+  setState(() {
+    if (_opts.length != options.length) {
+      _opts = List.generate(options.length, (i) {
+        final opt = options[i];
+        final b = (opt['binding'] as Map?) ?? {};
+        return _Opt(
+          label: (opt['title'] ?? '').toString(),
+          button: int.tryParse(b['button']?.toString() ?? '1') ?? 1,
+          gesture: (b['gesture'] ?? 'single').toString(),
+        );
+      });
     }
-  }
+
+    for (int i = 0; i < options.length && i < counts.length; i++) {
+      _opts[i] = _opts[i].copyWith(votes: counts[i]);
+    }
+
+    // ✅ 총 투표자 수: 한 번이라도 버튼 누른 “학생”의 수
+    _total = votesByStudent.keys.length;
+  });
+
+  await FirebaseFirestore.instance
+    .doc('hubs/$hubId/quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}')
+    .set({'votes': counts}, SetOptions(merge: true));
+}
+
+
+
+
 
   Widget _quizBarRow({
     required String label,
     required int votes,
     required int total,
     required bool hideResults,
+    required int button,          // ✅ 추가
+    required String gesture,
     bool isRevealPhase = false, // ✅ phase 구분용
     bool isMax = false, // ✅ 최다 득표 구분용
   }) {
@@ -454,9 +508,39 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
                                 fontSize: 22,
                                 fontWeight: FontWeight.w800,
                                 letterSpacing: 0.1,
+                                color: Colors.black,
                               ),
                             ),
                           ),
+const SizedBox(width: 12),
+
+    // ✅ 여기에 추가 ↓↓↓↓↓
+    Builder(builder: (context) {
+      final color = _colorForBinding(button, gesture);
+      final isHold = (gesture == 'hold');
+      return AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        width: isHold ? 80 : 36,
+        height: 36,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: color.withOpacity(0.7)),
+        ),
+        child: isHold
+            ? const Text(
+                'hold',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 22,
+                ),
+              )
+            : null,
+      );
+    }),
+
                         ],
                       ),
                     ),
@@ -628,286 +712,268 @@ class _ActiveQuizViewState extends State<_ActiveQuizView> {
   }
 
   Widget _buildQuestionPhase(
-    FirebaseFirestore fs,
-    String hubPath,
-    DocumentReference<Map<String, dynamic>> quizRef,
-    int totalStudents,
-  ) {
-    final quizStream =
-        fs
-            .doc(
-              '$hubPath/quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}',
-            )
-            .snapshots();
+  FirebaseFirestore fs,
+  String hubPath,
+  DocumentReference<Map<String, dynamic>> quizRef,
+  int totalStudents,
+) {
+  final quizStream =
+      fs.doc('$hubPath/quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}').snapshots();
 
-    final topicStream =
-        fs.doc('$hubPath/quizTopics/${widget.topicId}').snapshots();
+  final topicStream = fs.doc('$hubPath/quizTopics/${widget.topicId}').snapshots();
 
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: topicStream,
-      builder: (context, topicSnap) {
-        final topicData = topicSnap.data?.data();
-        if (topicData == null) return const _WaitingScreen();
+  return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+    stream: topicStream,
+    builder: (context, topicSnap) {
+      final topicData = topicSnap.data?.data();
+      if (topicData == null) return const _WaitingScreen();
 
-        _currentIndex = (topicData['currentQuizIndex'] as num?)?.toInt() ?? 1;
-        final quizCol = fs.collection(
-          '$hubPath/quizTopics/${widget.topicId}/quizzes',
-        );
-        quizCol.where('public', isEqualTo: true).get().then((qs) {
-          if (mounted) {
-            setState(() {
-              setState(() {
-                _totalCount = qs.docs.length;
-              });
-            });
+      _currentIndex = (topicData['currentQuizIndex'] as num?)?.toInt() ?? 1;
+
+      final quizCol = fs.collection('$hubPath/quizTopics/${widget.topicId}/quizzes');
+      quizCol.where('public', isEqualTo: true).get().then((qs) {
+        if (mounted) {
+          setState(() {
+            _totalCount = qs.docs.length;
+          });
+        }
+      });
+
+      final timerSec = (topicData['timerSeconds'] as num?)?.toInt();
+
+      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: quizStream,
+        builder: (context, quizSnap) {
+          if (!quizSnap.hasData) return const _WaitingScreen();
+          final qx = quizSnap.data!.data();
+          if (qx == null) return const _WaitingScreen();
+
+          final isPublic = qx['public'] == true;
+          if (!isPublic) {
+            unawaited(_skipToNextPublicQuiz(fs, hubPath));
+            return const _WaitingScreen();
           }
-        });
 
-        final timerSec = (topicData['timerSeconds'] as num?)?.toInt();
+          // ✅ 데이터 구조 수정된 부분
+          final question = (qx['question'] as String?) ?? '';
+          final List options = (qx['options'] as List?) ?? [];
+final List<int> votes =
+    (qx['votes'] as List?)?.map((e) => (e as num).toInt()).toList()
+    ?? List<int>.filled(options.length, 0);
 
-        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: quizStream,
-          builder: (context, quizSnap) {
-            if (!quizSnap.hasData) {
-              return const _WaitingScreen();
-            }
+// 로컬 집계 사용 여부 판단
+final bool useLocal = (_opts.length == options.length);
+final List<int> displayedVotes = useLocal
+    ? _opts.map((e) => e.votes).toList()
+    : votes;
 
-            final qx = quizSnap.data!.data();
-            if (qx == null) return const _WaitingScreen();
+// 총합(퍼센트 계산용)과 VOTERS 카운트
+final int displayedTotal = useLocal
+    ? _total                               // 로컬: 실제 투표한 디바이스 수
+    : (votes.isEmpty ? 0 : votes.reduce((a, b) => a + b)); // Firestore fallback
 
-            if (!qx.containsKey('public')) {
-              return const _WaitingScreen();
-            }
+          final total = votes.isEmpty ? 0 : votes.reduce((a, b) => a + b);
 
-            final isPublic = qx['public'] == true;
-            if (isPublic == false) {
-              debugPrint(
-                '⏭️ Skipping non-public quiz: ${widget.currentQuizId}',
-              );
-              unawaited(_skipToNextPublicQuiz(fs, hubPath));
-              return const _WaitingScreen();
-            }
+          final showResultsMode =
+              (topicData['showResultsMode'] as String?) ?? 'afterEnd';
+          final hide = showResultsMode != 'realtime';
 
-            if (isPublic && timerSec != null && timerSec > 0) {
-              if (_lastQuizIdShown != widget.currentQuizId) {
-                _lastQuizIdShown = widget.currentQuizId;
-                _timer?.cancel();
-                _isTimerRunning = false;
-                _remaining = null;
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) {
-                    _startTimer(timerSec);
-                  }
-                });
-              }
-            } else {
-              if (_isTimerRunning || _remaining != null) {
-                debugPrint('⏹️ Firestore에서 timerSeconds 없음 → 타이머 종료');
-              }
-              _timer?.cancel();
-              _isTimerRunning = false;
-              _timerTotalSeconds = null;
-              _remaining = null;
-              _lastQuizIdShown = null;
-            }
-
-            final question = (qx['question'] as String?) ?? '';
-            final List<String> choices =
-                (qx['choices'] as List?)?.map((e) => e.toString()).toList() ??
-                const [];
-            final List<int> counts =
-                (qx['counts'] as List?)
-                    ?.map((e) => (e as num).toInt())
-                    .toList() ??
-                List<int>.filled(choices.length, 0);
-
-            final Map<String, dynamic> votersMap = Map<String, dynamic>.from(
-              (qx['votesByDevice'] as Map?) ?? const {},
-            );
-            final int totalVoters = votersMap.keys.toSet().length;
-
-            final total = counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
-
-            final showResultsMode =
-                (topicData['showResultsMode'] as String?) ?? 'afterEnd';
-            final hide = showResultsMode != 'realtime';
-
-            return Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 1100),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 95, 24, 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Text(
-                        question.isEmpty ? 'Untitled question' : question,
-                        textAlign: TextAlign.center,
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1100),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 95, 24, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Text(
+                      question.isEmpty ? 'Untitled question' : question,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 41,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.black, 
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        hide ? '—' : '$displayedTotal VOTERS',
                         style: const TextStyle(
-                          fontSize: 41,
+                          fontSize: 19,
                           fontWeight: FontWeight.w500,
+                          color: Colors.black,
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          hide ? '—' : '$totalVoters VOTERS',
-                          style: const TextStyle(
-                            fontSize: 19,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
+                    ),
+                    const SizedBox(height: 12),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.black12.withOpacity(0.08)),
                       ),
-                      const SizedBox(height: 12),
-
-                      // ===== 선택지 박스 =====
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: Colors.black12.withOpacity(0.08),
-                          ),
-                        ),
-                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-                        child: Column(
-                          children: [
-                            if (hide)
-                              const Padding(
-                                padding: EdgeInsets.only(bottom: 6),
-                                child: Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Text(
-                                    'Results will be shown after voting ends',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.black54,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                      child: Column(
+                        children: [
+                          if (hide)
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: 6),
+                              child: Align(
+                                alignment: Alignment.centerRight,
+                                child: Text(
+                                  'Results will be shown after voting ends',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.black54,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                               ),
-                            for (var i = 0; i < choices.length; i++) ...[
-                              _quizBarRow(
-                                label: choices[i],
-                                votes: (i < counts.length) ? counts[i] : 0,
-                                total: total,
-                                hideResults: hide,
-                              ),
-                              if (i != choices.length - 1)
-                                const SizedBox(height: 12),
-                            ],
-                          ],
-                        ),
+                            ),
+                          // ✅ choices → options
+                          ...options.asMap().entries.map((entry) {
+  final i = entry.key;
+  final opt = entry.value;
+
+  final binding = (opt['binding'] as Map?) ?? {};
+  final btn = int.tryParse(binding['button']?.toString() ?? '1') ?? 1;
+  final ges = (binding['gesture'] ?? 'single').toString();
+
+  return Padding(
+    padding: EdgeInsets.only(bottom: i != options.length - 1 ? 12 : 0),
+    child: _quizBarRow(
+      label: (opt['title'] ?? '') as String,
+      votes: (i < displayedVotes.length) ? displayedVotes[i] : 0,
+      total: displayedTotal,
+      hideResults: hide,
+      button: btn,
+      gesture: ges,
+    ),
+  );
+}).toList(),
+
+                        ],
                       ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+
+  Widget _buildRevealPhase(
+  FirebaseFirestore fs,
+  String hubPath,
+  DocumentReference<Map<String, dynamic>> quizRef,
+  int totalStudents,
+) {
+  return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+    stream: quizRef.snapshots(),
+    builder: (context, quizSnap) {
+      final qx = quizSnap.data?.data();
+      if (qx == null) return const _WaitingScreen();
+
+      if ((qx['public'] as bool?) == false) {
+        return const _WaitingScreen();
+      }
+
+      // ✅ 구조 수정
+      final question = (qx['question'] ?? '') as String;
+      final List options = (qx['options'] as List?) ?? [];
+      final List<int> votes =
+          (qx['votes'] as List?)?.map((e) => (e as num).toInt()).toList() ??
+          List<int>.filled(options.length, 0);
+
+      final correctBinding = (qx['correctBinding'] as Map?) ?? {};
+      final correctKey = '${correctBinding['button']}_${correctBinding['gesture']}';
+
+      final Map<String, dynamic> votersMap =
+          Map<String, dynamic>.from((qx['votesByDevice'] as Map?) ?? const {});
+      final int totalVoters = votersMap.keys.toSet().length;
+
+      final total = votes.isEmpty ? 0 : votes.reduce((a, b) => a + b);
+
+      return Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1100),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 95, 24, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Text(
+                  question.isEmpty ? 'Untitled question' : question,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 41,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.black, 
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    '$totalVoters VOTERS',
+                    style: const TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w500,
+                      color: Colors.black, 
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.black12.withOpacity(0.08)),
+                  ),
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                  child: Column(
+                    children: [
+                      ...options.asMap().entries.map((entry) {
+  final i = entry.key;
+  final opt = entry.value;
+
+  final binding = (opt['binding'] as Map?) ?? {};
+  final btn = int.tryParse(binding['button']?.toString() ?? '1') ?? 1;
+  final ges = (binding['gesture'] ?? 'single').toString();
+
+  return Padding(
+    padding: EdgeInsets.only(bottom: i != options.length - 1 ? 12 : 0),
+    child: _quizBarRow(
+      label: (opt['title'] ?? '') as String,
+      votes: votes[i],
+      total: total,
+      hideResults: false,
+      isRevealPhase: true,
+      isMax: correctKey ==
+          '${binding['button']}_${binding['gesture']}',
+      button: btn,
+      gesture: ges,
+    ),
+  );
+}).toList(),
                     ],
                   ),
                 ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _buildRevealPhase(
-    FirebaseFirestore fs,
-    String hubPath,
-    DocumentReference<Map<String, dynamic>> quizRef,
-    int totalStudents,
-  ) {
-    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-      stream: quizRef.snapshots(),
-      builder: (context, quizSnap) {
-        final qx = quizSnap.data?.data();
-        if (qx == null) return const _WaitingScreen();
-
-        if ((qx['public'] as bool?) == false) {
-          return const _WaitingScreen();
-        }
-
-        final question = (qx['question'] as String?) ?? '';
-        final List<String> choices =
-            (qx['choices'] as List?)?.map((e) => e.toString()).toList() ??
-            const [];
-        final List<int> counts =
-            (qx['counts'] as List?)?.map((e) => (e as num).toInt()).toList() ??
-            List<int>.filled(choices.length, 0);
-
-        final int? correctIndex = (qx['correctIndex'] as num?)?.toInt();
-
-        final Map<String, dynamic> votersMap = Map<String, dynamic>.from(
-          (qx['votesByDevice'] as Map?) ?? const {},
-        );
-        final int totalVoters = votersMap.keys.toSet().length;
-
-        final total = counts.isEmpty ? 0 : counts.reduce((a, b) => a + b);
-
-        return Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1100),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 95, 24, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Text(
-                    question.isEmpty ? 'Untitled question' : question,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 41,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      '$totalVoters VOTERS',
-                      style: const TextStyle(
-                        fontSize: 19,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.black12.withOpacity(0.08),
-                      ),
-                    ),
-                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-                    child: Column(
-                      children: [
-                        for (var i = 0; i < choices.length; i++) ...[
-                          _quizBarRow(
-                            label: choices[i],
-                            votes: counts[i],
-                            total: total,
-                            hideResults: false,
-                            isRevealPhase: true,
-                            isMax: (correctIndex != null && i == correctIndex),
-                          ),
-                          if (i != choices.length - 1)
-                            const SizedBox(height: 12),
-                        ],
-                      ],
-                    ),
-                  ),
-                ],
-              ),
+              ],
             ),
           ),
-        );
-      },
-    );
-  }
+        ),
+      );
+    },
+  );
+}
 }
 
 /// 종료 후 결과 요약(명시적으로 요청된 경우에만)
@@ -966,12 +1032,16 @@ class _SummaryView extends StatelessWidget {
                       final q = qDoc.data();
                       final quizId = qDoc.id;
                       final question = (q['question'] as String?) ?? '';
-                      final List<String> choices =
-                          (q['choices'] as List?)
-                              ?.map((e) => e.toString())
-                              .toList() ??
-                          const [];
-                      final int? correct = (q['correctIndex'] as num?)?.toInt();
+                      final List options = (q['options'] as List?) ?? [];
+                      final List<String> optionTitles = options
+                          .map((opt) => (opt['title'] ?? '').toString())
+                          .toList();
+
+                      // ✅ correctBinding 기반으로 정답 매칭
+                      final correctBinding = (q['correctBinding'] as Map?) ?? {};
+                      final correctKey =
+                          '${correctBinding['button']}_${correctBinding['gesture']}';
+                      final isCorrect = key == correctKey;
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 18),
@@ -989,7 +1059,7 @@ class _SummaryView extends StatelessWidget {
                                 (rsnap.data?.data()?['counts'] as List?)
                                     ?.map((e) => (e as num).toInt())
                                     .toList() ??
-                                List<int>.filled(choices.length, 0);
+                                List<int>.filled(optionTitles.length, 0);
                             final total =
                                 counts.isEmpty
                                     ? 0
@@ -1021,22 +1091,22 @@ class _SummaryView extends StatelessWidget {
                                         height: 1.25,
                                       ),
                                     ),
+                                    
                                     const SizedBox(height: 14),
-                                    ...List.generate(choices.length, (ci) {
+                                    ...List.generate(optionTitles.length, (ci) {
                                       return Padding(
                                         padding: const EdgeInsets.only(
                                           bottom: 12,
                                         ),
                                         child: _resultRow(
                                           label:
-                                              '${String.fromCharCode(65 + ci)}. ${choices[ci]}',
+                                              '${String.fromCharCode(65 + ci)}. ${optionTitles[ci]}',
                                           value:
                                               counts.length > ci
                                                   ? counts[ci]
                                                   : 0,
                                           total: total,
-                                          isCorrect:
-                                              correct != null && ci == correct,
+                                          isCorrect: isCorrect,
                                         ),
                                       );
                                     }),

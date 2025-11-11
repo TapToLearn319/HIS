@@ -73,7 +73,8 @@ class TopicDetailPage extends StatelessWidget {
             backgroundColor: const Color(0xFFF6FAFF),
             leading: IconButton(
               tooltip: 'Back',
-              icon: const Icon(Icons.arrow_back),
+              icon: const Icon(Icons.arrow_back,
+              color: Colors.black,),
               onPressed: () {
                 final nav = Navigator.of(context);
                 if (nav.canPop()) {
@@ -85,7 +86,8 @@ class TopicDetailPage extends StatelessWidget {
             ),
             title: Text(
               'Quiz • $title',
-              style: TextStyle(fontSize: (16 * s).clamp(16, 22).toDouble()),
+              style: TextStyle(fontSize: (16 * s).clamp(16, 22).toDouble(),
+              color: Colors.black),
             ),
           ),
           body: LayoutBuilder(
@@ -296,12 +298,20 @@ class TopicDetailPage extends StatelessWidget {
                                     if (text.trim().isEmpty) return;
                                     await topicRef.collection('quizzes').add({
                                       'question': text.trim(),
-                                      'choices': ['A', 'B'],
-                                      'triggers': ['S1_CLICK', 'S2_CLICK'],
-                                      'counts': [0, 0],
-                                      'correctIndex': 0,
-                                      'correctIndices': [0],
+                                      'options': [
+                                        {
+                                          'title': 'Option A',
+                                          'binding': {'button': 1, 'gesture': 'single'},
+                                        },
+                                        {
+                                          'title': 'Option B',
+                                          'binding': {'button': 2, 'gesture': 'single'},
+                                        },
+                                      ],
+                                      'correctBinding': {'button': 1, 'gesture': 'single'},
+                                      'allowMultiple': false,
                                       'public': true,
+                                      'status': 'draft',
                                       'createdAt': FieldValue.serverTimestamp(),
                                       'updatedAt': FieldValue.serverTimestamp(),
                                     });
@@ -1023,14 +1033,33 @@ Future<void> _ensureDefaultSettings(
   final snap = await ref.get();
   if (!snap.exists) return;
   final x = snap.data() ?? {};
+
+  final Map<String, dynamic> defaults = {};
+
+  // 기본 퀴즈 설정
   if (!x.containsKey('showResultsMode')) {
-    await ref.set({
+    defaults.addAll({
       'showResultsMode': 'realtime',
       'anonymous': true,
       'timeLimitEnabled': false,
       'timeLimitSeconds': 300,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    });
+  }
+
+  // 🔹 새로 만든 topic에 실행 관련 필드도 기본 세팅
+  if (!x.containsKey('status')) {
+    defaults['status'] = 'draft'; // 처음엔 draft 상태
+  }
+  if (!x.containsKey('phase')) {
+    defaults['phase'] = 'question';
+  }
+  if (!x.containsKey('currentQuizId')) {
+    defaults['currentQuizId'] = null;
+  }
+
+  if (defaults.isNotEmpty) {
+    defaults['updatedAt'] = FieldValue.serverTimestamp();
+    await ref.set(defaults, SetOptions(merge: true));
   }
 }
 
@@ -1267,31 +1296,24 @@ class _QuestionCard extends StatelessWidget {
                                 final currentId = quizDoc.id;
 
                                 if (phase == 'question') {
+  // 👉 문제 풀이 종료 → 결과 공개 단계로 전환
                                   await topicRef.update({
                                     'phase': 'reveal',
                                     'updatedAt': FieldValue.serverTimestamp(),
                                   });
                                 } else if (phase == 'reveal') {
-                                  final qs =
-                                      await quizCol.orderBy('createdAt').get();
+                                  // 👉 다음 공개 문항 찾기
+                                  final qs = await quizCol.orderBy('createdAt').get();
                                   final docs = qs.docs;
-                                  final curIdx = docs.indexWhere(
-                                    (d) => d.id == currentId,
-                                  );
+                                  final curIdx = docs.indexWhere((d) => d.id == currentId);
 
                                   String? nextPublicId;
-                                  for (
-                                    int i = curIdx + 1;
-                                    i < docs.length;
-                                    i++
-                                  ) {
+                                  for (int i = curIdx + 1; i < docs.length; i++) {
                                     final dData = docs[i].data();
                                     final p = dData['public'];
-                                    final isPublic =
-                                        (p is bool)
-                                            ? p
-                                            : (p is String &&
-                                                p.toLowerCase() == 'true');
+                                    final isPublic = (p is bool)
+                                        ? p
+                                        : (p is String && p.toLowerCase() == 'true');
                                     if (isPublic) {
                                       nextPublicId = docs[i].id;
                                       break;
@@ -1299,20 +1321,23 @@ class _QuestionCard extends StatelessWidget {
                                   }
 
                                   if (nextPublicId == null) {
+                                    // ✅ 퀴즈 종료
                                     await topicRef.update({
                                       'status': 'finished',
                                       'phase': 'finished',
                                       'currentQuizId': null,
                                       'questionStartedAt': null,
+                                      'questionStartedAtMs': FieldValue.delete(),
                                       'updatedAt': FieldValue.serverTimestamp(),
                                     });
                                   } else {
+                                    // ✅ 다음 문항으로 전환 + 버튼 입력 기준시간 기록
                                     await topicRef.update({
                                       'phase': 'question',
                                       'currentQuizId': nextPublicId,
                                       'currentQuizIndex': curIdx + 2,
-                                      'questionStartedAt':
-                                          FieldValue.serverTimestamp(),
+                                      'questionStartedAt': FieldValue.serverTimestamp(),
+                                      'questionStartedAtMs': DateTime.now().millisecondsSinceEpoch,
                                       'updatedAt': FieldValue.serverTimestamp(),
                                     });
                                   }

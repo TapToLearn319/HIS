@@ -60,58 +60,79 @@ class _QuestionOptionsPageState extends State<QuestionOptionsPage> {
   }
 
   Future<void> _loadInitial() async {
-    try {
-      final hubPath = context.read<HubProvider>().hubDocPath; // hubs/{hubId}
-      if (hubPath == null) throw Exception('허브를 먼저 선택하세요.');
+  try {
+    final hubPath = context.read<HubProvider>().hubDocPath; // hubs/{hubId}
+    if (hubPath == null) throw Exception('허브를 먼저 선택하세요.');
 
-      final fs = FirebaseFirestore.instance;
-      final doc =
-          await fs.doc('$hubPath/quizTopics/${widget.topicId}/quizzes/${widget.quizId}').get();
-      final x = doc.data() ?? {};
+    final fs = FirebaseFirestore.instance;
+    final doc = await fs
+        .doc('$hubPath/quizTopics/${widget.topicId}/quizzes/${widget.quizId}')
+        .get();
+    final x = doc.data() ?? {};
 
-      _qCtrl.text = (x['question'] as String?) ?? '';
+    _qCtrl.text = (x['question'] as String?) ?? '';
 
-      final List choices = (x['choices'] as List?) ?? const ['A', 'B'];
-      final List triggers = (x['triggers'] as List?) ?? const ['S1_CLICK', 'S2_CLICK'];
+    // ✅ 새 구조(options[{title,binding}]) 우선
+    final List optList = (x['options'] as List?) ?? const [];
+    List<String> choices = [];
+    List<String?> triggers = [];
 
-      // 정답(단일/복수)
-      final List correctIndicesRaw = (x['correctIndices'] as List?) ?? const [];
-      _allowMultiple = correctIndicesRaw.isNotEmpty;
-      if (_allowMultiple) {
-        _correctSet
-          ..clear()
-          ..addAll(correctIndicesRaw.map((e) => (e as num).toInt()));
-      } else {
-        _correctIndex = (x['correctIndex'] as num?)?.toInt() ?? 0;
+    if (optList.isNotEmpty) {
+      for (final it in optList) {
+        if (it is Map) {
+          final title = (it['title'] ?? '').toString();
+          final b = (it['binding'] as Map?) ?? {};
+          final btn = (b['button'] is num) ? (b['button'] as num).toInt() : 1;
+          final ges = (b['gesture'] ?? 'single').toString();
+          final trig =
+              (btn == 1 ? 'S1_' : 'S2_') + (ges == 'hold' ? 'HOLD' : 'CLICK');
+          choices.add(title);
+          triggers.add(trig);
+        }
       }
-
-      // controllers
-      _choiceCtrls.clear();
-      for (final c in choices) {
-        _choiceCtrls.add(TextEditingController(text: c.toString()));
-      }
-      // 최소 2개 보장
-      while (_choiceCtrls.length < 2) {
-        _choiceCtrls.add(TextEditingController());
-      }
-      while (_choiceCtrls.length > 4) {
-        _choiceCtrls.removeLast().dispose();
-      }
-
-      // triggers align
-      _triggers
-        ..clear()
-        ..addAll(triggers.map((e) => e?.toString()).cast<String?>());
-      while (_triggers.length < _choiceCtrls.length) {
-        _triggers.add(null);
-      }
-      while (_triggers.length > _choiceCtrls.length) {
-        _triggers.removeLast();
-      }
-    } finally {
-      if (mounted) setState(() => _loading = false);
     }
+
+    // ✅ 구 구조(choices + triggers) 호환
+    if (choices.isEmpty) {
+      final List rawChoices = (x['choices'] as List?) ?? const ['A', 'B'];
+      final List rawTriggers =
+          (x['triggers'] as List?) ?? const ['S1_CLICK', 'S2_CLICK'];
+      for (int i = 0; i < rawChoices.length; i++) {
+        choices.add(rawChoices[i].toString());
+        triggers.add(i < rawTriggers.length ? rawTriggers[i]?.toString() : null);
+      }
+    }
+
+    // ✅ 컨트롤러 초기화
+    _choiceCtrls
+      ..clear()
+      ..addAll(choices.map((t) => TextEditingController(text: t)));
+    while (_choiceCtrls.length < 2) _choiceCtrls.add(TextEditingController());
+    while (_choiceCtrls.length > 4) _choiceCtrls.removeLast().dispose();
+
+    _triggers
+      ..clear()
+      ..addAll(triggers.take(_choiceCtrls.length));
+    while (_triggers.length < _choiceCtrls.length) _triggers.add(null);
+
+    // ✅ 정답 복원 (단일/복수 선택)
+    final List correctIndicesRaw = (x['correctIndices'] as List?) ?? const [];
+    _allowMultiple = correctIndicesRaw.isNotEmpty;
+    if (_allowMultiple) {
+      _correctSet
+        ..clear()
+        ..addAll(correctIndicesRaw
+            .map((e) => (e as num).toInt())
+            .where((i) => i < _choiceCtrls.length));
+      if (_correctSet.isEmpty) _correctSet.add(0);
+    } else {
+      _correctIndex = (x['correctIndex'] as num?)?.toInt() ?? 0;
+      if (_correctIndex >= _choiceCtrls.length) _correctIndex = 0;
+    }
+  } finally {
+    if (mounted) setState(() => _loading = false);
   }
+}
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -175,85 +196,69 @@ class _QuestionOptionsPageState extends State<QuestionOptionsPage> {
 
     final q = _qCtrl.text.trim();
 
-    // ✅ choices & triggers를 같은 인덱스로 필터링(빈 값 제거)하여 동시 정리
+    // ✅ 텍스트와 트리거 필터링
     final pairs = <MapEntry<String, String?>>[];
     for (int i = 0; i < _choiceCtrls.length; i++) {
       final text = _choiceCtrls[i].text.trim();
-      if (text.isNotEmpty) {
-        pairs.add(MapEntry(text, _triggers[i]));
-      }
+      if (text.isNotEmpty) pairs.add(MapEntry(text, _triggers[i]));
     }
 
-    final choices = pairs.map((e) => e.key).toList();
-    final triggers = pairs.map((e) => e.value).toList();
-
-    if (q.isEmpty || choices.length < 2) {
+    if (q.isEmpty || pairs.length < 2) {
       _snack('질문과 최소 2개의 보기 내용을 입력하세요.');
       return;
     }
 
-    if (triggers.length != choices.length || triggers.any((k) => k == null)) {
+    if (pairs.any((e) => e.value == null)) {
       _snack('모든 보기에 버튼 매핑을 지정하세요.');
       return;
     }
 
     final used = <String>{};
-    for (final k in triggers.whereType<String>()) {
-      if (!used.add(k)) {
-        _snack('버튼 매핑이 중복되었습니다: $k');
+    for (final e in pairs) {
+      if (!used.add(e.value!)) {
+        _snack('버튼 매핑이 중복되었습니다: ${e.value}');
         return;
       }
     }
 
-    // 정답 인덱스 보정: (pairs 기준 재매핑)
-    List<int> correctIndices = const [];
-    int? correctIndex;
+    // ✅ vote-style options 생성
+    final options = <Map<String, dynamic>>[];
+    for (final e in pairs) {
+      final trig = e.value!;
+      final isS1 = trig.startsWith('S1');
+      final isHold = trig.endsWith('HOLD');
+      options.add({
+        'title': e.key,
+        'binding': {
+          'button': isS1 ? 1 : 2,
+          'gesture': isHold ? 'hold' : 'single',
+        },
+      });
+    }
 
+    // ✅ 정답 바인딩 계산
+    Map<String, dynamic>? correctBinding;
     if (_allowMultiple) {
-      // 기존 _correctSet을 새 인덱스로 매핑
-      final keptIndices = <int>[];
-      for (int i = 0, j = 0; i < _choiceCtrls.length; i++) {
-        final kept = _choiceCtrls[i].text.trim().isNotEmpty;
-        if (kept) {
-          if (_correctSet.contains(i)) keptIndices.add(j);
-          j++;
-        }
-      }
-      if (keptIndices.isEmpty) {
-        _snack('복수정답 모드에서는 최소 1개 이상 정답을 선택하세요.');
-        return;
-      }
-      keptIndices.sort();
-      correctIndices = keptIndices;
-      correctIndex = keptIndices.first;
+      final firstIdx = _correctSet.isNotEmpty ? _correctSet.first : 0;
+      final b = options[firstIdx]['binding'] as Map<String, dynamic>;
+      correctBinding = {'button': b['button'], 'gesture': b['gesture']};
     } else {
-      // 단일정답: _correctIndex가 남아있는 보기 중 몇 번째인지 매핑
-      int? newSingle;
-      for (int i = 0, j = 0; i < _choiceCtrls.length; i++) {
-        final kept = _choiceCtrls[i].text.trim().isNotEmpty;
-        if (kept) {
-          if (i == _correctIndex) {
-            newSingle = j;
-            break;
-          }
-          j++;
-        }
-      }
-      if (newSingle == null || newSingle < 0 || newSingle >= choices.length) {
-        _snack('정답 인덱스가 올바르지 않습니다.');
-        return;
-      }
-      correctIndex = newSingle;
+      final b = options[_correctIndex]['binding'] as Map<String, dynamic>;
+      correctBinding = {'button': b['button'], 'gesture': b['gesture']};
     }
 
+    // ✅ Firestore 데이터
     final data = <String, dynamic>{
       'question': q,
-      'choices': choices,
-      'triggers': triggers.whereType<String>().toList(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      'options': options, // 🔥 핵심 변경
       'allowMultiple': _allowMultiple,
-      'correctIndex': correctIndex,
-      if (_allowMultiple) 'correctIndices': correctIndices else 'correctIndices': FieldValue.delete(),
+      'correctBinding': correctBinding, // ✅ 새 필드
+      'updatedAt': FieldValue.serverTimestamp(),
+      // 구형 필드 제거
+      'choices': FieldValue.delete(),
+      'triggers': FieldValue.delete(),
+      'correctIndex': FieldValue.delete(),
+      'correctIndices': FieldValue.delete(),
     };
 
     await fs

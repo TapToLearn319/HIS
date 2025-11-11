@@ -169,28 +169,15 @@ class _DisplayVotePageState extends State<DisplayVotePage> {
 
   void _attachActiveWatcher(String hubId) {
   _votesColSub?.cancel();
-  _votesColSub = FirebaseFirestore.instance
-      .collection('hubs/$hubId/votes')
-      .where('status', isEqualTo: 'active') // ✅ stopped 제외
+
+  // ✅ 이제 votes/current만 구독
+  _voteDocSub?.cancel();
+  _voteDocSub = FirebaseFirestore.instance
+      .doc('hubs/$hubId/votes/current')
       .snapshots()
-      .listen((qs) {
-    if (qs.docs.isEmpty) {
-      _evSub?.cancel();
-      // ✅ active 없을 때는 초기화 X (stopped 투표 유지 위해)
-      return;
-    }
-
-    final docs = qs.docs.cast<QueryDocumentSnapshot<Map<String, dynamic>>>();
-    final latest = docs.reduce((a, b) {
-      final ta = _tsScore(a.data());
-      final tb = _tsScore(b.data());
-      return ta > tb ? a : b;
-    });
-
-    if (_voteId != latest.id) {
-      final sid = _sid;
-      if (sid != null) _attachVoteDoc(sid, latest.id);
-    }
+      .listen((doc) {
+    if (!doc.exists) return;
+    _attachVoteDoc(_sid!, 'current');
   });
 }
 

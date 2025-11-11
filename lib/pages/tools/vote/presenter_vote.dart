@@ -21,7 +21,7 @@ class PresenterVotePage extends StatefulWidget {
 
 class _PresenterVotePageState extends State<PresenterVotePage>
     with WidgetsBindingObserver {
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _activeSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _activeSub;
   String? _activeVoteId;
   String _votePhase = 'idle'; // ✅ idle → running → done → idle
   bool _busy = false;
@@ -241,23 +241,41 @@ bool _done = false;
     }
   }
 
-  void _watchActive(String sid) {
-    _activeSub?.cancel();
-    _activeSub = FirebaseFirestore.instance
-        .collection('hubs/$sid/votes')
-        .where('status', isEqualTo: 'active')
-        .snapshots()
-        .listen(
-      (qs) {
-        if (qs.docs.isEmpty) {
-          if (mounted) setState(() => _votePhase = 'idle');
-          return;
-        }
-        if (mounted) setState(() => _votePhase = 'running');
-      },
-      onError: (e) => debugPrint('[PresenterVote] watch error: $e'),
-    );
-  }
+ void _watchActive(String hubId) {
+  _activeSub?.cancel();
+  _activeSub = FirebaseFirestore.instance
+      .doc('hubs/$hubId/votes/current')
+      .snapshots()
+      .listen((doc) {
+    if (!doc.exists) return;
+
+    final data = doc.data();
+    if (data == null) return;
+
+    final status = (data['status'] ?? '').toString();
+
+    if (!mounted) return;
+
+    setState(() {
+      if (status == 'active') {
+        _votePhase = 'running';
+        _isRunning = true;
+        _done = false;
+      } else if (status == 'stopped') {
+        _votePhase = 'done';
+        _isRunning = false;
+        _done = true;
+      } else {
+        _votePhase = 'idle';
+        _isRunning = false;
+        _done = false;
+      }
+    });
+  },
+  onError: (e) => debugPrint('[PresenterVote] watchActive error: $e'),
+  );
+}
+
 
   Future<void> _forceResetOnEnter(String hubId) async {
     try {
@@ -284,14 +302,10 @@ bool _done = false;
     final sid = context.read<SessionProvider>().sessionId;
     if (hubId == null) return;
 
+    final doc = FirebaseFirestore.instance.doc('hubs/$hubId/votes/current');
+
     if (_votePhase == 'idle') {
-      // ▶ START
-      final voteId = await _persistVote(hubId);
-      if (voteId == null) return;
-
-      await _stopAllActive(hubId);
-      final doc = FirebaseFirestore.instance.doc('hubs/$hubId/votes/$voteId');
-
+      await _persistVote(hubId);
       await doc.set({
         'status': 'active',
         'revealNow': false,
@@ -302,105 +316,49 @@ bool _done = false;
       }, SetOptions(merge: true));
 
       await FirebaseFirestore.instance.doc('hubs/$hubId').set({
-        'currentVoteId': voteId,
+        'currentVoteId': 'current',
         'revealNow': false,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      await _updateHub(sid: sid, voteId: voteId);
-
-      if (mounted) {
-        setState(() {
-          _votePhase = 'running';
-          _activeVoteId = voteId;
-          _isRunning = true;
-          _done = false;
-        });
-      }
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('✅ Vote started!')));
+      setState(() {
+        _votePhase = 'running';
+        _activeVoteId = 'current';
+      });
       return;
     }
 
     if (_votePhase == 'running') {
-      // ▶ STOP
-      final id = _activeVoteId;
-      if (id == null) return;
-
-      final doc = FirebaseFirestore.instance.doc('hubs/$hubId/votes/$id');
-      final voteSnap = await doc.get();
-      final settings = (voteSnap.data()?['settings'] ?? {}) as Map?;
-      final showMode = (settings?['show'] ?? 'realtime').toString();
-
-      // showMode가 'after'면 결과 공개, 아니면 그냥 종료
-      final revealNow = (showMode == 'after');
-
-      await FirebaseFirestore.instance.doc('hubs/$hubId').set({
-        'revealNow': revealNow,
-        'votePaused': true,
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
       await doc.set({
         'status': 'stopped',
-        'revealNow': revealNow,
+        'revealNow': true,
         'endedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      await _updateHub(sid: sid, voteId: null);
+      await FirebaseFirestore.instance.doc('hubs/$hubId').set({
+        'revealNow': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
-      if (mounted) {
-        setState(() {
-          _votePhase = 'done';
-          _isRunning = false;
-          _done = true;
-        });
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(revealNow
-            ? '📊 Vote stopped. Results revealed (AFTER mode).'
-            : '🛑 Vote stopped. Real-time tally frozen.'),
-      ));
+      setState(() => _votePhase = 'done');
       return;
     }
 
     if (_votePhase == 'done') {
-      // ▶ DONE → RESET
-      await _forceResetOnEnter(hubId);
+      await doc.set({
+        'status': 'closed',
+        'revealNow': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
-      // 투표 상태를 완전히 닫음
-      final id = _activeVoteId;
-      if (id != null) {
-        final doc = FirebaseFirestore.instance.doc('hubs/$hubId/votes/$id');
-        await doc.set({
-          'status': 'closed',
-          'revealNow': false,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      }
-
-      if (mounted) {
-        setState(() {
-          _votePhase = 'idle';
-          _isRunning = false;
-          _done = false;
-          _activeVoteId = null;
-        });
-      }
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('🔄 Ready for next vote.')));
-      return;
+      setState(() => _votePhase = 'idle');
     }
-  } catch (e, st) {
-    debugPrint('[VOTE] handleStartStop error: $e\n$st');
   } finally {
     _busy = false;
   }
 }
+
 
 
   int _tsFrom(dynamic v) {
@@ -927,54 +885,55 @@ bool _done = false;
     );
   }
 
-  Future<String?> _persistVote(String sid /* hubId */) async {
-    if (_titleCtrl.text.trim().isEmpty) {
-      _titleCtrl.text = 'Untitled question';
-    }
-    if (!_formKey.currentState!.validate()) return null;
-
-    final titles =
-        _optionCtrls
-            .map((c) => c.text.trim())
-            .where((t) => t.isNotEmpty)
-            .take(_maxOptions)
-            .toList();
-
-    if (titles.length < 2) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('문항은 2개 이상이어야 합니다.')));
-      return null;
-    }
-
-    final options = <Map<String, dynamic>>[];
-    for (var i = 0; i < titles.length; i++) {
-      final b = _bindings[i];
-      options.add({
-        'id': 'opt_$i',
-        'title': titles[i],
-        'votes': 0,
-        'binding': {'button': b.button, 'gesture': b.gesture},
-      });
-    }
-
-    final ref =
-        (widget.voteId == null)
-            ? FirebaseFirestore.instance.collection('hubs/$sid/votes').doc()
-            : FirebaseFirestore.instance.doc('hubs/$sid/votes/${widget.voteId}');
-
-    await ref.set({
-      'title': _titleCtrl.text.trim(),
-      'type': 'multiple',
-      if (widget.voteId == null) 'status': 'draft',
-      'options': options,
-      'settings': {'show': _show, 'anonymous': _anonymous, 'multi': _multi},
-      if (widget.voteId == null) 'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    return ref.id;
+  Future<String?> _persistVote(String sid) async {
+  if (_titleCtrl.text.trim().isEmpty) {
+    _titleCtrl.text = 'Untitled question';
   }
+  if (!_formKey.currentState!.validate()) return null;
+
+  final titles = _optionCtrls
+      .map((c) => c.text.trim())
+      .where((t) => t.isNotEmpty)
+      .take(_maxOptions)
+      .toList();
+
+  if (titles.length < 2) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('문항은 2개 이상이어야 합니다.')));
+    return null;
+  }
+
+  final options = <Map<String, dynamic>>[];
+  for (var i = 0; i < titles.length; i++) {
+    final b = _bindings[i];
+    options.add({
+      'id': 'opt_$i',
+      'title': titles[i],
+      'votes': 0,
+      'binding': {'button': b.button, 'gesture': b.gesture},
+    });
+  }
+
+  // ✅ 항상 고정된 문서로 지정
+  final ref = FirebaseFirestore.instance.doc('hubs/$sid/votes/current');
+
+  await ref.set({
+    'title': _titleCtrl.text.trim(),
+    'type': 'multiple',
+    'status': 'draft',
+    'options': options,
+    'settings': {
+      'show': _show,
+      'anonymous': _anonymous,
+      'multi': _multi,
+    },
+    'createdAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  return ref.id; // "current"
+}
+
 
   Future<void> _stopAllActive(String sid /* hubId */) async {
     final fs = FirebaseFirestore.instance;

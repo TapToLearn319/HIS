@@ -74,58 +74,83 @@ class _CreateQuestionPageState extends State<CreateQuestionPage> {
     }
   }
 
+  void _addOptionFromInput() {
+  if (_optionCtrls.length >= _maxOptions) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('최대 4개까지 추가할 수 있어요.')),
+    );
+    return;
+  }
+
+  final raw = _newOptionCtrl.text.trim();
+  // 빈 입력일 때 기본 라벨을 쓰고 싶으면 아래 라인 사용
+  // final text = raw.isEmpty ? 'Option ${_optionCtrls.length + 1}' : raw;
+
+  // 빈 입력도 허용하고 싶으면 빈 문자열 그대로 사용
+  final text = raw;
+
+  setState(() {
+    _optionCtrls.add(TextEditingController(text: text));
+    _bindings.add(_firstUnusedBinding());
+    _ensureUniqueAll();
+    _newOptionCtrl.clear();
+  });
+}
   // ───────────────────────── 저장 ─────────────────────────
   Future<void> _saveQuestion() async {
-    final quizzesCol = FirebaseFirestore.instance.collection(
-  'hubs/${widget.hubId}/quizTopics/${widget.topicId}/quizzes',
-);
+  final quizzesCol = FirebaseFirestore.instance.collection(
+    'hubs/${widget.hubId}/quizTopics/${widget.topicId}/quizzes',
+  );
 
-    if (_titleCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Please enter a question.')));
-      return;
-    }
-
-    final titles =
-        _optionCtrls
-            .map((c) => c.text.trim())
-            .where((t) => t.isNotEmpty)
-            .take(_maxOptions)
-            .toList();
-
-    if (titles.length < 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('At least 2 choices required.')),
-      );
-      return;
-    }
-
-    final newRef = await quizzesCol.add({
-  'question': _titleCtrl.text.trim(),
-  'multi': _multi,
-  'public': true, // ✅ 이 한 줄 추가
-  'createdAt': FieldValue.serverTimestamp(),
-  'updatedAt': FieldValue.serverTimestamp(),
-});
-
-    final choicesRef = newRef.collection('choices');
-    for (int i = 0; i < titles.length; i++) {
-      final b = _bindings[i];
-      await choicesRef.add({
-        'text': titles[i],
-        'correct': false,
-        'index': i + 1,
-        'binding': {'button': b.button, 'gesture': b.gesture},
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    }
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Question saved!')));
-    if (mounted) Navigator.pop(context);
+  // ✅ 제목 검사
+  if (_titleCtrl.text.trim().isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please enter a question.')),
+    );
+    return;
   }
+
+  // ✅ 옵션 검사
+  final titles = _optionCtrls
+      .map((c) => c.text.trim())
+      .where((t) => t.isNotEmpty)
+      .take(_maxOptions)
+      .toList();
+
+  if (titles.length < 2) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('At least 2 choices required.')),
+    );
+    return;
+  }
+
+  // ✅ options 배열 구성
+  final options = <Map<String, dynamic>>[];
+  for (int i = 0; i < titles.length; i++) {
+    final b = _bindings[i];
+    options.add({
+      'title': titles[i],
+      'binding': {'button': b.button, 'gesture': b.gesture},
+      'index': i + 1,
+    });
+  }
+
+  // ✅ Firestore에 저장 (choices 컬렉션 ❌)
+  await quizzesCol.add({
+    'question': _titleCtrl.text.trim(),
+    'multi': _multi,
+    'public': true,
+    'options': options, // ✅ 핵심 변경
+    'status': 'draft',
+    'createdAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('Question saved!')),
+  );
+  if (mounted) Navigator.pop(context ,true );
+}
 
   // ───────────────────────── 매핑 유틸 ─────────────────────────
   _Binding _firstUnusedBinding({_Binding? fallback}) {
@@ -143,31 +168,20 @@ class _CreateQuestionPageState extends State<CreateQuestionPage> {
       if (seen.contains(key)) {
         _bindings[i] = _firstUnusedBinding(fallback: _bindings[i]);
       }
-      seen.add('${_bindings[i].button}-${_bindings[i].gesture}');
+      seen.add(key);
     }
   }
 
-  void _setUniqueBinding(int i, _Binding next) {
+   void _setUniqueBinding(int i, _Binding next) {
     setState(() {
-      // 1) 우선 적용
       _bindings[i] = next;
-
-      // 2) 중복이 생겼다면 자동으로 교정
       final used = <String>{};
-      final free = <_Binding>[];
-      for (final b in _allBindings) {
-        final key = '${b.button}-${b.gesture}';
-        if (key != '${next.button}-${next.gesture}') free.add(b);
-      }
-
       for (int k = 0; k < _bindings.length; k++) {
         final key = '${_bindings[k].button}-${_bindings[k].gesture}';
         if (used.contains(key)) {
-          // 이미 사용된 매핑이면 비어있는 것으로 교체
-          final replacement = _firstUnusedBinding(fallback: _bindings[k]);
-          _bindings[k] = replacement;
+          _bindings[k] = _firstUnusedBinding(fallback: _bindings[k]);
         }
-        used.add('${_bindings[k].button}-${_bindings[k].gesture}');
+        used.add(key);
       }
     });
   }
@@ -410,18 +424,7 @@ class _CreateQuestionPageState extends State<CreateQuestionPage> {
                   ),
                   SizedBox(width: 12 * scale),
                   InkWell(
-                    onTap: () {
-                      final text = _newOptionCtrl.text.trim();
-                      if (text.isNotEmpty &&
-                          _optionCtrls.length < _maxOptions) {
-                        setState(() {
-                          _optionCtrls.add(TextEditingController(text: text));
-                          _bindings.add(_firstUnusedBinding());
-                          _ensureUniqueAll();
-                          _newOptionCtrl.clear();
-                        });
-                      }
-                    },
+                    onTap: _addOptionFromInput,
                     borderRadius: BorderRadius.circular(50),
                     splashColor: Colors.transparent,
                     highlightColor: Colors.transparent,

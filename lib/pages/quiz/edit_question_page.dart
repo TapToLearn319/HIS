@@ -76,28 +76,33 @@ void dispose() {
       _titleCtrl.text = quizData['question'] ?? '';
       _multi = quizData['multi'] ?? false;
       
-final List<dynamic> choices = (quizData?['choices'] ?? []) as List<dynamic>;
-final List<dynamic> triggers = (quizData?['triggers'] ?? []) as List<dynamic>;
-final bool allowMultiple = quizData?['allowMultiple'] ?? false;
-final int? correctIndex = quizData?['correctIndex'];
-final List<dynamic> correctIndices = (quizData?['correctIndices'] ?? []) as List<dynamic>;
+final List options = (quizData['options'] as List?) ?? [];
+final correctBinding = (quizData['correctBinding'] as Map?) ?? {};
 
 _optionCtrls.clear();
 _bindings.clear();
 _selectedAnswers.clear();
 
-for (int i = 0; i < choices.length; i++) {
-  _optionCtrls.add(TextEditingController(text: choices[i].toString()));
-  final t = (i < triggers.length) ? triggers[i].toString() : 'S1_CLICK';
-  _bindings.add(_parseTrigger(t));
+for (int i = 0; i < options.length; i++) {
+  final opt = options[i] as Map<String, dynamic>;
+  _optionCtrls.add(TextEditingController(text: opt['title'] ?? ''));
+  final binding = (opt['binding'] as Map?) ?? {};
+  final b = _Binding(
+    button: binding['button'] ?? 1,
+    gesture: binding['gesture'] ?? 'single',
+  );
+  _bindings.add(b);
+}
 
-  if (allowMultiple) {
-    if (correctIndices.contains(i)) _selectedAnswers.add(i);
-  } else if (correctIndex == i) {
-    _selectedAnswers.add(i);
+// ✅ 정답 표시
+if (correctBinding.isNotEmpty) {
+  for (int i = 0; i < _bindings.length; i++) {
+    if (_bindings[i].button == correctBinding['button'] &&
+        _bindings[i].gesture == correctBinding['gesture']) {
+      _selectedAnswers.add(i);
+    }
   }
 }
-_multi = allowMultiple;
 
       setState(() {});
     } catch (e) {
@@ -158,13 +163,36 @@ if (_multi) {
   correctIndex = _selectedAnswers.isNotEmpty ? _selectedAnswers.first : null;
 }
 
+final options = <Map<String, dynamic>>[];
+for (int i = 0; i < _optionCtrls.length; i++) {
+  final title = _optionCtrls[i].text.trim();
+  if (title.isEmpty) continue;
+  options.add({
+    'title': title,
+    'binding': {
+      'button': _bindings[i].button,
+      'gesture': _bindings[i].gesture,
+    },
+  });
+}
+
+// ✅ 정답 바인딩 선택 (단일 선택 기준)
+_Binding? correct;
+if (_selectedAnswers.isNotEmpty) {
+  final idx = _selectedAnswers.first;
+  if (idx >= 0 && idx < _bindings.length) correct = _bindings[idx];
+}
+
 await quizDoc.update({
   'question': _titleCtrl.text.trim(),
-  'choices': choices,
-  'triggers': triggers,
-  'allowMultiple': _multi,
-  'correctIndex': correctIndex,
-  'correctIndices': _multi ? correctIndices : FieldValue.delete(),
+  'options': options,
+  if (correct != null)
+    'correctBinding': {
+      'button': correct.button,
+      'gesture': correct.gesture,
+    }
+  else
+    'correctBinding': FieldValue.delete(),
   'updatedAt': FieldValue.serverTimestamp(),
 });
 
@@ -181,7 +209,7 @@ await quizDoc.update({
     for (final b in _allBindings) {
       if (!used.contains('${b.button}-${b.gesture}')) return b;
     }
-    return fallback ?? const _Binding(button: 1, gesture: 'hold');
+    return fallback ?? const _Binding(button: 1, gesture: 'single');
   }
 
   void _ensureUniqueAll() {
@@ -205,15 +233,19 @@ await quizDoc.update({
 
 void _setUniqueBinding(int i, _Binding next) {
   setState(() {
-    _bindings[i] = next;
+    // ✅ 이미 그 조합을 쓰고 있는 항목이 있는지 찾기
+    final dupIndex = _bindings.indexWhere(
+      (b) => b.button == next.button && b.gesture == next.gesture,
+    );
 
-    final used = <String>{};
-    for (int k = 0; k < _bindings.length; k++) {
-      final key = '${_bindings[k].button}-${_bindings[k].gesture}';
-      if (used.contains(key)) {
-        _bindings[k] = _firstUnusedBinding(fallback: _bindings[k]);
-      }
-      used.add(key);
+    if (dupIndex != -1 && dupIndex != i) {
+      // ✅ 이미 누군가 쓰고 있다면 swap (서로 교체)
+      final tmp = _bindings[i];
+      _bindings[i] = next;
+      _bindings[dupIndex] = tmp;
+    } else {
+      // ✅ 중복 아니면 그냥 바꿈
+      _bindings[i] = next;
     }
   });
 }
@@ -231,7 +263,8 @@ void _setUniqueBinding(int i, _Binding next) {
         elevation: 0,
         backgroundColor: const Color(0xFFF6FAFF),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
+          icon: const Icon(Icons.arrow_back,
+          color: Colors.black,),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -626,7 +659,7 @@ Widget _optionRow(int i, double scale) {
     items.add(const PopupMenuDivider());
 
     for (final o in _menuOpts) {
-      final disabled = usedExceptMe.contains(o.key);
+      final disabled = usedExceptMe.contains(o.key) && o.key != currentKey;
       final selected = (o.key == currentKey);
 
       items.add(

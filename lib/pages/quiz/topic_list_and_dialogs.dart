@@ -685,49 +685,72 @@ class _StartButtonState extends State<_StartButton> {
         });
   }
 
-  Future<void> _startQuiz() async {
-    if (_hubPath == null) {
-      _snack(context, '허브 경로가 없습니다. 다시 시도해 주세요.');
-      return;
-    }
-
-    final path = '$_hubPath/quizTopics/${widget.topicId}';
-
-    final running =
-        await _fs
-            .collection('$_hubPath/quizTopics')
-            .where('status', isEqualTo: 'running')
-            .get();
-    if (running.docs.isNotEmpty) {
-      _snack(context, '이미 진행 중인 퀴즈가 있습니다.');
-      return;
-    }
-
-    final qSnap =
-        await _fs.collection('$path/quizzes').orderBy('createdAt').get();
-    if (qSnap.docs.isEmpty) {
-      _snack(context, '먼저 문제를 추가해 주세요.');
-      return;
-    }
-
-    final first = qSnap.docs.first;
-
-    await _fs.doc(path).set({
-      'status': 'running',
-      'phase': 'question',
-      'currentQuizIndex': 1,
-      'totalQuizCount': qSnap.docs.length,
-      'currentQuizId': first.id,
-      'questionStartedAt': FieldValue.serverTimestamp(),
-      'questionStartedAtMs': DateTime.now().millisecondsSinceEpoch,
-      'startedAt': FieldValue.serverTimestamp(),
-      'endedAt': null,
-      'updatedAt': FieldValue.serverTimestamp(),
-      'showSummaryOnDisplay': false,
-    }, SetOptions(merge: true));
-
-    _snack(context, '퀴즈가 시작되었습니다.');
+ Future<void> _startQuiz() async {
+  if (_hubPath == null) {
+    _snack(context, '허브 경로가 없습니다. 다시 시도해 주세요.');
+    return;
   }
+
+  final path = '$_hubPath/quizTopics/${widget.topicId}';
+
+  // 🔒 이미 실행 중인 퀴즈 중복 방지
+  final running = await _fs
+      .collection('$_hubPath/quizTopics')
+      .where('status', isEqualTo: 'running')
+      .get();
+  if (running.docs.isNotEmpty) {
+    _snack(context, '이미 진행 중인 퀴즈가 있습니다.');
+    return;
+  }
+
+  // 🔹 퀴즈 목록 가져오기
+  final qSnap = await _fs
+      .collection('$path/quizzes')
+      .orderBy('createdAt')
+      .get();
+
+  if (qSnap.docs.isEmpty) {
+    _snack(context, '먼저 문제를 추가해 주세요.');
+    return;
+  }
+
+  final first = qSnap.docs.first;
+  final firstData = first.data();
+
+  // ✅ options 기반 구조 확인
+  final List options = (firstData['options'] as List?) ?? [];
+
+  // ✅ votes 배열과 votesByDevice 초기화
+  final votesInit = List<int>.filled(options.length, 0);
+  final votesByDevice = <String, dynamic>{};
+
+  // ✅ 토픽 상태 업데이트
+  await _fs.doc(path).set({
+    'status': 'running',
+    'phase': 'question',
+    'currentQuizIndex': 1,
+    'totalQuizCount': qSnap.docs.length,
+    'currentQuizId': first.id,
+    'questionStartedAt': FieldValue.serverTimestamp(),
+    'questionStartedAtMs': DateTime.now().millisecondsSinceEpoch,
+    'startedAt': FieldValue.serverTimestamp(),
+    'endedAt': null,
+    'updatedAt': FieldValue.serverTimestamp(),
+    'showSummaryOnDisplay': false,
+  }, SetOptions(merge: true));
+
+  // ✅ 첫 번째 퀴즈 문서도 초기화
+  await _fs.doc('$path/quizzes/${first.id}').set({
+    'status': 'active',
+    'startedAt': FieldValue.serverTimestamp(),
+    'startedAtMs': DateTime.now().millisecondsSinceEpoch,
+    'votes': votesInit,          // ✅ 보기 수만큼 0으로 초기화
+    'votesByDevice': votesByDevice,
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  _snack(context, '퀴즈가 시작되었습니다.');
+}
 
   @override
   Widget build(BuildContext context) {
