@@ -29,7 +29,7 @@ class _TimerPageState extends State<TimerPage> {
   int _initialTotalSeconds = 0;
   Timer? _timer;
 
-  String get _birdAsset => isRunning ? "logo_bird_stop.png" : "logo_bird_start.png";
+  String get _birdAsset => isRunning ? "assets/logo_bird_stop.png" : "assets/logo_bird_start.png";
 
   @override
   void initState() {
