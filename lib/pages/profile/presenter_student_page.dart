@@ -189,7 +189,7 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
           handled = true;
 
           try {
-            await fs.doc('devices/$devId').set({
+            await fs.doc('hubs/$kHubId/devices/$devId').set({
               'studentId': studentId,
               'slotIndex': slotIndex,
               'updatedAt': FieldValue.serverTimestamp(),
@@ -310,7 +310,7 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
       // 1) devices 언링크
       final devSnap =
           await fs
-              .collection('devices')
+              .collection('hubs/$kHubId/devices')
               .where('studentId', isEqualTo: studentId)
               .get();
       final batch1 = fs.batch();
@@ -601,7 +601,7 @@ class _DeviceMappingRow extends StatelessWidget {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream:
           fs
-              .collection('devices')
+              .collection('hubs/$kHubId/devices')
               .where('studentId', isEqualTo: studentId)
               .snapshots(),
       builder: (_, snap) {

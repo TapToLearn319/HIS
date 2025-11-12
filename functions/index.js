@@ -24,11 +24,16 @@ function normalizeSlot(v) {
 async function resolveSessionId({ hubId, deviceId, clientSessionId }) {
   if (clientSessionId) return clientSessionId;
 
-  if (!hubId) {
-    // 선택: devices/{deviceId}에 hubId가 있다면 fallback
-    if (deviceId) {
-      const d = await db.doc(`devices/${deviceId}`).get();
-      if (d.exists && d.data()?.hubId) hubId = d.data().hubId;
+  if (!hubId && deviceId) {
+  // 허브 ID를 아직 모르면, 모든 hubs에서 이 deviceId를 탐색
+  const hubsSnap = await db.collection("hubs").get();
+  for (const hub of hubsSnap.docs) {
+    const devRef = db.doc(`hubs/${hub.id}/devices/${deviceId}`);
+    const d = await devRef.get();
+      if (d.exists) {
+        hubId = hub.id;
+        break;
+      }
     }
   }
   if (!hubId) throw new Error("No hubId provided; cannot resolve sessionId.");
@@ -48,15 +53,12 @@ async function resolveMapping({ hubId, deviceId, clientStudentId, clientSlotInde
   let slotIndex = normalizeSlot(clientSlotIndex);
 
   if (!studentId || !slotIndex) {
-    const ov = await db.doc(`hubs/${hubId}/deviceOverrides/${deviceId}`).get();
-    if (ov.exists) {
-      const o = ov.data() || {};
-      const noExp = !o.expiresAt || o.expiresAt.toMillis() > Date.now();
-      if (noExp) {
-        if (!studentId && o.studentId) studentId = o.studentId;
-        const s = normalizeSlot(o.slotIndex);
-        if (!slotIndex && s) slotIndex = s;
-      }
+    const dev = await db.doc(`hubs/${hubId}/devices/${deviceId}`).get();
+    if (dev.exists) {
+      const d = dev.data() || {};
+      if (!studentId && d.studentId) studentId = d.studentId;
+      const s = normalizeSlot(d.slotIndex);
+      if (!slotIndex && s) slotIndex = s;
     }
   }
 

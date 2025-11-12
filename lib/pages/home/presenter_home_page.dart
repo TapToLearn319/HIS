@@ -529,7 +529,7 @@ Future<String?> _loadLastSessionId(String hubId) async {
                     }
 
                     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                      stream: fs.collection('devices').snapshots(),
+                      stream: fs.collection('hubs/$hubId/devices').snapshots(),
                       builder: (context, devSnap) {
                         final Map<String, String> lastSlotByStudent = {};
                         final Map<String, int> lastMsByStudent = {};

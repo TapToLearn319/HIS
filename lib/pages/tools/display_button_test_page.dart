@@ -195,7 +195,7 @@ class ButtonTestDisplayPage extends StatelessWidget {
 
                         // 🔁 events → devices + liveByDevice (+ sinceMs 필터)
                         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                          stream: fs.collection('devices').snapshots(),
+                          stream: fs.collection('hubs/$kHubId/devices').snapshots(),
                           builder: (context, devSnap) {
                             return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                               stream: fs
