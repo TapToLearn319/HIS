@@ -1337,21 +1337,14 @@ class _ShowHideFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      right: 180,
-      bottom: 20,
-      child: SafeArea(
-        top: false,
-        child: _MakeButton(
-          imageAsset: show
-              ? 'assets/logo_bird_hide.png'
-              : 'assets/logo_bird_show.png',
-          onTap: onToggle,
-          enabled: !disabled,
-          scale: 1.0,
-          tooltip: show ? 'Hide on display' : 'Show on display',
-        ),
-      ),
+    return _MakeButton(
+      imageAsset: show
+          ? 'assets/logo_bird_hide.png'
+          : 'assets/logo_bird_show.png',
+      onTap: onToggle,
+      enabled: !disabled,
+      scale: 1.0,
+      tooltip: show ? 'Hide on display' : 'Show on display',
     );
   }
 }
