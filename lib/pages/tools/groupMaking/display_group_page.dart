@@ -193,16 +193,22 @@ class _TeamCard extends StatelessWidget {
   final int index;
   final List<String> members;
 
+  double _calculateFontSize(int count) {
+    if (count <= 4) return 32;
+    if (count <= 8) return 28;
+    if (count <= 12) return 24;
+    return 20;
+  }
+
   @override
   Widget build(BuildContext context) {
-    const _ink = Color(0xFF0B2239);
-    const _inkSub = Color(0xFF1B385A);
-    const _paper = Colors.white;
     const _stroke = Color(0xFFE3E9F2);
+
+    final double fontSize = _calculateFontSize(members.length);
 
     return Container(
       decoration: BoxDecoration(
-        color: _paper,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: const Color(0xFFD2D2D2)),   // 수정 완료
         boxShadow: const [
@@ -244,8 +250,8 @@ class _TeamCard extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 32,
+                  style: TextStyle(
+                    fontSize: fontSize,
                     fontWeight: FontWeight.w400,
                     color: Color(0xFF001A36),
                   ),
