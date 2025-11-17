@@ -353,6 +353,8 @@ bool moveMemberToGroup(
     }
   }
 
+  
+
   String _pairKey(String a, String b) =>
       (a.compareTo(b) <= 0) ? '$a|$b' : '$b|$a';
 
@@ -365,4 +367,6 @@ bool moveMemberToGroup(
     'groups': groups,
   }));
 }
+
 }
+

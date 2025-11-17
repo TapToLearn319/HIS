@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'grouping_controller.dart';
 import '/widgets/help_badge.dart'; 
+import '../../../../main.dart';
 
 import '../../../sidebar_menu.dart';
 import '../../../provider/hub_provider.dart';
@@ -27,17 +29,29 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
   Timer? _searchDebounce;
 
   bool _readyToShow = false;
+  bool _canShow = false;     // 그룹 생성 후 활성화
+  bool _isShowMode = true; 
 
   @override
-  void initState() {
-    super.initState();
-    c = GroupingController(hub: context.read<HubProvider>())..init();
-    _tab = TabController(length: 2, vsync: this, initialIndex: 0);
-    _tab.addListener(() {
-      if (_tab.indexIsChanging) return;
-      c.setMode(_tab.index == 0 ? GroupingMode.byGroups : GroupingMode.bySize);
+void initState() {
+  super.initState();
+  c = GroupingController(hub: context.read<HubProvider>())..init();
+
+  _tab = TabController(length: 2, vsync: this, initialIndex: 0);
+
+  _tab.addListener(() {
+    if (_tab.indexIsChanging) return;
+    c.setMode(_tab.index == 0 ? GroupingMode.byGroups : GroupingMode.bySize);
+  });
+
+  // 🔥 여기 추가
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted) return;
+    setState(() {
+      _isShowMode = true;
     });
-  }
+  });
+}
 
   @override
   void dispose() {
@@ -198,20 +212,29 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                       bottom: 6,
                       child: _ShowButton(
                         scale: 1.0,
-                        enabled: (c.currentGroups != null && c.currentGroups!.isNotEmpty),
+                        enabled: _canShow,
+                        imageAsset: 'assets/logo_bird_show.png',
+
+                        // 🔥 현재 Show인지 Hide인지 전달
+                        isShowing: _isShowMode,
+
+                        // 🔥 Show 동작
                         onTap: () {
-                          if (c.currentGroups == null || c.currentGroups!.isEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('먼저 “Make”로 그룹을 생성하세요.')),
-                            );
-                            return; 
-                          }
                           c.broadcastCurrentGroups(title: 'Find your Team !');
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('디스플레이로 전송했습니다.')),
+                            const SnackBar(content: Text('디스플레이에 표시합니다.')),
                           );
+                          setState(() => _isShowMode = false);  // Hide 모드로 변경
                         },
-                        imageAsset: 'assets/logo_bird_show.png', // 없으면 아래 위젯에서 아이콘 fallback
+
+                        // 🔥 Hide 동작
+                        onHide: () {
+                          channel.postMessage('{"type":"grouping_hide"}');
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('디스플레이 숨김 처리했습니다.')),
+                          );
+                          setState(() => _isShowMode = true); // 다시 Show로 변경
+                        },
                       ),
                     ),
                     Positioned(
@@ -219,7 +242,17 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                       bottom: 6,
                       child: _MakeButton(
                         scale: 1.0,
-                        onTap: c.makeGroups,
+                        onTap: () async {
+                          await c.makeGroups();
+                          channel.postMessage(jsonEncode({
+                            "type": "grouping_clear"
+                          }));
+
+                          setState(() {
+                            _canShow = true;     // Show 버튼 활성화
+                            _isShowMode = true;  // Show 상태로 초기화
+                          });
+                        },
                         imageAsset: 'assets/logo_bird_make.png',
                       ),
                     ),
@@ -233,45 +266,6 @@ class _PresenterGroupPageState extends State<PresenterGroupPage>
                         size: 28,
                       ),
                     ),
-                    // Positioned(
-                    //   right: 24,
-                    //   bottom: 60,
-                    //   child: _readyToShow
-                    //       // ====== SHOW 단계 ======
-                    //       ? _ShowButton(
-                    //           scale: 1.0,
-                    //           // 그룹이 방금 만들어진 뒤라면 true이지만, 안전하게 체크
-                    //           enabled: (c.currentGroups != null && c.currentGroups!.isNotEmpty),
-                    //           onTap: () {
-                    //             if (c.currentGroups == null || c.currentGroups!.isEmpty) {
-                    //               ScaffoldMessenger.of(context).showSnackBar(
-                    //                 const SnackBar(content: Text('먼저 “Make”로 그룹을 생성하세요.')),
-                    //               );
-                    //               return;
-                    //             }
-                    //             c.broadcastCurrentGroups(title: 'Find your Team !');
-                    //             ScaffoldMessenger.of(context).showSnackBar(
-                    //               const SnackBar(content: Text('디스플레이로 전송했습니다.')),
-                    //             );
-                    //             // 🔒 여기서 _readyToShow를 다시 false로 만들지 않음 → Make로 되돌아가지 않음
-                    //           },
-                    //           imageAsset: 'assets/logo_bird_show.png',
-                    //         )
-                    //       // ====== MAKE 단계 ======
-                    //       : _MakeButton(
-                    //           scale: 1.0,
-                    //           onTap: () async {
-                    //             await c.makeGroups();                // 1) 그룹 생성
-                    //             if (!mounted) return;
-                    //             setState(() => _readyToShow = true); // 2) 버튼을 Show로 전환(되돌리지 않음)
-                    //             // (선택) 안내 토스트
-                    //             // ScaffoldMessenger.of(context).showSnackBar(
-                    //             //   const SnackBar(content: Text('그룹을 만들었습니다. 이제 Show로 전송할 수 있어요.')),
-                    //             // );
-                    //           },
-                    //           imageAsset: 'assets/logo_bird_make.png',
-                    //         ),
-                    // ),
                   ],
                 ),
               ),
@@ -1093,12 +1087,20 @@ class _ShowButton extends StatefulWidget {
     required this.onTap,
     required this.imageAsset,
     this.enabled = true,
+
+    // 🔥 추가된 부분
+    required this.isShowing,      // true면 Show 상태, false면 Hide 상태
+    required this.onHide,         // Hide 눌렀을 때
   });
 
   final double scale;
-  final VoidCallback onTap;
+  final VoidCallback onTap;       // Show 눌렀을 때
+  final VoidCallback onHide;      // Hide 눌렀을 때
   final String imageAsset;
   final bool enabled;
+
+  // 🔥 추가된 부분
+  final bool isShowing;
 
   @override
   State<_ShowButton> createState() => _ShowButtonState();
@@ -1117,6 +1119,11 @@ class _ShowButtonState extends State<_ShowButton> {
     final h = _baseH * widget.scale;
     final scaleAnim = _down ? 0.98 : (_hover ? 1.03 : 1.0);
 
+    // 🔥 Show/Hide 이미지 결정
+    final asset = widget.isShowing
+        ? widget.imageAsset           // 원래 Show 이미지
+        : 'assets/logo_bird_hide.png'; // 새 hide 이미지 (없으면 fallback)
+
     return Opacity(
       opacity: widget.enabled ? 1.0 : 0.5,
       child: MouseRegion(
@@ -1127,7 +1134,12 @@ class _ShowButtonState extends State<_ShowButton> {
           onTapDown: (_) { if (widget.enabled) setState(() => _down = true); },
           onTapCancel: () => setState(() => _down = false),
           onTapUp: (_) => setState(() => _down = false),
-          onTap: widget.enabled ? widget.onTap : null,
+
+          // 🔥 토글 동작
+          onTap: widget.enabled
+              ? (widget.isShowing ? widget.onTap : widget.onHide)
+              : null,
+
           child: AnimatedScale(
             duration: const Duration(milliseconds: 120),
             scale: scaleAnim,
@@ -1138,7 +1150,7 @@ class _ShowButtonState extends State<_ShowButton> {
                 fit: StackFit.expand,
                 children: [
                   Image.asset(
-                    widget.imageAsset,
+                    asset,
                     fit: BoxFit.contain,
                     errorBuilder: (_, __, ___) => const Center(
                       child: Icon(Icons.visibility, size: 64, color: Colors.indigo),

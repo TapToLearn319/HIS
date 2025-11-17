@@ -159,65 +159,84 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
   bool _capturing = false;
 
   Future<void> _captureToSlot(String slotIndex) async {
-    if (_capturing) return;
-    _capturing = true;
+  if (_capturing) return;
+  _capturing = true;
 
-    final fs = FirebaseFirestore.instance;
-    final liveCol = fs.collection('hubs/$kHubId/liveByDevice');
+  final fs = FirebaseFirestore.instance;
+  final liveCol = fs.collection('hubs/$kHubId/liveByDevice');
 
-    bool handled = false;
-    bool dialogOpen = true;
-    bool skippedInitial = false; // ✅ 첫 스냅샷 무시
+  // 🔥 매핑 시작 시점
+  final startAtMs = DateTime.now().millisecondsSinceEpoch;
 
-    _capSub = liveCol.snapshots().listen(
-      (snap) async {
-        if (!skippedInitial) {
-          skippedInitial = true;
+  bool handled = false;
+  bool dialogOpen = true;
+  bool skippedInitial = false; // 첫 스냅샷 무시
+
+  _capSub = liveCol.snapshots().listen(
+    (snap) async {
+      if (!skippedInitial) {
+        skippedInitial = true;
+        debugPrint(
+          '[pair] initial snapshot: ${snap.docs.length} docs (ignored)',
+        );
+        return;
+      }
+      if (handled) return;
+      if (snap.docChanges.isEmpty) return;
+
+      for (final ch in snap.docChanges) {
+        if (ch.type == DocumentChangeType.removed) continue;
+        if (ch.doc.metadata.hasPendingWrites) continue;
+
+        // 🔥 liveByDevice 데이터에서 hubTs 읽기
+        final data = ch.doc.data();
+        final hubTs = data?['lastHubTs'] as int? ?? 0;
+
+        // 🔥 매핑 시작 전에 눌렸던 이벤트면 스킵
+        if (hubTs < startAtMs) {
           debugPrint(
-            '[pair] initial snapshot: ${snap.docs.length} docs (ignored)',
-          );
-          return;
+              '[pair] skip old event: hubTs=$hubTs < startAtMs=$startAtMs');
+          continue;
         }
-        if (handled) return;
-        if (snap.docChanges.isEmpty) return;
 
-        for (final ch in snap.docChanges) {
-          if (ch.type == DocumentChangeType.removed) continue;
-          if (ch.doc.metadata.hasPendingWrites) continue;
+        // 여기까지 왔으면 "지금 매핑을 시작한 이후에" 눌린 버튼
+        final devId = ch.doc.id;
+        handled = true;
 
-          final devId = ch.doc.id;
-          handled = true;
+        try {
+          await fs.doc('hubs/$kHubId/devices/$devId').set({
+            'studentId': studentId,
+            'slotIndex': slotIndex,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
 
-          try {
-            await fs.doc('hubs/$kHubId/devices/$devId').set({
-              'studentId': studentId,
-              'slotIndex': slotIndex,
-              'updatedAt': FieldValue.serverTimestamp(),
-            }, SetOptions(merge: true));
+          if (mounted) _toast('Linked $devId (slot $slotIndex)');
+        } catch (e) {
+          if (mounted) _toast('Register failed: $e');
+        } finally {
+          _capSub?.cancel();
+          _capSub = null;
+          _capTimer?.cancel();
+          _capTimer = null;
+          _capturing = false;
 
-            if (mounted) _toast('Linked $devId (slot $slotIndex)');
-          } catch (e) {
-            if (mounted) _toast('Register failed: $e');
-          } finally {
-            _capSub?.cancel();
-            _capSub = null;
-            _capTimer?.cancel();
-            _capTimer = null;
-            _capturing = false;
-
-            if (mounted && dialogOpen) {
-              try {
-                Navigator.of(context, rootNavigator: true).pop(true);
-              } catch (_) {}
-            }
+          if (mounted && dialogOpen) {
+            try {
+              Navigator.of(context, rootNavigator: true).pop(true);
+            } catch (_) {}
           }
-          break;
         }
-      },
-      onError: (e, st) {
-        if (mounted) _toast('Pairing stream error: $e');
-      },
-    );
+        break;
+      }
+    },
+    onError: (e, st) {
+      if (mounted) _toast('Pairing stream error: $e');
+    },
+  );
+
+  // 밑에 기존 dialog / timer 코드는 그대로 유지
+
+
 
     final waitFuture = showDialog<bool>(
       context: context,

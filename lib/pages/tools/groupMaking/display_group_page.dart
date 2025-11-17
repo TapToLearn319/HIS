@@ -15,43 +15,78 @@ class _GroupDisplayPageState extends State<GroupDisplayPage> {
   List<List<String>> groups = const [];
   StreamSubscription? _sub;
   @override
-  void initState() {
-    super.initState();
+void initState() {
+  super.initState();
 
-    // 채널 추신: 교사가 그룹을 만들 때마다 갱신됨
-    channel.onMessage.listen((msg) {
-      try {
-        final raw = msg.data;
-        final data =
-            (raw is String) ? jsonDecode(raw) : raw as Map<String, dynamic>;
-        if (data['type'] == 'grouping_result') {
-          final newTitle = (data['title'] as String?) ?? 'Find your Team !';
-          final List<List<String>> parsed = [];
-          final rawGroups = data['groups'];
-          if (rawGroups is List) {
-            for (final g in rawGroups) {
-              if (g is List) parsed.add(g.map((e) => e.toString()).toList());
-            }
-          }
-          if (mounted) {
-            setState(() {
-              title = newTitle;
-              groups = parsed;
-            });
-          }
-          else if ((data['type'] == 'tool_mode' && data['mode'] == 'grouping') ||
-               data['type'] == 'grouping_clear') {
+  channel.onMessage.listen((msg) {
+    try {
+      final raw = msg.data;
+      final data =
+          (raw is String) ? jsonDecode(raw) : raw as Map<String, dynamic>;
+
+      final type = data['type'];
+
+      if (type == 'grouping_clear') {
         if (mounted) {
           setState(() {
             title = 'Find your Team !';
             groups = const [];
           });
-          }
+        }
+        return;
+      }
+
+      // 🔵 1) 그룹 결과 표시
+      if (type == 'grouping_result') {
+        final newTitle = data['title'] ?? 'Find your Team !';
+
+        final List<List<String>> parsed = [];
+        final rawGroups = data['groups'];
+        if (rawGroups is List) {
+          for (final g in rawGroups) {
+            if (g is List) {
+              parsed.add(g.map((e) => e.toString()).toList());
+            }
           }
         }
-      } catch (_) {}
-    });
-  }
+
+        if (mounted) {
+          setState(() {
+            title = newTitle;
+            groups = parsed;
+          });
+        }
+        return;
+      }
+
+      // 🔵 2) Presenter가 Hide 눌렀을 때
+      if (type == 'grouping_hide') {
+        if (mounted) {
+          setState(() {
+            title = 'Find your Team !';
+            groups = const [];
+          });
+        }
+        return;
+      }
+
+      // 🔵 3) grouping 화면 진입 또는 Clear
+      if ((type == 'tool_mode' && data['mode'] == 'grouping') ||
+          type == 'grouping_clear') {
+        if (mounted) {
+          setState(() {
+            title = 'Find your Team !';
+            groups = const [];
+          });
+        }
+        return;
+      }
+    } catch (e) {
+      print('Error parsing message: $e');
+    }
+  });
+}
+
 
   @override
   Widget build(BuildContext context) {
