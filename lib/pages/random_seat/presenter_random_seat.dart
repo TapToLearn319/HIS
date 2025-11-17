@@ -313,11 +313,24 @@ class _RandomSeatPageState extends State<RandomSeatPage> {
   bool _didBootstrap = false;
 
   @override
-  void initState() {
-    super.initState();
-    // 첫 프레임 이후에 한 번만 강제로 show=false
-    WidgetsBinding.instance.addPostFrameCallback((_) => _hideDisplayOnEnter());
-  }
+void initState() {
+  super.initState();
+
+  // 첫 프레임 이후에 한 번만 강제로 show=false
+  WidgetsBinding.instance.addPostFrameCallback((_) => _hideDisplayOnEnter());
+
+  // 🔥 Safety Guard: 웹에서 _working이 True로 남을 경우 자동 해제
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    Future.delayed(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      if (_working) {
+        // 혹시 초기 Firestore 요청이 실패하거나 중단되어도
+        // UI가 덮이지 않도록 자동으로 해제
+        setState(() => _working = false);
+      }
+    });
+  });
+}
 
   Future<void> _hideDisplayOnEnter() async {
     if (_hidOnEnter || !mounted) return;

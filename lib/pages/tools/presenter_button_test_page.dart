@@ -53,13 +53,13 @@ String stepKey(_StepKind s) {
 String _headlineOf(_StepKind step) {
   switch (step) {
     case _StepKind.single1st:
-      return 'Press the 1st Button shortly';
+      return 'Press the Green Button shortly';
     case _StepKind.single2nd:
-      return 'Press the 2nd Button shortly';
+      return 'Press the Purple Button shortly';
     case _StepKind.hold1st:
-      return 'Press the 1st Button for more than 2 seconds';
+      return 'Press the Green Button for more than 2 seconds';
     case _StepKind.hold2nd:
-      return 'Press the 2nd Button for more than 2 seconds';
+      return 'Press the Purple Button for more than 2 seconds';
     // case _StepKind.onetwoone:
     //   return 'Press the [1st - 2nd - 1st]';
   }
