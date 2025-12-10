@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../../../../main.dart';
+import 'package:audioplayers/audioplayers.dart';
 // import 'package:project/main.dart' as app show channel;
 
 class TimerPage extends StatefulWidget {
@@ -29,12 +30,17 @@ class _TimerPageState extends State<TimerPage> {
   int _initialTotalSeconds = 0;
   Timer? _timer;
 
+  late final AudioPlayer _player;
+  bool _warningPlayed = false;
+
   String get _birdAsset => isRunning ? "assets/logo_bird_stop.png" : "assets/logo_bird_start.png";
 
   @override
   void initState() {
     super.initState();
     channel.postMessage(jsonEncode({'type': 'tool_mode', 'mode': 'timer'}));
+
+    _player = AudioPlayer();
   }
 
   void _broadcastTimerState() {
@@ -49,13 +55,28 @@ class _TimerPageState extends State<TimerPage> {
 
   void _startTimer() {
     if ((minutes == 0 && seconds == 0) || isRunning) return;
+
+    final total = minutes * 60 + seconds;
+    
     setState(() {
       isRunning = true;
-      _initialTotalSeconds = minutes * 60 + seconds;
+      if (total > 10) {
+        _warningPlayed = false;
+      }
+
+      _initialTotalSeconds = total;
     });
+    
     _broadcastTimerState();
 
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final total = minutes * 60 + seconds;
+
+      if (isRunning && total <= 10 && total > 0 && !_warningPlayed) {
+        _warningPlayed = true;
+        _player.play(AssetSource("sound/timer_warning.mp3"));
+      }
+
       if (minutes == 0 && seconds == 0) {
         _finishTimer();
       } else {
@@ -87,13 +108,19 @@ class _TimerPageState extends State<TimerPage> {
       minutes = 0;
       seconds = 0;
       _initialTotalSeconds = 0;
+      _warningPlayed = false;
     });
     _broadcastTimerState();
   }
 
   void _finishTimer() {
     _timer?.cancel();
-    setState(() => isRunning = false);
+    setState(() {
+      isRunning = false;
+      _warningPlayed = false;
+    });
+
+    _player.play(AssetSource("sound/timer_finish.mp3"));
     _broadcastTimerState();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Time is up!')),
@@ -103,6 +130,7 @@ class _TimerPageState extends State<TimerPage> {
   @override
   void dispose() {
     _timer?.cancel();
+    _player.dispose();
     super.dispose();
   }
 
@@ -147,6 +175,7 @@ class _TimerPageState extends State<TimerPage> {
         seconds = s;
       }
       _initialTotalSeconds = minutes * 60 + seconds;
+      _warningPlayed = false;
     });
     _broadcastTimerState();
   }
