@@ -97,7 +97,7 @@ class _DisplayHomePageState extends State<DisplayHomePage> {
 
             final liveStream =
                 fs.collection('hubs/$kHubId/liveByDevice').snapshots();
-            final devicesStream = fs.collection('devices').snapshots();
+            final devicesStream = fs.collection('hubs/$kHubId/devices').snapshots();
 
             return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
               stream: sessionMeta,
