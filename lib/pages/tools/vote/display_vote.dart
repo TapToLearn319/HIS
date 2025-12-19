@@ -242,7 +242,7 @@ void _attachVoteDoc(String sid, String voteId) {
     }).toList();
 
     setState(() {
-      // ✅ stopped일 때는 기존 _opts의 votes를 유지
+      _title = title;
       if (status == 'stopped' && _opts.isNotEmpty) {
         _opts = _opts; // 유지 (덮지 않음)
       } else {
