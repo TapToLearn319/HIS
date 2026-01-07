@@ -302,16 +302,24 @@ class _DisplayRandomDrawPageState extends State<DisplayRandomDrawPage>
                                             (row * maxPerRow + j)
                                         ? _zoomControllers[row * maxPerRow + j]
                                         : const AlwaysStoppedAnimation(1.0),
-                                child: Text(
-                                  mode == 'ordering'
-                                      ? '${row * maxPerRow + j + 1}. ${grouped[row][j]}'
-                                      : grouped[row][j],
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: const Color(0xFF001A36),
-                                    fontSize: fontSize,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 2.0,
+                                child: SizedBox(
+                                  width: 320 * dynamicScale,
+                                  height: fontSize * 1.6, // ⭐ 줄 높이 고정
+                                  child: Center(
+                                    child: Text(
+                                      mode == 'ordering'
+                                          ? '${row * maxPerRow + j + 1}. ${grouped[row][j]}'
+                                          : grouped[row][j],
+                                      textAlign: TextAlign.center,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: const Color(0xFF001A36),
+                                        fontSize: fontSize,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 2.0,
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),

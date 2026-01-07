@@ -860,14 +860,22 @@ class _PresenterRandomDrawPageState extends State<PresenterRandomDrawPage> {
                                         width: 200,
                                         child: TextFormField(
                                           controller:
-                                              _type == DrawType.lots
-                                                  ? _numToPickCtrl
-                                                  : _numToOrderCtrl,
+                                              _type == DrawType.lots ? _numToPickCtrl : _numToOrderCtrl,
                                           keyboardType: TextInputType.number,
                                           inputFormatters: [
-                                            FilteringTextInputFormatter
-                                                .digitsOnly,
+                                            FilteringTextInputFormatter.digitsOnly,
                                           ],
+
+                                          // 🔹 입력 즉시 validation 켜기
+                                          autovalidateMode: _autoValidate,
+                                          onChanged: (_) {
+                                            if (_autoValidate == AutovalidateMode.disabled) {
+                                              setState(() {
+                                                _autoValidate = AutovalidateMode.always;
+                                              });
+                                            }
+                                          },
+
                                           style: const TextStyle(
                                             color: Color(0xFF001A36),
                                             fontSize: 24,
@@ -881,63 +889,69 @@ class _PresenterRandomDrawPageState extends State<PresenterRandomDrawPage> {
                                             ),
                                             filled: true,
                                             fillColor: Colors.white,
-                                            contentPadding:
-                                                const EdgeInsets.symmetric(
-                                                  horizontal: 16,
-                                                  vertical: 14,
-                                                ),
+                                            contentPadding: const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 14,
+                                            ),
                                             enabledBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(10),
+                                              borderRadius: BorderRadius.circular(10),
                                               borderSide: const BorderSide(
                                                 color: Color(0xFFD2D2D2),
                                                 width: 1,
                                               ),
                                             ),
                                             focusedBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(10),
+                                              borderRadius: BorderRadius.circular(10),
                                               borderSide: const BorderSide(
                                                 color: Color(0xFF000000),
                                                 width: 1,
                                               ),
                                             ),
                                             errorBorder: OutlineInputBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(10),
+                                              borderRadius: BorderRadius.circular(10),
                                               borderSide: const BorderSide(
                                                 color: Colors.red,
                                                 width: 1.5,
                                               ),
                                             ),
-                                            focusedErrorBorder:
-                                                OutlineInputBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(10),
-                                                  borderSide: const BorderSide(
-                                                    color: Colors.red,
-                                                    width: 1.5,
-                                                  ),
-                                                ),
+                                            focusedErrorBorder: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(10),
+                                              borderSide: const BorderSide(
+                                                color: Colors.red,
+                                                width: 1.5,
+                                              ),
+                                            ),
                                           ),
+
+                                          // 🔹 validator 순서 중요!
                                           validator: (v) {
                                             final raw = (v ?? '').trim();
                                             if (raw.isEmpty) {
                                               return 'Please enter a number.';
                                             }
+
                                             final n = int.tryParse(raw);
                                             if (n == null) {
                                               return 'Numbers only.';
                                             }
+
                                             if (n < 1) {
                                               return 'Must be at least 1.';
                                             }
-                                            if (n > totalCount) {
+
+                                            // ✅ 항상 즉시 뜨게 할 최대 제한
+                                            if (n > 15) {
+                                              return 'Maximum is 15.';
+                                            }
+
+                                            // ✅ totalCount는 나중에 검사 (초기 0 문제 방지)
+                                            if (totalCount > 0 && n > totalCount) {
                                               return 'Cannot exceed $totalCount.';
                                             }
+
                                             return null;
                                           },
-                                        ),
+                                        )
                                       ),
 
                                       const SizedBox(height: 20),
@@ -1016,12 +1030,14 @@ class _PresenterRandomDrawPageState extends State<PresenterRandomDrawPage> {
                                     if (hubId == null) return;
 
                                     // 폼 검증
+                                    if (_autoValidate != AutovalidateMode.always) {
+                                      setState(() {
+                                        _autoValidate = AutovalidateMode.always;
+                                      });
+                                    }
+
+                                    // 🔑 그 다음 validate
                                     if (!_formKey.currentState!.validate()) {
-                                      setState(
-                                        () =>
-                                            _autoValidate =
-                                                AutovalidateMode.always,
-                                      );
                                       return;
                                     }
 
