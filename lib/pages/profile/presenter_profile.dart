@@ -34,26 +34,27 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     final ctrl = TextEditingController();
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Add student'),
-        content: TextField(
-          controller: ctrl,
-          decoration: const InputDecoration(
-            labelText: 'Student name',
-            border: OutlineInputBorder(),
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Add student'),
+            content: TextField(
+              controller: ctrl,
+              decoration: const InputDecoration(
+                labelText: 'Student name',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Add'),
+              ),
+            ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Add'),
-          ),
-        ],
-      ),
     );
     if (ok != true) return;
 
@@ -61,18 +62,15 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     if (name.isEmpty) return;
 
     final fs = FirebaseFirestore.instance;
-    await fs
-        .collection('hubs')
-        .doc(kHubId)
-        .collection('students')
-        .add({
-          'name': name,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+    await fs.collection('hubs').doc(kHubId).collection('students').add({
+      'name': name,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('Added: $name')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Added: $name')));
   }
 
   @override
@@ -81,20 +79,20 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
     final width = MediaQuery.sizeOf(context).width;
 
     // 학생 목록 정렬 + 검색 필터
-    final students = sp.students.entries
-        .map((e) => MapEntry(e.key, e.value))
-        .toList()
-      ..sort((a, b) => (a.value['name'] ?? '')
-          .toString()
-          .toLowerCase()
-          .compareTo((b.value['name'] ?? '').toString().toLowerCase()));
+    final students =
+        sp.students.entries.map((e) => MapEntry(e.key, e.value)).toList()..sort(
+          (a, b) => (a.value['name'] ?? '').toString().toLowerCase().compareTo(
+            (b.value['name'] ?? '').toString().toLowerCase(),
+          ),
+        );
 
-    final filtered = (_query.trim().isEmpty)
-        ? students
-        : students.where((e) {
-            final n = (e.value['name'] ?? '').toString().toLowerCase();
-            return n.contains(_query.trim().toLowerCase());
-          }).toList();
+    final filtered =
+        (_query.trim().isEmpty)
+            ? students
+            : students.where((e) {
+              final n = (e.value['name'] ?? '').toString().toLowerCase();
+              return n.contains(_query.trim().toLowerCase());
+            }).toList();
 
     return AppScaffold(
       selectedIndex: 1,
@@ -106,7 +104,11 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: ElevatedButton.icon(
                 onPressed: _addStudentDialog,
-                icon: const Icon(Icons.person_add_alt_1, size: 18, color: Colors.white),
+                icon: const Icon(
+                  Icons.person_add_alt_1,
+                  size: 18,
+                  color: Colors.white,
+                ),
                 label: const Text(
                   'Add Student',
                   style: TextStyle(
@@ -117,7 +119,10 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFF44A0FF),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
@@ -133,13 +138,12 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
             children: [
               // ── Header ─────────────────────────────────────
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                decoration: const BoxDecoration(color: Color(0xFFF6FAFF)),
-                child: Row(
-                  children: const [
-                    Spacer(),
-                  ],
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
                 ),
+                decoration: const BoxDecoration(color: Color(0xFFF6FAFF)),
+                child: Row(children: const [Spacer()]),
               ),
 
               // ── Tabs ────────────────────────────────────────
@@ -167,12 +171,13 @@ class _PresenterMainPageState extends State<PresenterMainPage> {
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                  child: _tab == 'students'
-                      ? _StudentsGrid(
-                          cols: _colsForWidth(width),
-                          students: filtered,
-                        )
-                      : const _GroupsPlaceholder(),
+                  child:
+                      _tab == 'students'
+                          ? _StudentsGrid(
+                            cols: _colsForWidth(width),
+                            students: filtered,
+                          )
+                          : const _GroupsPlaceholder(),
                 ),
               ),
             ],
@@ -197,7 +202,8 @@ class TabChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color color = selected ? const Color(0xFF001A36) : const Color(0xFFA2A2A2);
+    final Color color =
+        selected ? const Color(0xFF001A36) : const Color(0xFFA2A2A2);
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: onTap,
@@ -281,11 +287,8 @@ class _ClassCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: fs
-          .collection('hubs')
-          .doc(kHubId)
-          .collection('students')
-          .snapshots(),
+      stream:
+          fs.collection('hubs').doc(kHubId).collection('students').snapshots(),
       builder: (_, snap) {
         int total = 0;
         if (snap.hasData) {
@@ -372,12 +375,13 @@ class _StudentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = (data['name'] as String?) ?? '(no name)';
-    final pointsStream = FirebaseFirestore.instance
-        .collection('hubs')
-        .doc(kHubId)
-        .collection('students')
-        .doc(studentId)
-        .snapshots();
+    final pointsStream =
+        FirebaseFirestore.instance
+            .collection('hubs')
+            .doc(kHubId)
+            .collection('students')
+            .doc(studentId)
+            .snapshots();
 
     return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
       stream: pointsStream,
@@ -386,11 +390,12 @@ class _StudentCard extends StatelessWidget {
 
         return InkWell(
           borderRadius: BorderRadius.circular(10),
-          onTap: () => Navigator.pushNamed(
-            context,
-            '/profile/student',
-            arguments: {'id': studentId},
-          ),
+          onTap:
+              () => Navigator.pushNamed(
+                context,
+                '/profile/student',
+                arguments: {'id': studentId},
+              ),
           child: Stack(
             children: [
               // 카드 본체
@@ -422,7 +427,9 @@ class _StudentCard extends StatelessWidget {
                             ),
                             const SizedBox(height: 10),
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 8),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
                               child: SizedBox(
                                 width: 112,
                                 child: Text(

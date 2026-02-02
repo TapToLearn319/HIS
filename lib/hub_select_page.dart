@@ -1,54 +1,52 @@
-// lib/login_page.dart
+// lib/hub_select_page.dart
+// 로그인 후 허브 선택 화면 (기존 첫 페이지)
 import 'dart:html' as html;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:provider/provider.dart';
 import 'provider/hub_provider.dart';
+import 'provider/students_provider.dart';
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({Key? key}) : super(key: key);
+class HubSelectPage extends StatefulWidget {
+  const HubSelectPage({super.key});
+
   @override
-  _LoginPageState createState() => _LoginPageState();
+  State<HubSelectPage> createState() => _HubSelectPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _HubSelectPageState extends State<HubSelectPage> {
   String? _selectedHubId;
 
-  // 드롭다운/필드 공통 색(시스템 테마 무시, 항상 밝게/선명하게)
-  static const _labelColor = Color(0xFF0F172A); // slate-900
-  static const _textColor = Color(0xFF111827); // neutral-900
-  static const _hintColor = Color(0xFF6B7280); // gray-500
+  static const _labelColor = Color(0xFF0F172A);
+  static const _textColor = Color(0xFF111827);
+  static const _hintColor = Color(0xFF6B7280);
   static const _bgColor = Colors.white;
-  static const _borderColor = Color(0xFFBFD6FF); // 밝은 파랑 보더
-  static const _focusBorderColor = Color(0xFF7CA6FF); // 포커스 파랑
-  static const _dropdownIconColor = Color(0xFF1F2937); // gray-800
-  static const _menuItemHover = Color(0xFFF2F6FF); // 아주 옅은 파랑
-
-  // 버튼 색 유지
+  static const _borderColor = Color(0xFFBFD6FF);
+  static const _focusBorderColor = Color(0xFF7CA6FF);
+  static const _dropdownIconColor = Color(0xFF1F2937);
   static const _ctaColor = Color(0xFF9370F7);
 
-  Future<void> _continueAsGuest() async {
+  Future<void> _continueToTools() async {
     if (_selectedHubId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('허브를 먼저 선택하세요.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('허브를 먼저 선택하세요.')),
+      );
       return;
     }
     final hubId = _selectedHubId!;
 
     context.read<HubProvider>().setHub(hubId);
+    context.read<StudentsProvider>().listenHub(hubId);
 
     if (kIsWeb) {
       final origin = html.window.location.origin;
       final path = html.window.location.pathname;
-
       html.window.localStorage['hubId'] = hubId;
-
       final displayUrl = '$origin$path?view=display&route=/tools&hub=$hubId';
       html.window.open(displayUrl, 'displayWindow', 'width=1024,height=768');
     }
 
+    if (!mounted) return;
     Navigator.pushReplacementNamed(context, '/tools');
   }
 
@@ -65,11 +63,9 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  // 고정 UI + 허브 선택 드롭다운
   Widget _buildFixedUI() {
     return Stack(
       children: [
-        // 좌측 큰 원
         Positioned(
           left: -98,
           top: 175,
@@ -82,7 +78,6 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ),
         ),
-        // 우측 큰 원
         Positioned(
           right: -192,
           top: -262,
@@ -95,15 +90,14 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ),
         ),
-
         Align(
           alignment: Alignment.center,
           child: LayoutBuilder(
             builder: (context, c) {
-              final w = c.maxWidth, h = c.maxHeight;
+              final w = c.maxWidth;
+              final h = c.maxHeight;
               final scale =
                   (w / 1440.0 < h / 720.0) ? (w / 1440.0) : (h / 720.0);
-
               final logoW = 647 * scale;
               final logoH = 509 * scale;
               final gap = 12 * scale;
@@ -112,7 +106,6 @@ class _LoginPageState extends State<LoginPage> {
               final radius = 28 * scale;
               final fontZ = 18 * scale;
 
-              // 필드/드롭다운만 로컬 테마로 강제(항상 밝은 톤)
               final localTheme = Theme.of(context).copyWith(
                 inputDecorationTheme: InputDecorationTheme(
                   filled: true,
@@ -148,8 +141,6 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
                 ),
-                // 드롭다운 메뉴(팝업)도 밝은 톤으로 강제
-                canvasColor: _bgColor, // 구형 위젯 호환
                 dropdownMenuTheme: const DropdownMenuThemeData(
                   menuStyle: MenuStyle(
                     backgroundColor: WidgetStatePropertyAll(_bgColor),
@@ -170,7 +161,6 @@ class _LoginPageState extends State<LoginPage> {
                   mainAxisSize: MainAxisSize.min,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    // 로고
                     ClipRect(
                       child: Align(
                         alignment: Alignment.topCenter,
@@ -184,8 +174,6 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     SizedBox(height: gap),
-
-                    // 허브 선택 드롭다운
                     SizedBox(
                       width: btnW,
                       child: DropdownButtonFormField<String>(
@@ -217,7 +205,7 @@ class _LoginPageState extends State<LoginPage> {
                           Icons.expand_more,
                           color: _dropdownIconColor,
                         ),
-                        dropdownColor: _bgColor, // 메뉴 배경을 항상 밝게
+                        dropdownColor: _bgColor,
                         style: const TextStyle(
                           color: _textColor,
                           fontSize: 16,
@@ -225,20 +213,17 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                         decoration: const InputDecoration(
                           labelText: '허브 선택',
-                          // hintText: '허브를 선택하세요',
                         ),
                         menuMaxHeight: 220,
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
                     SizedBox(height: gap),
-
-                    // 시작 버튼
                     SizedBox(
                       width: btnW,
                       height: btnH,
                       child: ElevatedButton(
-                        onPressed: _continueAsGuest,
+                        onPressed: _continueToTools,
                         style: ButtonStyle(
                           backgroundColor: const WidgetStatePropertyAll(
                             _ctaColor,
@@ -269,9 +254,7 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ),
                     ),
-
                     SizedBox(height: 10 * scale),
-
                     Opacity(
                       opacity: 0.85,
                       child: Text(

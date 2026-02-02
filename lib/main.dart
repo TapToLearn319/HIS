@@ -27,7 +27,8 @@ import 'pages/profile/presenter_student_page.dart';
 import 'pages/profile/presenter_class.dart';
 
 import 'l10n/app_localizations.dart';
-import 'login.dart';
+import 'auth_login_page.dart';
+import 'hub_select_page.dart';
 import 'pages/profile/presenter_profile.dart';
 import 'pages/home/presenter_home_page.dart';
 import 'pages/home/display_home_page.dart';
@@ -151,6 +152,8 @@ ThemeData buildAppTheme({required Brightness brightness}) {
 
 final bool isDisplay = Uri.base.queryParameters['view'] == 'display';
 final String initialRoute = Uri.base.queryParameters['route'] ?? '/login';
+// Presenter 앱 첫 진입 시 로그인 게이트(/) → 로그인(/login) 또는 허브 선택(/hub-select)
+final String presenterInitialRoute = '/';
 final html.BroadcastChannel channel = html.BroadcastChannel('presentation');
 final ValueNotifier<int> slideIndex = ValueNotifier<int>(0);
 
@@ -196,12 +199,7 @@ Future<void> main() async {
     print('   • ${doc.id} → ${doc.data()}');
   }
 
-  // ▼ 허브 선택값 주입: URL > localStorage > 기본값
-  final String? hubFromUrl = Uri.base.queryParameters['hub'];
-  final String? hubFromStorage = html.window.localStorage['hubId'];
-  final String hubId = hubFromUrl ?? hubFromStorage ?? 'hub-001';
-  print('🔧 hubId resolved: $hubId (url=$hubFromUrl, storage=$hubFromStorage)');
-
+  // ▼ Presenter: 로그인 후 허브 선택에서 setHub. Display: URL 또는 브로드캐스트에서 setHub.
   runApp(
     MultiProvider(
       providers: [
@@ -222,14 +220,10 @@ Future<void> main() async {
           create: (_) => DebugEventsProvider(FirebaseFirestore.instance),
         ),
         ChangeNotifierProvider(
-          create:
-              (_) =>
-                  StudentsProvider(FirebaseFirestore.instance)
-                    ..listenHub(hubId),
+          create: (_) => StudentsProvider(FirebaseFirestore.instance),
         ),
         ChangeNotifierProvider(create: (_) => AppSettingsProvider()),
-        // ★ HubProvider 초기값을 세팅 + 이후 변경은 브로드캐스트로 전파
-        ChangeNotifierProvider(create: (_) => HubProvider()..setHub(hubId)),
+        ChangeNotifierProvider(create: (_) => HubProvider()),
       ],
       child: isDisplay ? DisplayApp() : PresenterApp(),
     ),
@@ -262,12 +256,15 @@ class PresenterApp extends StatelessWidget {
       ],
       supportedLocales: const [Locale('en'), Locale('ko')],
 
-      initialRoute: initialRoute,
+      initialRoute: presenterInitialRoute,
       navigatorObservers: [_observer],
-      // ★ 허브 변경 시 디스플레이로 브로드캐스트
       builder: (context, child) => HubChannelEmitter(child: child),
       routes: {
-        '/login': (_) => LoginPage(),
+        '/': (_) => const AuthGatePage(),
+        '/login': (_) => const AuthLoginPage(),
+        '/signup': (_) => const AuthSignUpPage(),
+        '/verify-email': (_) => const VerifyEmailPage(),
+        '/hub-select': (_) => const HubSelectPage(),
         '/home': (_) => PresenterHomePage(),
         '/tools/quiz': (_) => PresenterQuizPage(),
         '/quiz/create-topic': (_) => const CreateTopicPage(),
@@ -306,6 +303,13 @@ class _DisplayAppState extends State<DisplayApp> {
   @override
   void initState() {
     super.initState();
+    // Display 창이 ?hub=xxx 로 열렸을 때 허브 설정
+    final hubFromUrl = Uri.base.queryParameters['hub'];
+    if (hubFromUrl != null && hubFromUrl.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.read<HubProvider>().setHub(hubFromUrl);
+      });
+    }
     channel.onMessage.listen((event) {
       final data = jsonDecode(event.data as String);
       if (data['type'] == 'route') {
