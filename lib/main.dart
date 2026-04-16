@@ -8,6 +8,7 @@ import 'package:project/pages/random_seat/display_random_seat.dart';
 import 'package:project/pages/random_seat/random_seat_files.dart';
 import 'package:project/pages/random_seat/random_seat_create.dart';
 import 'package:project/pages/random_seat/presenter_random_seat.dart';
+import 'package:project/pages/statistic/statistic_list_page.dart';
 import 'package:project/pages/tools/draw/display_random_draw.dart';
 import 'package:project/pages/tools/draw/presenter_random_draw.dart';
 import 'package:project/pages/tools/groupMaking/display_group_page.dart';
@@ -287,6 +288,7 @@ class PresenterApp extends StatelessWidget {
         '/tools/random_seat/create'   : (_) => const RandomSeatCreatePage(),
         '/tools/random_seat/detail': (_) => const RandomSeatPage(),
         '/tools/draw': (_) => const PresenterRandomDrawPage(),
+        '/statistic': (_) => const StatisticListPage(),
       },
     );
   }
