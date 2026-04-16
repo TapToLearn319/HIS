@@ -81,21 +81,21 @@ const List<ScoreType> kActivityTypes = [
     id: 'quiz',
     label: 'Quiz',
     emoji: '👥',
-    value: 3,
+    value: 1,
     asset: 'assets/score/logo_bird_quiz.png',
   ),
   ScoreType(
     id: 'voting',
     label: 'Voting',
     emoji: '🚶',
-    value: 4,
+    value: 1,
     asset: 'assets/score/logo_bird_voting.png',
   ),
   ScoreType(
     id: 'team',
     label: 'Team Activities',
     emoji: '🙂',
-    value: 5,
+    value: 1,
     asset: 'assets/score/logo_bird_team-activites.png',
   ),
 ];
@@ -159,84 +159,83 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
   bool _capturing = false;
 
   Future<void> _captureToSlot(String slotIndex) async {
-  if (_capturing) return;
-  _capturing = true;
+    if (_capturing) return;
+    _capturing = true;
 
-  final fs = FirebaseFirestore.instance;
-  final liveCol = fs.collection('hubs/$kHubId/liveByDevice');
+    final fs = FirebaseFirestore.instance;
+    final liveCol = fs.collection('hubs/$kHubId/liveByDevice');
 
-  // 🔥 매핑 시작 시점
-  final startAtMs = DateTime.now().millisecondsSinceEpoch;
+    // 🔥 매핑 시작 시점
+    final startAtMs = DateTime.now().millisecondsSinceEpoch;
 
-  bool handled = false;
-  bool dialogOpen = true;
-  bool skippedInitial = false; // 첫 스냅샷 무시
+    bool handled = false;
+    bool dialogOpen = true;
+    bool skippedInitial = false; // 첫 스냅샷 무시
 
-  _capSub = liveCol.snapshots().listen(
-    (snap) async {
-      if (!skippedInitial) {
-        skippedInitial = true;
-        debugPrint(
-          '[pair] initial snapshot: ${snap.docs.length} docs (ignored)',
-        );
-        return;
-      }
-      if (handled) return;
-      if (snap.docChanges.isEmpty) return;
-
-      for (final ch in snap.docChanges) {
-        if (ch.type == DocumentChangeType.removed) continue;
-        if (ch.doc.metadata.hasPendingWrites) continue;
-
-        // 🔥 liveByDevice 데이터에서 hubTs 읽기
-        final data = ch.doc.data();
-        final hubTs = data?['lastHubTs'] as int? ?? 0;
-
-        // 🔥 매핑 시작 전에 눌렸던 이벤트면 스킵
-        if (hubTs < startAtMs) {
+    _capSub = liveCol.snapshots().listen(
+      (snap) async {
+        if (!skippedInitial) {
+          skippedInitial = true;
           debugPrint(
-              '[pair] skip old event: hubTs=$hubTs < startAtMs=$startAtMs');
-          continue;
+            '[pair] initial snapshot: ${snap.docs.length} docs (ignored)',
+          );
+          return;
         }
+        if (handled) return;
+        if (snap.docChanges.isEmpty) return;
 
-        // 여기까지 왔으면 "지금 매핑을 시작한 이후에" 눌린 버튼
-        final devId = ch.doc.id;
-        handled = true;
+        for (final ch in snap.docChanges) {
+          if (ch.type == DocumentChangeType.removed) continue;
+          if (ch.doc.metadata.hasPendingWrites) continue;
 
-        try {
-          await fs.doc('hubs/$kHubId/devices/$devId').set({
-            'studentId': studentId,
-            'slotIndex': slotIndex,
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+          // 🔥 liveByDevice 데이터에서 hubTs 읽기
+          final data = ch.doc.data();
+          final hubTs = data?['lastHubTs'] as int? ?? 0;
 
-          if (mounted) _toast('Linked $devId (slot $slotIndex)');
-        } catch (e) {
-          if (mounted) _toast('Register failed: $e');
-        } finally {
-          _capSub?.cancel();
-          _capSub = null;
-          _capTimer?.cancel();
-          _capTimer = null;
-          _capturing = false;
-
-          if (mounted && dialogOpen) {
-            try {
-              Navigator.of(context, rootNavigator: true).pop(true);
-            } catch (_) {}
+          // 🔥 매핑 시작 전에 눌렸던 이벤트면 스킵
+          if (hubTs < startAtMs) {
+            debugPrint(
+              '[pair] skip old event: hubTs=$hubTs < startAtMs=$startAtMs',
+            );
+            continue;
           }
+
+          // 여기까지 왔으면 "지금 매핑을 시작한 이후에" 눌린 버튼
+          final devId = ch.doc.id;
+          handled = true;
+
+          try {
+            await fs.doc('hubs/$kHubId/devices/$devId').set({
+              'studentId': studentId,
+              'slotIndex': slotIndex,
+              'updatedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+
+            if (mounted) _toast('Linked $devId (slot $slotIndex)');
+          } catch (e) {
+            if (mounted) _toast('Register failed: $e');
+          } finally {
+            _capSub?.cancel();
+            _capSub = null;
+            _capTimer?.cancel();
+            _capTimer = null;
+            _capturing = false;
+
+            if (mounted && dialogOpen) {
+              try {
+                Navigator.of(context, rootNavigator: true).pop(true);
+              } catch (_) {}
+            }
+          }
+          break;
         }
-        break;
-      }
-    },
-    onError: (e, st) {
-      if (mounted) _toast('Pairing stream error: $e');
-    },
-  );
+      },
+      onError: (e, st) {
+        if (mounted) _toast('Pairing stream error: $e');
+      },
+    );
 
-  // 밑에 기존 dialog / timer 코드는 그대로 유지
-
-
+    // 밑에 기존 dialog / timer 코드는 그대로 유지
 
     final waitFuture = showDialog<bool>(
       context: context,
@@ -388,155 +387,157 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
                   (snap.data?.data()?['name'] as String?) ?? '(no name)';
               final pts = (snap.data?.data()?['points'] as num?)?.toInt() ?? 0;
 
-              // ⬇️ StreamBuilder 안 return 부분 교체
               return Padding(
                 padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
                 child: LayoutBuilder(
                   builder: (context, box) {
-                    const bp = 1000.0; // 브레이크포인트
-                    final isNarrow = box.maxWidth < bp;
+                    const widthBp = 1000.0;
+                    const heightBp = 760.0;
+                    final isNarrow = box.maxWidth < widthBp || box.maxHeight < heightBp;
 
                     // 공통: 왼쪽 패널(아바타/매핑/삭제)
-                    Widget leftPanel = SingleChildScrollView(
-                      // ✅ 세로 오버플로우 방지
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Stack(
-                            children: [
-                              ConstrainedBox(
-                                // ✅ 고정값 대신 최대치 제한
-                                constraints: const BoxConstraints(
-                                  maxWidth: _avatarW,
-                                  maxHeight: _avatarH,
-                                ),
-                                child: const SizedBox(
-                                  width: _avatarW,
-                                  height: _avatarH,
-                                  child: DecoratedBox(
-                                    decoration: BoxDecoration(
-                                      color: Color(0xFFF6FAFF),
-                                      image: DecorationImage(
-                                        image: AssetImage(
-                                          'assets/logo_bird.png',
-                                        ),
-                                        fit: BoxFit.contain,
-                                        alignment: Alignment.center,
-                                      ),
+                    Widget leftPanel = Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Stack(
+                          children: [
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(
+                                maxWidth: _avatarW,
+                                maxHeight: _avatarH,
+                              ),
+                              child: const SizedBox(
+                                width: _avatarW,
+                                height: _avatarH,
+                                child: DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: Color(0xFFF6FAFF),
+                                    image: DecorationImage(
+                                      image: AssetImage('assets/logo_bird.png'),
+                                      fit: BoxFit.contain,
+                                      alignment: Alignment.center,
                                     ),
                                   ),
                                 ),
                               ),
-                              Positioned(
-                                right: 12,
-                                top: 12,
-                                child: _PointBadge(value: pts),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 18),
-                          ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 260),
-                            child: Text(
-                              name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: Color(0xFF001A36),
-                                fontSize: 39,
-                                fontWeight: FontWeight.w500,
-                                height: 1.0,
-                              ),
+                            ),
+                            Positioned(
+                              right: 12,
+                              top: 12,
+                              child: _PointBadge(value: pts),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 260),
+                          child: Text(
+                            name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Color(0xFF001A36),
+                              fontSize: 39,
+                              fontWeight: FontWeight.w500,
+                              height: 1.0,
                             ),
                           ),
-                          const SizedBox(height: 8),
-                          TextButton(
-                            onPressed: () {
-                              Navigator.pushNamed(
-                                context,
-                                '/profile/student/details',
-                                arguments: {'id': studentId},
-                              );
-                            },
-                            child: const Text(
-                              'View score details',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                color: Color(0xFF868C98),
-                                fontSize: 23,
-                                fontWeight: FontWeight.w500,
-                                decoration: TextDecoration.underline,
-                                decorationStyle: TextDecorationStyle.solid,
-                                decorationColor: Color(0xFF868C98),
-                                height: 1.0,
-                              ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pushNamed(
+                              context,
+                              '/profile/student/details',
+                              arguments: {'id': studentId},
+                            );
+                          },
+                          child: const Text(
+                            'View score details',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Color(0xFF868C98),
+                              fontSize: 23,
+                              fontWeight: FontWeight.w500,
+                              decoration: TextDecoration.underline,
+                              decorationStyle: TextDecorationStyle.solid,
+                              decorationColor: Color(0xFF868C98),
+                              height: 1.0,
                             ),
                           ),
-                          const SizedBox(height: 32),
-
-                          // 버튼 연결
-                          _DeviceMappingRow(
-                            studentId: studentId,
-                            onLink1: () => _captureToSlot('1'),
-                            onLink2: () => _captureToSlot('2'),
-                          ),
-                          const SizedBox(height: 12),
-
-                          // 삭제
-                          Center(
-                            child: IconButton(
-                              tooltip: 'Delete student',
-                              onPressed: _deleteStudent,
-                              icon: const Icon(
-                                Icons.delete,
-                                color: Colors.red,
-                                size: 32,
-                              ),
+                        ),
+                        const SizedBox(height: 32),
+                        _DeviceMappingRow(
+                          studentId: studentId,
+                          onLink1: () => _captureToSlot('1'),
+                          onLink2: () => _captureToSlot('2'),
+                        ),
+                        const SizedBox(height: 12),
+                        Center(
+                          child: IconButton(
+                            tooltip: 'Delete student',
+                            onPressed: _deleteStudent,
+                            icon: const Icon(
+                              Icons.delete,
+                              color: Colors.red,
+                              size: 32,
                             ),
-                          ),
-                        ],
-                      ),
-                    );
-
-                    // 공통: 오른쪽(점수 카드) — 그대로 사용
-                    final rightPanel = _ScoreManagementCard(
-                      onPick:
-                          (id, label, v) => _applyScore(
-                            typeId: id,
-                            typeName: label,
-                            value: v,
-                          ),
-                    );
-
-                    if (isNarrow) {
-                      // 📱 좁을 때: 세로 스택 + 스크롤
-                      return ListView(
-                        children: [
-                          const SizedBox(height: 24),
-                          leftPanel,
-                          const SizedBox(height: 24),
-                          rightPanel,
-                        ],
-                      );
-                    }
-
-                    // 🖥️ 넓을 때: 기존 2열
-                    return Column(
-                      children: [
-                        Row(children: const [Spacer()]),
-                        const SizedBox(height: 24),
-                        Expanded(
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(flex: 5, child: leftPanel),
-                              const SizedBox(width: 24),
-                              Expanded(flex: 5, child: rightPanel),
-                            ],
                           ),
                         ),
                       ],
+                    );
+
+                    // 공통: 오른쪽(점수 카드) — 그대로 사용
+                    final rightPanel = SizedBox(
+                      width: 680,
+                      child: _ScoreManagementCard(
+                        onPick:
+                            (id, label, v) => _applyScore(
+                              typeId: id,
+                              typeName: label,
+                              value: v,
+                            ),
+                      ),
+                    );
+
+                    // 좁은 화면: 위아래 배치 + 스크롤
+                    if (isNarrow) {
+                      return SingleChildScrollView(
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(minHeight: box.maxHeight),
+                          child: Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                leftPanel,
+                                const SizedBox(height: 32),
+                                rightPanel,
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+
+                    // 넓은 화면: 좌우 배치 + 세로 중앙
+                    return SingleChildScrollView(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(minHeight: box.maxHeight),
+                        child: Center(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              SizedBox(width: 360, child: leftPanel),
+                              const SizedBox(width: 40),
+                              rightPanel,
+                            ],
+                          ),
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -684,8 +685,8 @@ class _ScoreManagementCard extends StatelessWidget {
   const _ScoreManagementCard({required this.onPick});
   final void Function(String typeId, String typeName, int value) onPick;
 
-  static const double _tileW = 142;
-  static const double _tileH = 140;
+  static const double _tileW = 204;
+  static const double _tileH = 106;
   static const double _gap = 20;
 
   int _columnsFor(double w) {
@@ -810,10 +811,7 @@ class _ScoreSectionGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      ...types,
-      const ScoreType(id: '_add', label: 'Add Skill', emoji: '+', value: 0),
-    ];
+    final items = types;
 
     return GridView.builder(
       shrinkWrap: true,
@@ -827,20 +825,21 @@ class _ScoreSectionGrid extends StatelessWidget {
       ),
       itemBuilder: (_, i) {
         final t = items[i];
-        if (t.id == '_add') {
-          return _AddSkillTile(width: tileW, height: tileH);
-        }
-
-        final isVoting = t.id == 'voting';
-        final badge = isVoting ? '+N' : '+${t.value.abs()}';
+        final isQuiz = t.id == 'quiz';
 
         return _ScoreTileMini(
           emoji: t.emoji,
           label: t.label,
           asset: t.asset,
-          badgeText: badge,
           onPlus: () => onPick(t.id, t.label, t.value.abs()),
           onMinus: () => onPick(t.id, t.label, -t.value.abs()),
+          detailLabel: isQuiz ? 'Details' : null,
+          onDetailTap:
+              isQuiz
+                  ? () {
+                    Navigator.pushNamed(context, '/quiz/details');
+                  }
+                  : null,
         );
       },
     );
@@ -855,6 +854,8 @@ class _ScoreTileMini extends StatelessWidget {
     required this.onMinus,
     this.asset,
     this.badgeText = '+1',
+    this.detailLabel,
+    this.onDetailTap,
     super.key,
   });
 
@@ -865,13 +866,16 @@ class _ScoreTileMini extends StatelessWidget {
   final VoidCallback onPlus;
   final VoidCallback onMinus;
 
+  final String? detailLabel;
+  final VoidCallback? onDetailTap;
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, c) {
         // 기준 타일 크기(디자인 기준)
-        const baseW = 142.0;
-        const baseH = 140.0;
+        const baseW = 204.0;
+        const baseH = 106.0;
 
         // 실제 타일 크기에 따른 스케일
         final sW = (c.maxWidth / baseW).clamp(0.7, 1.4);
@@ -900,144 +904,103 @@ class _ScoreTileMini extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10 * s),
                 border: Border.all(color: const Color(0xFFD2D2D2)),
               ),
-              child: Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: (8.0 * s)),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      SizedBox(
-                        width: imgSize,
-                        height: imgSize,
-                        child:
-                            asset != null
-                                ? Image.asset(asset!, fit: BoxFit.contain)
-                                : Center(
-                                  child: Text(
-                                    emoji,
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(fontSize: emojiSize),
-                                  ),
-                                ),
+              child: Stack(
+                children: [
+                  // 점수 항목
+                  Positioned(
+                    left: 18 * s,
+                    top: 8 * s,
+                    right: 50 * s,
+                    child: Text(
+                      label,
+                      maxLines: 2,
+                      softWrap: true,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.left,
+                      style: TextStyle(
+                        fontFamily: 'Montserrat',
+                        fontSize: 16 * s,
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF1F2A44),
+                        height: 41 / 16,
+                        letterSpacing: 0,
                       ),
-                      SizedBox(height: gap),
+                    ),
+                  ),
 
-                      // 기존 FittedBox 부분 제거 후 교체
-                      Flexible(
+                  // 점수 이미지
+                  Positioned(
+                    left: 86 * s,
+                    top: 35 * s,
+                    child: SizedBox(
+                      width: imgSize,
+                      height: imgSize,
+                      child:
+                          asset != null
+                              ? Image.asset(asset!, fit: BoxFit.contain)
+                              : Center(
+                                child: Text(
+                                  emoji,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: emojiSize),
+                                ),
+                              ),
+                    ),
+                  ),
+
+                  // 점수 +1
+                  Positioned(
+                    left: 18 * s,
+                    top: 67 * s,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: onPlus,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: badgePadH,
+                          vertical: badgePadV,
+                        ),
                         child: Text(
-                          label,
-                          maxLines: 2, // 최대 두 줄
-                          softWrap: true,
-                          overflow: TextOverflow.ellipsis, // 너무 길면 말줄임
-                          textAlign: TextAlign.center,
+                          badgeText,
                           style: TextStyle(
-                            fontSize: labelSize,
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF1F2A44),
-                            height: 1.2, // 줄간격 살짝 확보
-                            letterSpacing: -0.2,
+                            fontFamily: 'Montserrat',
+                            fontWeight: FontWeight.w600,
+                            fontSize: 24 * s,
+                            color: const Color(0xFF44A0FF),
+                            height: 1.0,
+                            letterSpacing: 0,
                           ),
                         ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            // + 배지 (우상단)
-            Positioned(
-              right: 8 * s,
-              top: 8 * s,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(999),
-                onTap: onPlus,
-                child: Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: badgePadH,
-                    vertical: badgePadV,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE9F8ED),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    badgeText,
-                    style: TextStyle(
-                      color: const Color(0xFF128C4A),
-                      fontWeight: FontWeight.w800,
-                      fontSize: badgeFont,
-                      height: 1.0,
                     ),
                   ),
-                ),
-              ),
-            ),
 
-            // - 버튼 (우하단)
-            Positioned(
-              right: 8 * s,
-              bottom: 8 * s,
-              child: IconButton(
-                tooltip: '-1',
-                onPressed: onMinus,
-                icon: const Icon(Icons.remove_circle_outline),
-                constraints: BoxConstraints.tightFor(
-                  width: minusBox,
-                  height: minusBox,
-                ),
-                padding: EdgeInsets.zero,
-                iconSize: minusIcon,
-                color: const Color(0xFF374151),
+                  // Quiz 섹션 Detail 버튼
+                  if (detailLabel != null && onDetailTap != null)
+                    Positioned(
+                      right: 16 * s,
+                      top: 19 * s,
+                      child: GestureDetector(
+                        onTap: onDetailTap,
+                        child: Text(
+                          detailLabel!,
+                          style: TextStyle(
+                            fontFamily: 'Montserrat',
+                            fontSize: 12 * s,
+                            fontWeight: FontWeight.w500,
+                            color: const Color(0xFFA2A2A2),
+                            decoration: TextDecoration.underline,
+                            decorationColor: const Color(0xFFA2A2A2),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ],
         );
       },
-    );
-  }
-}
-
-class _AddSkillTile extends StatelessWidget {
-  const _AddSkillTile({required this.width, required this.height, super.key});
-  final double width, height;
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: BoxConstraints.tightFor(width: width, height: height),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: () {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('스킬 추가는 곧 제공됩니다 😊')));
-        },
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: const Color(0xFFD2D2D2), width: 1),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                Icon(Icons.add, size: 32, color: Color(0xFF9CA3AF)),
-                SizedBox(height: 8),
-                Text(
-                  'Add Skill',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF9CA3AF),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }
