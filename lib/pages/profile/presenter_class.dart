@@ -73,21 +73,21 @@ const List<ScoreType> kActivityTypes = [
     id: 'quiz',
     label: 'Quiz',
     emoji: '👥',
-    value: 3,
+    value: 1,
     asset: 'assets/score/logo_bird_quiz.png',
   ),
   ScoreType(
     id: 'voting',
     label: 'Voting',
     emoji: '🚶',
-    value: 4,
+    value: 1,
     asset: 'assets/score/logo_bird_voting.png',
   ),
   ScoreType(
     id: 'team',
     label: 'Team Activities',
     emoji: '🙂',
-    value: 5,
+    value: 1,
     asset: 'assets/score/logo_bird_team-activites.png',
   ),
 ];
@@ -95,12 +95,10 @@ const List<ScoreType> kActivityTypes = [
 // 학생 페이지와 동일한 사이즈
 const double _avatarW = 290;
 const double _avatarH = 268;
-const double _tileImgSize = 100;
-const double _tileGap = 12;
-const double _tileLabelSize = 24;
 
 class PresenterClassPage extends StatefulWidget {
   const PresenterClassPage({super.key});
+
   @override
   State<PresenterClassPage> createState() => _PresenterClassPageState();
 }
@@ -136,6 +134,7 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
     // 2) 페이지네이션 쿼리 준비
     const pageSize = 500; // 읽기 페이지 크기
     const batchMax = 400; // 쓰기 배치 안전 한도
+
     Query<Map<String, dynamic>> baseQ = fs
         .collection('hubs/$kHubId/students')
         .where('classId', isEqualTo: classId)
@@ -241,40 +240,39 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
       body: Scaffold(
         backgroundColor: const Color(0xFFF7FAFF),
         body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-            child: LayoutBuilder(
-              builder: (context, box) {
-                const bp = 1000.0; // 학생페이지와 동일 브레이크포인트
-                final isNarrow = box.maxWidth < bp;
+          child: LayoutBuilder(
+            builder: (context, box) {
+              const widthBp = 1000.0;
+              const heightBp = 780.0;
 
-                // ── 좌측 패널(아바타/클래스명)
-                final leftPanel = SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
+              final isNarrow =
+                  box.maxWidth < widthBp || box.maxHeight < heightBp;
+
+              Widget leftPanel = Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Stack(
                     children: [
-                      Stack(
-                        children: [
-                          const SizedBox(
-                            width: _avatarW,
-                            height: _avatarH,
-                            child: DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: Color(0xFFF6FAFF),
-                                image: DecorationImage(
-                                  image: AssetImage('assets/logo_bird.png'),
-                                  fit: BoxFit.contain,
-                                  alignment: Alignment.center,
-                                ),
-                              ),
+                      const SizedBox(
+                        width: _avatarW,
+                        height: _avatarH,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Color(0xFFF6FAFF),
+                            image: DecorationImage(
+                              image: AssetImage('assets/logo_bird.png'),
+                              fit: BoxFit.contain,
+                              alignment: Alignment.center,
                             ),
                           ),
-                          Positioned(
-                            right: 12,
-                            top: 12,
-                            child: StreamBuilder<
-                              QuerySnapshot<Map<String, dynamic>>
-                            >(
+                        ),
+                      ),
+                      Positioned(
+                        right: 12,
+                        top: 12,
+                        child:
+                            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                               stream: classStuStream,
                               builder: (_, snap) {
                                 int sum = 0;
@@ -288,51 +286,54 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
                                 return _PointBadge(value: sum);
                               },
                             ),
-                          ),
-                        ],
                       ),
-                      const SizedBox(height: 18),
-                      SizedBox(
-                        width: 260,
-                        child: Text(
-                          className,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Color(0xFF001A36),
-                            fontSize: 39,
-                            fontWeight: FontWeight.w500,
-                            height: 1.0,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const TextButton(
-                        onPressed: null, // 필요 시 라우팅 연결
-                        child: Text(
-                          'View score details',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Color(0xFF868C98),
-                            fontSize: 23,
-                            fontWeight: FontWeight.w500,
-                            decoration: TextDecoration.underline,
-                            decorationColor: Color(0xFF868C98),
-                            height: 1.0,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 32),
                     ],
                   ),
-                );
-
-                // 포인트 배지 위젯에 copyWith는 없으니, 위의 StreamBuilder 부분을 아래처럼 교체하세요:
-                //   return _PointBadge(value: sum);
-
-                // ── 우측 패널(그리드) – 학생페이지와 같은 카드 컴포넌트 사용
-                final rightPanel = _ScoreManagementCard(
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: 260,
+                    child: Text(
+                      className,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xFF001A36),
+                        fontSize: 39,
+                        fontWeight: FontWeight.w500,
+                        height: 1.0,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pushNamed(
+                        context,
+                        '/profile/class/details',
+                        arguments: {'classId': classId, 'className': className},
+                      );
+                    },
+                    child: const Text(
+                      'View score details',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Color(0xFF868C98),
+                        fontSize: 23,
+                        fontWeight: FontWeight.w500,
+                        decoration: TextDecoration.underline,
+                        decorationStyle: TextDecorationStyle.solid,
+                        decorationColor: Color(0xFF868C98),
+                        height: 1.0,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                ],
+              );
+              final rightPanel = SizedBox(
+                width: 680,
+                child: _ScoreManagementCard(
                   onPick:
                       (id, name, v) => _applyToAll(
                         classId: classId,
@@ -340,38 +341,40 @@ class _PresenterClassPageState extends State<PresenterClassPage> {
                         typeName: name,
                         delta: v,
                       ),
-                );
+                ),
+              );
 
-                if (isNarrow) {
-                  // 좁은 화면: 세로 스택
-                  return ListView(
-                    children: [
-                      const SizedBox(height: 24),
-                      leftPanel,
-                      const SizedBox(height: 24),
-                      rightPanel,
-                    ],
-                  );
-                }
-
-                // 넓은 화면: 2열
-                return Column(
-                  children: [
-                    const SizedBox(height: 24),
-                    Expanded(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(flex: 5, child: leftPanel),
-                          const SizedBox(width: 24),
-                          Expanded(flex: 5, child: rightPanel),
-                        ],
-                      ),
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                child: SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minHeight: box.maxHeight),
+                    child: Center(
+                      child:
+                          isNarrow
+                              ? Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  leftPanel,
+                                  const SizedBox(height: 32),
+                                  rightPanel,
+                                ],
+                              )
+                              : Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  SizedBox(width: 360, child: leftPanel),
+                                  const SizedBox(width: 40),
+                                  rightPanel,
+                                ],
+                              ),
                     ),
-                  ],
-                );
-              },
-            ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ),
@@ -411,8 +414,8 @@ class _ScoreManagementCard extends StatelessWidget {
   const _ScoreManagementCard({required this.onPick});
   final void Function(String typeId, String typeName, int value) onPick;
 
-  static const double _tileW = 142;
-  static const double _tileH = 140;
+  static const double _tileW = 204;
+  static const double _tileH = 106;
   static const double _gap = 20;
 
   int _columnsFor(double w) {
@@ -425,40 +428,39 @@ class _ScoreManagementCard extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, box) {
         final cols = _columnsFor(box.maxWidth);
-        return SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: const [
-                  _SectionTitle('Attitude Score'),
-                  Spacer(),
-                  _BackButton(),
-                ],
-              ),
-              const SizedBox(height: 12),
-              _ScoreSectionGrid(
-                columns: cols,
-                types: kAttitudeTypes,
-                onPick: onPick,
-                tileW: _tileW,
-                tileH: _tileH,
-                gap: _gap,
-              ),
-              const SizedBox(height: 28),
-              const _SectionTitle('Activity Score'),
-              const SizedBox(height: 12),
-              _ScoreSectionGrid(
-                columns: cols,
-                types: kActivityTypes,
-                onPick: onPick,
-                tileW: _tileW,
-                tileH: _tileH,
-                gap: _gap,
-              ),
-            ],
-          ),
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: const [
+                _SectionTitle('Attitude Score'),
+                Spacer(),
+                _BackButton(),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _ScoreSectionGrid(
+              columns: cols,
+              types: kAttitudeTypes,
+              onPick: onPick,
+              tileW: _tileW,
+              tileH: _tileH,
+              gap: _gap,
+            ),
+            const SizedBox(height: 28),
+            const _SectionTitle('Activity Score'),
+            const SizedBox(height: 12),
+            _ScoreSectionGrid(
+              columns: cols,
+              types: kActivityTypes,
+              onPick: onPick,
+              tileW: _tileW,
+              tileH: _tileH,
+              gap: _gap,
+            ),
+          ],
         );
       },
     );
@@ -500,10 +502,7 @@ class _ScoreSectionGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      ...types,
-      const ScoreType(id: '_add', label: 'Add Skill', emoji: '+', value: 0),
-    ];
+    final items = types;
 
     return GridView.builder(
       shrinkWrap: true,
@@ -517,16 +516,21 @@ class _ScoreSectionGrid extends StatelessWidget {
       ),
       itemBuilder: (_, i) {
         final t = items[i];
-        if (t.id == '_add') {
-          return _AddSkillTile(width: tileW, height: tileH);
-        }
+        final isQuiz = t.id == 'quiz';
+
         return _ScoreTileMini(
           emoji: t.emoji,
           label: t.label,
           asset: t.asset,
-          badgeText: t.id == 'voting' ? '+N' : '+${t.value.abs()}',
           onPlus: () => onPick(t.id, t.label, t.value.abs()),
           onMinus: () => onPick(t.id, t.label, -t.value.abs()),
+          detailLabel: isQuiz ? 'Details' : null,
+          onDetailTap:
+              isQuiz
+                  ? () {
+                    Navigator.pushNamed(context, '/quiz/details');
+                  }
+                  : null,
         );
       },
     );
@@ -541,6 +545,8 @@ class _ScoreTileMini extends StatelessWidget {
     required this.onMinus,
     this.asset,
     this.badgeText = '+1',
+    this.detailLabel,
+    this.onDetailTap,
     super.key,
   });
 
@@ -550,142 +556,118 @@ class _ScoreTileMini extends StatelessWidget {
   final String badgeText;
   final VoidCallback onPlus;
   final VoidCallback onMinus;
+  final String? detailLabel;
+  final VoidCallback? onDetailTap;
 
   @override
   Widget build(BuildContext context) {
-    return Stack(
-      children: [
-        // 카드
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFFD2D2D2)),
-          ),
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+    return LayoutBuilder(
+      builder: (context, c) {
+        const baseW = 204.0;
+        const baseH = 106.0;
+
+        final sW = (c.maxWidth / baseW).clamp(0.7, 1.4);
+        final sH = (c.maxHeight / baseH).clamp(0.7, 1.4);
+        final s = sW < sH ? sW : sH;
+
+        final imgSize = (100.0 * s).clamp(56.0, 120.0);
+        final emojiSize = (40.0 * s).clamp(22.0, 48.0);
+
+        return Stack(
+          children: [
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10 * s),
+                border: Border.all(color: const Color(0xFFD2D2D2)),
+              ),
+              child: Stack(
                 children: [
-                  SizedBox(
-                    width: _tileImgSize,
-                    height: _tileImgSize,
-                    child:
-                        asset != null
-                            ? Image.asset(asset!, fit: BoxFit.contain)
-                            : Center(
-                              child: Text(
-                                emoji,
-                                style: const TextStyle(fontSize: 40),
-                              ),
-                            ),
-                  ),
-                  const SizedBox(height: _tileGap),
-                  Flexible(
+                  Positioned(
+                    left: 18 * s,
+                    top: 8 * s,
+                    right: 50 * s,
                     child: Text(
                       label,
                       maxLines: 2,
                       softWrap: true,
                       overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: _tileLabelSize,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF1F2A44),
-                        height: 1.2,
-                        letterSpacing: -0.2,
+                      textAlign: TextAlign.left,
+                      style: TextStyle(
+                        fontFamily: 'Montserrat',
+                        fontSize: 16 * s,
+                        fontWeight: FontWeight.w500,
+                        color: const Color(0xFF1F2A44),
+                        height: 41 / 16,
+                        letterSpacing: 0,
                       ),
                     ),
                   ),
+                  Positioned(
+                    left: 86 * s,
+                    top: 35 * s,
+                    child: SizedBox(
+                      width: imgSize,
+                      height: imgSize,
+                      child:
+                          asset != null
+                              ? Image.asset(asset!, fit: BoxFit.contain)
+                              : Center(
+                                child: Text(
+                                  emoji,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(fontSize: emojiSize),
+                                ),
+                              ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 18 * s,
+                    top: 67 * s,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: onPlus,
+                      child: Container(
+                        padding: EdgeInsets.zero,
+                        child: Text(
+                          badgeText,
+                          style: TextStyle(
+                            fontFamily: 'Montserrat',
+                            fontWeight: FontWeight.w600,
+                            fontSize: 24 * s,
+                            color: const Color(0xFF44A0FF),
+                            height: 1.0,
+                            letterSpacing: 0,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (detailLabel != null && onDetailTap != null)
+                    Positioned(
+                      right: 16 * s,
+                      top: 19 * s,
+                      child: GestureDetector(
+                        onTap: onDetailTap,
+                        child: Text(
+                          detailLabel!,
+                          style: TextStyle(
+                            fontFamily: 'Montserrat',
+                            fontSize: 12 * s,
+                            fontWeight: FontWeight.w500,
+                            color: const Color(0xFFA2A2A2),
+                            decoration: TextDecoration.underline,
+                            decorationColor: const Color(0xFFA2A2A2),
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
-          ),
-        ),
-
-        // +N / +1
-        Positioned(
-          right: 10,
-          top: 10,
-          child: InkWell(
-            borderRadius: BorderRadius.circular(999),
-            onTap: onPlus,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE9F8ED),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                badgeText,
-                style: const TextStyle(
-                  color: Color(0xFF128C4A),
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ),
-        ),
-        // -1
-        Positioned(
-          right: 10,
-          bottom: 10,
-          child: IconButton(
-            tooltip: '-1',
-            onPressed: onMinus,
-            icon: const Icon(Icons.remove_circle_outline),
-            constraints: const BoxConstraints.tightFor(width: 28, height: 28),
-            padding: EdgeInsets.zero,
-            iconSize: 24,
-            color: const Color(0xFF374151),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _AddSkillTile extends StatelessWidget {
-  const _AddSkillTile({required this.width, required this.height, super.key});
-  final double width, height;
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: BoxConstraints.tightFor(width: width, height: height),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(10),
-        onTap: () {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('스킬 추가는 곧 제공됩니다 😊')));
-        },
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: const Color(0xFFD2D2D2), width: 1),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: const Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.add, size: 32, color: Color(0xFF9CA3AF)),
-                SizedBox(height: 8),
-                Text(
-                  'Add Skill',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF9CA3AF),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+          ],
+        );
+      },
     );
   }
 }
