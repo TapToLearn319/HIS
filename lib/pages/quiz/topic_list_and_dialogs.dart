@@ -685,6 +685,24 @@ class _StartButtonState extends State<_StartButton> {
         });
   }
 
+  Future<String?> _loadCurrentSessionId() async {
+    if (_hubPath == null) return null;
+
+    final hubDoc = await _fs.doc(_hubPath!).get();
+    final hubData = hubDoc.data();
+    final sid = (hubData?['currentSessionId'] as String?)?.trim();
+
+    if (sid == null || sid.isEmpty) return null;
+    return sid;
+  }
+
+  DocumentReference<Map<String, dynamic>> _buildRunRef({
+    required String sessionId,
+    required String runId,
+  }) {
+    return _fs.doc('$_hubPath/sessions/$sessionId/quizRuns/$runId');
+  }
+
  Future<void> _startQuiz() async {
   if (_hubPath == null) {
     _snack(context, '허브 경로가 없습니다. 다시 시도해 주세요.');
@@ -693,17 +711,32 @@ class _StartButtonState extends State<_StartButton> {
 
   final path = '$_hubPath/quizTopics/${widget.topicId}';
 
-  // 🔒 이미 실행 중인 퀴즈 중복 방지
+  // 1) 이미 실행 중인 토픽 중복 방지
   final running = await _fs
       .collection('$_hubPath/quizTopics')
       .where('status', isEqualTo: 'running')
       .get();
+
   if (running.docs.isNotEmpty) {
     _snack(context, '이미 진행 중인 퀴즈가 있습니다.');
     return;
   }
 
-  // 🔹 퀴즈 목록 가져오기
+  // 2) 현재 세션 ID 확인
+  final sessionId = await _loadCurrentSessionId();
+  if (sessionId == null) {
+    _snack(context, '현재 세션이 없습니다. 먼저 세션을 시작해 주세요.');
+    return;
+  }
+
+  // 3) 현재 토픽 정보 가져오기
+  final topicSnap = await _fs.doc(path).get();
+  final topicData = topicSnap.data() ?? {};
+  final topicTitle = (topicData['title'] as String?) ?? '';
+  final timeLimitSeconds =
+      (topicData['timeLimitSeconds'] as num?)?.toInt() ?? 0;
+
+  // 4) 퀴즈 목록 가져오기
   final qSnap = await _fs
       .collection('$path/quizzes')
       .orderBy('createdAt')
@@ -716,16 +749,36 @@ class _StartButtonState extends State<_StartButton> {
 
   final first = qSnap.docs.first;
   final firstData = first.data();
-
-  // ✅ options 기반 구조 확인
   final List options = (firstData['options'] as List?) ?? [];
 
-  // ✅ votes 배열과 votesByDevice 초기화
+  // 5) runId 생성
+  final runRef = _fs.collection('$_hubPath/sessions/$sessionId/quizRuns').doc();
+  final runId = runRef.id;
+
+  // 6) 첫 문제용 임시 votes 초기화
   final votesInit = List<int>.filled(options.length, 0);
   final votesByDevice = <String, dynamic>{};
 
-  // ✅ 토픽 상태 업데이트
-  await _fs.doc(path).set({
+  // 7) batch로 한 번에 저장
+  final batch = _fs.batch();
+
+  // 7-1) run 메타 생성
+  batch.set(runRef, {
+    'runId': runId,
+    'topicId': widget.topicId,
+    'topicTitle': topicTitle,
+    'sessionId': sessionId,
+    'status': 'running',
+    'startedAt': FieldValue.serverTimestamp(),
+    'endedAt': null,
+    'questionCount': qSnap.docs.length,
+    'participantCount': 0,
+    'createdAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+
+  // 7-2) topic 현재 상태 업데이트
+  batch.set(_fs.doc(path), {
     'status': 'running',
     'phase': 'question',
     'currentQuizIndex': 1,
@@ -737,19 +790,33 @@ class _StartButtonState extends State<_StartButton> {
     'endedAt': null,
     'updatedAt': FieldValue.serverTimestamp(),
     'showSummaryOnDisplay': false,
+    'sessionId': sessionId,
+    'activeRunId': runId,
+    if (timeLimitSeconds > 0) 'timerSeconds': timeLimitSeconds,
   }, SetOptions(merge: true));
 
-  // ✅ 첫 번째 퀴즈 문서도 초기화
-  await _fs.doc('$path/quizzes/${first.id}').set({
+  // 7-3) 첫 번째 퀴즈 문서 초기화
+  batch.set(_fs.doc('$path/quizzes/${first.id}'), {
     'status': 'active',
     'startedAt': FieldValue.serverTimestamp(),
     'startedAtMs': DateTime.now().millisecondsSinceEpoch,
-    'votes': votesInit,          // ✅ 보기 수만큼 0으로 초기화
+    'votes': votesInit,
     'votesByDevice': votesByDevice,
     'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
+  await batch.commit();
+
   _snack(context, '퀴즈가 시작되었습니다.');
+
+  if (mounted) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TopicDetailPage(topicId: widget.topicId),
+      ),
+    );
+  }
 }
 
   @override

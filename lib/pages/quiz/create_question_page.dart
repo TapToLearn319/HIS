@@ -53,9 +53,9 @@ class _CreateQuestionPageState extends State<CreateQuestionPage> {
     super.initState();
     _loadNextQuestionNumber();
     _optionCtrls.add(TextEditingController());
-    _bindings.add(const _Binding(button: 1, gesture: 'hold'));
+    _bindings.add(const _Binding(button: 1, gesture: 'single'));
     _optionCtrls.add(TextEditingController());
-    _bindings.add(const _Binding(button: 2, gesture: 'hold'));
+    _bindings.add(const _Binding(button: 2, gesture: 'single'));
     _ensureUniqueAll();
   }
 
@@ -102,45 +102,86 @@ class _CreateQuestionPageState extends State<CreateQuestionPage> {
     'hubs/${widget.hubId}/quizTopics/${widget.topicId}/quizzes',
   );
 
-  // ✅ 제목 검사
-  if (_titleCtrl.text.trim().isEmpty) {
+  final question = _titleCtrl.text.trim();
+
+  // 1) 질문 검사
+  if (question.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Please enter a question.')),
     );
     return;
   }
 
-  // ✅ 옵션 검사
-  final titles = _optionCtrls
-      .map((c) => c.text.trim())
-      .where((t) => t.isNotEmpty)
-      .take(_maxOptions)
-      .toList();
+  // 2) 빈 옵션 제거 + options 구성
+  final options = <Map<String, dynamic>>[];
+  final validOptionOriginalIndexes = <int>[];
 
-  if (titles.length < 2) {
+  for (int i = 0; i < _optionCtrls.length; i++) {
+    final title = _optionCtrls[i].text.trim();
+    if (title.isEmpty) continue;
+
+    final b = _bindings[i];
+    options.add({
+      'title': title,
+      'binding': {
+        'button': b.button,
+        'gesture': b.gesture,
+      },
+    });
+    validOptionOriginalIndexes.add(i);
+  }
+
+  if (options.length < 2) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('At least 2 choices required.')),
     );
     return;
   }
 
-  // ✅ options 배열 구성
-  final options = <Map<String, dynamic>>[];
-  for (int i = 0; i < titles.length; i++) {
-    final b = _bindings[i];
-    options.add({
-      'title': titles[i],
-      'binding': {'button': b.button, 'gesture': b.gesture},
-      'index': i + 1,
-    });
+  // 3) 정답 선택 검사
+  if (_selectedAnswers.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please select at least one correct answer.')),
+    );
+    return;
   }
 
-  // ✅ Firestore에 저장 (choices 컬렉션 ❌)
-  await quizzesCol.add({
-    'question': _titleCtrl.text.trim(),
-    'multi': _multi,
+  // 4) 유효한 옵션들 기준으로 정답 인덱스 다시 매핑
+  final validIndexMap = <int, int>{}; // originalIndex -> compactIndex
+  for (int compact = 0; compact < validOptionOriginalIndexes.length; compact++) {
+    validIndexMap[validOptionOriginalIndexes[compact]] = compact;
+  }
+
+  final validSelected = _selectedAnswers
+      .where((idx) => validIndexMap.containsKey(idx))
+      .map((idx) => validIndexMap[idx]!)
+      .toList()
+    ..sort();
+
+  if (validSelected.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Correct answer must be among non-empty choices.')),
+    );
+    return;
+  }
+
+  // 5) correctBinding 계산
+  // 현재 구조에서는 통계/리빌용으로 대표 정답 1개를 correctBinding에 저장
+  final firstCorrectIndex = validSelected.first;
+  final correctOption = options[firstCorrectIndex];
+  final correctBinding =
+      (correctOption['binding'] as Map<String, dynamic>);
+
+  // 6) Firestore 저장 구조 통일
+   await quizzesCol.add({
+    'question': question,
+    'options': options,
+    'allowMultiple': _multi,
+    'correctBinding': {
+      'button': correctBinding['button'],
+      'gesture': correctBinding['gesture'],
+    },
     'public': true,
-    'options': options, // ✅ 핵심 변경
     'status': 'draft',
     'createdAt': FieldValue.serverTimestamp(),
     'updatedAt': FieldValue.serverTimestamp(),
@@ -149,7 +190,8 @@ class _CreateQuestionPageState extends State<CreateQuestionPage> {
   ScaffoldMessenger.of(context).showSnackBar(
     const SnackBar(content: Text('Question saved!')),
   );
-  if (mounted) Navigator.pop(context ,true );
+
+  if (mounted) Navigator.pop(context, true);
 }
 
   // ───────────────────────── 매핑 유틸 ─────────────────────────

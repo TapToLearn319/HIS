@@ -287,6 +287,73 @@ void initState() {
     super.dispose();
   }
 
+  Future<Map<String, String?>> _loadRunContext(String hubId) async {
+  final topicSnap = await FirebaseFirestore.instance
+      .doc('hubs/$hubId/quizTopics/${widget.topicId}')
+      .get();
+
+  final data = topicSnap.data() ?? {};
+  return {
+    'sessionId': (data['sessionId'] as String?)?.trim(),
+    'runId': (data['activeRunId'] as String?)?.trim(),
+  };
+}
+
+Future<void> _saveResponsesToRun({
+  required String hubId,
+  required String quizId,
+  required List options,
+  required Map<String, Set<String>> votesByStudent,
+}) async {
+  final ctx = await _loadRunContext(hubId);
+  final sessionId = ctx['sessionId'];
+  final runId = ctx['runId'];
+
+  if (sessionId == null || sessionId.isEmpty || runId == null || runId.isEmpty) {
+    debugPrint('⚠️ responses save skipped: sessionId/activeRunId missing');
+    return;
+  }
+
+  final fs = FirebaseFirestore.instance;
+  final batch = fs.batch();
+
+  for (final entry in votesByStudent.entries) {
+    final studentId = entry.key;
+    final selectedKeys = entry.value;
+
+    // 단일선택 기준에서는 Set에 1개만 있음
+    // 다중선택이면 여러 개일 수 있는데, 지금 통계 구조는 selectedIndex 1개 기준이므로
+    // 우선 첫 번째 것만 저장
+    if (selectedKeys.isEmpty) continue;
+
+    final selectedKey = selectedKeys.first;
+    final selectedIndex = options.indexWhere((opt) {
+      final b = (opt['binding'] as Map?) ?? {};
+      final btn = b['button']?.toString();
+      final ges = (b['gesture'] ?? 'single').toString();
+      return selectedKey == '${btn}_${ges}';
+    });
+
+    if (selectedIndex < 0) continue;
+
+    final responseRef = fs.doc(
+      'hubs/$hubId/sessions/$sessionId/quizRuns/$runId/responses/${quizId}_$studentId',
+    );
+
+    batch.set(responseRef, {
+      'topicId': widget.topicId,
+      'quizId': quizId,
+      'studentId': studentId,
+      'selectedIndex': selectedIndex,
+      'selectedTitle': ((options[selectedIndex] as Map)['title'] ?? '').toString(),
+      'answeredAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  await batch.commit();
+}
+
    void _handleLiveEvent(QuerySnapshot<Map<String, dynamic>> snap) async {
   if (snap.docs.isEmpty) return;
 
@@ -409,9 +476,30 @@ void initState() {
     _total = votesByStudent.keys.length;
   });
 
+  final votesByDevice = <String, dynamic>{};
+  for (final entry in votesByStudent.entries) {
+    final studentId = entry.key;
+    final selectedKeys = entry.value.toList();
+    if (selectedKeys.isEmpty) continue;
+    votesByDevice[studentId] = selectedKeys.first;
+  }
+
+  // 1) 기존 votes 저장 유지
   await FirebaseFirestore.instance
-    .doc('hubs/$hubId/quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}')
-    .set({'votes': counts}, SetOptions(merge: true));
+      .doc('hubs/$hubId/quizTopics/${widget.topicId}/quizzes/${widget.currentQuizId}')
+      .set({
+    'votes': counts,
+    'votesByDevice': votesByDevice,
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  // 2) 통계용 responses 저장 추가
+  await _saveResponsesToRun(
+    hubId: hubId,
+    quizId: widget.currentQuizId,
+    options: options,
+    votesByStudent: votesByStudent,
+  );
 }
 
 
@@ -1038,10 +1126,11 @@ class _SummaryView extends StatelessWidget {
                           .toList();
 
                       // ✅ correctBinding 기반으로 정답 매칭
-                      final correctBinding = (q['correctBinding'] as Map?) ?? {};
-                      final correctKey =
-                          '${correctBinding['button']}_${correctBinding['gesture']}';
-                      final isCorrect = key == correctKey;
+                      // final correctBinding = (q['correctBinding'] as Map?) ?? {};
+                      // final correctKey =
+                      //     '${correctBinding['button']}_${correctBinding['gesture']}';
+                      // final isCorrect = key == correctKey;
+                      final bool isCorrect = false;
 
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 18),

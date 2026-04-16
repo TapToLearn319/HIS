@@ -74,7 +74,7 @@ void dispose() {
       if (quizData == null) return;
 
       _titleCtrl.text = quizData['question'] ?? '';
-      _multi = quizData['multi'] ?? false;
+      _multi = quizData['allowMultiple'] == true;
       
 final List options = (quizData['options'] as List?) ?? [];
 final correctBinding = (quizData['correctBinding'] as Map?) ?? {};
@@ -119,89 +119,105 @@ if (correctBinding.isNotEmpty) {
 
   // ───────────── 수정 저장 ─────────────
   Future<void> _updateQuestion() async {
-    final hub = context.read<HubProvider>().hubDocPath;
-    final quizDoc = FirebaseFirestore.instance.doc(
-      '$hub/quizTopics/${widget.topicId}/quizzes/${widget.quizId}',
-    );
+  final hub = context.read<HubProvider>().hubDocPath;
+  final quizDoc = FirebaseFirestore.instance.doc(
+    '$hub/quizTopics/${widget.topicId}/quizzes/${widget.quizId}',
+  );
 
-    if (_titleCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a question.')),
-      );
-      return;
-    }
+  final question = _titleCtrl.text.trim();
 
-    final titles =
-        _optionCtrls
-            .map((c) => c.text.trim())
-            .where((t) => t.isNotEmpty)
-            .take(_maxOptions)
-            .toList();
-
-    if (titles.length < 2) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('At least 2 choices required.')),
-      );
-      return;
-    }
-
-    final choices = _optionCtrls.map((c) => c.text.trim()).where((t) => t.isNotEmpty).toList();
-final triggers = _bindings.take(choices.length).map((b) {
-  if (b.button == 1 && b.gesture == 'single') return 'S1_CLICK';
-  if (b.button == 1 && b.gesture == 'hold') return 'S1_HOLD';
-  if (b.button == 2 && b.gesture == 'single') return 'S2_CLICK';
-  return 'S2_HOLD';
-}).toList();
-
-int? correctIndex;
-List<int> correctIndices = [];
-
-if (_multi) {
-  correctIndices = _selectedAnswers.toList()..sort();
-  correctIndex = correctIndices.isNotEmpty ? correctIndices.first : null;
-} else {
-  correctIndex = _selectedAnswers.isNotEmpty ? _selectedAnswers.first : null;
-}
-
-final options = <Map<String, dynamic>>[];
-for (int i = 0; i < _optionCtrls.length; i++) {
-  final title = _optionCtrls[i].text.trim();
-  if (title.isEmpty) continue;
-  options.add({
-    'title': title,
-    'binding': {
-      'button': _bindings[i].button,
-      'gesture': _bindings[i].gesture,
-    },
-  });
-}
-
-// ✅ 정답 바인딩 선택 (단일 선택 기준)
-_Binding? correct;
-if (_selectedAnswers.isNotEmpty) {
-  final idx = _selectedAnswers.first;
-  if (idx >= 0 && idx < _bindings.length) correct = _bindings[idx];
-}
-
-await quizDoc.update({
-  'question': _titleCtrl.text.trim(),
-  'options': options,
-  if (correct != null)
-    'correctBinding': {
-      'button': correct.button,
-      'gesture': correct.gesture,
-    }
-  else
-    'correctBinding': FieldValue.delete(),
-  'updatedAt': FieldValue.serverTimestamp(),
-});
-
+  // 1) 질문 검사
+  if (question.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Question updated!')),
+      const SnackBar(content: Text('Please enter a question.')),
     );
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (mounted) Navigator.pop(context);
+    return;
   }
+
+  // 2) 빈 옵션 제거 + options 구성
+  final options = <Map<String, dynamic>>[];
+  final validOptionOriginalIndexes = <int>[];
+
+  for (int i = 0; i < _optionCtrls.length; i++) {
+    final title = _optionCtrls[i].text.trim();
+    if (title.isEmpty) continue;
+
+    options.add({
+      'title': title,
+      'binding': {
+        'button': _bindings[i].button,
+        'gesture': _bindings[i].gesture,
+      },
+    });
+    validOptionOriginalIndexes.add(i);
+  }
+
+  if (options.length < 2) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('At least 2 choices required.')),
+    );
+    return;
+  }
+
+  // 3) 정답 선택 검사
+  if (_selectedAnswers.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Please select at least one correct answer.')),
+    );
+    return;
+  }
+
+  // 4) 유효한 옵션 기준으로 정답 인덱스 재매핑
+  final validIndexMap = <int, int>{};
+  for (int compact = 0; compact < validOptionOriginalIndexes.length; compact++) {
+    validIndexMap[validOptionOriginalIndexes[compact]] = compact;
+  }
+
+  final validSelected = _selectedAnswers
+      .where((idx) => validIndexMap.containsKey(idx))
+      .map((idx) => validIndexMap[idx]!)
+      .toList()
+    ..sort();
+
+  if (validSelected.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Correct answer must be among non-empty choices.')),
+    );
+    return;
+  }
+
+  // 5) 대표 정답 바인딩 계산
+  final firstCorrectIndex = validSelected.first;
+  final correctOption = options[firstCorrectIndex];
+  final correctBinding =
+      (correctOption['binding'] as Map<String, dynamic>);
+
+  // 6) 저장 구조 통일
+  await quizDoc.update({
+    'question': question,
+    'options': options,
+    'allowMultiple': _multi,
+    'correctBinding': {
+      'button': correctBinding['button'],
+      'gesture': correctBinding['gesture'],
+    },
+    'updatedAt': FieldValue.serverTimestamp(),
+
+    // 예전 필드 정리
+    'multi': FieldValue.delete(),
+    'choices': FieldValue.delete(),
+    'triggers': FieldValue.delete(),
+    'correctIndex': FieldValue.delete(),
+    'correctIndices': FieldValue.delete(),
+  });
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('Question updated!')),
+  );
+
+  await Future.delayed(const Duration(milliseconds: 300));
+  if (mounted) Navigator.pop(context);
+}
 
   // ───────────── 중복 방지 유틸 동일 ─────────────
   _Binding _firstUnusedBinding({_Binding? fallback}) {

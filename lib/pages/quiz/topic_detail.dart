@@ -1063,6 +1063,228 @@ Future<void> _ensureDefaultSettings(
   }
 }
 
+Future<void> _finalizeQuizRun({
+  required FirebaseFirestore fs,
+  required String hubId,
+  required String topicId,
+  required DocumentReference<Map<String, dynamic>> topicRef,
+}) async {
+  final topicSnap = await topicRef.get();
+  final topicData = topicSnap.data() ?? {};
+
+  final sessionId = (topicData['sessionId'] as String?)?.trim();
+  final runId = (topicData['activeRunId'] as String?)?.trim();
+  final topicTitle = (topicData['title'] as String?) ?? '';
+
+  if (sessionId == null || sessionId.isEmpty || runId == null || runId.isEmpty) {
+    debugPrint('⚠️ finalize skipped: sessionId or activeRunId missing');
+    return;
+  }
+
+  final runRef = fs.doc('hubs/$hubId/sessions/$sessionId/quizRuns/$runId');
+  final quizzesSnap = await fs
+      .collection('hubs/$hubId/quizTopics/$topicId/quizzes')
+      .where('public', isEqualTo: true)
+      .orderBy('createdAt')
+      .get();
+
+  final studentsSnap = await fs.collection('hubs/$hubId/students').get();
+  final studentNameById = <String, String>{
+    for (final d in studentsSnap.docs)
+      d.id: ((d.data()['name'] ?? d.data()['studentName'] ?? d.id).toString())
+  };
+
+  final responsesRef = runRef.collection('responses');
+  final responsesSnap = await responsesRef.get();
+
+  // 학생별 최종 응답 저장소
+  final Map<String, Map<String, dynamic>> byStudent = {};
+  final Map<String, int> correctCountByStudent = {};
+  final Map<String, int> answeredCountByStudent = {};
+
+  int totalCorrect = 0;
+  int totalAnswered = 0;
+
+  final batch = fs.batch();
+
+  for (final quizDoc in quizzesSnap.docs) {
+    final quizId = quizDoc.id;
+    final quizData = quizDoc.data();
+
+    final question = (quizData['question'] as String?) ?? '';
+    final List options = (quizData['options'] as List?) ?? const [];
+    final correctBinding = (quizData['correctBinding'] as Map?) ?? const {};
+
+    final counts = List<int>.filled(options.length, 0);
+    final Map<String, List<String>> selectedStudentIds = {
+      for (int i = 0; i < options.length; i++) '$i': <String>[],
+    };
+
+    int correctIndex = -1;
+    for (int i = 0; i < options.length; i++) {
+      final opt = options[i] as Map<String, dynamic>;
+      final binding = (opt['binding'] as Map?) ?? const {};
+      final sameButton = binding['button'] == correctBinding['button'];
+      final sameGesture = binding['gesture'] == correctBinding['gesture'];
+      if (sameButton && sameGesture) {
+        correctIndex = i;
+        break;
+      }
+    }
+
+    final quizResponses = responsesSnap.docs.where((d) {
+      final x = d.data();
+      return x['quizId'] == quizId;
+    }).toList();
+
+    final correctStudentIds = <String>[];
+    final wrongStudentIds = <String>[];
+
+    for (final r in quizResponses) {
+      final x = r.data();
+      final studentId = (x['studentId'] ?? '').toString();
+      if (studentId.isEmpty) continue;
+
+      final selectedIndex = (x['selectedIndex'] as num?)?.toInt();
+      if (selectedIndex == null || selectedIndex < 0 || selectedIndex >= options.length) {
+        continue;
+      }
+
+      counts[selectedIndex] += 1;
+      selectedStudentIds['$selectedIndex']!.add(studentId);
+
+      final isCorrect = selectedIndex == correctIndex;
+      if (isCorrect) {
+        correctStudentIds.add(studentId);
+        correctCountByStudent[studentId] =
+            (correctCountByStudent[studentId] ?? 0) + 1;
+        totalCorrect += 1;
+      } else {
+        wrongStudentIds.add(studentId);
+      }
+
+      answeredCountByStudent[studentId] =
+          (answeredCountByStudent[studentId] ?? 0) + 1;
+      totalAnswered += 1;
+
+      byStudent.putIfAbsent(studentId, () => {
+            'studentId': studentId,
+            'studentName': studentNameById[studentId] ?? studentId,
+            'questionResults': <String, dynamic>{},
+          });
+
+      (byStudent[studentId]!['questionResults'] as Map<String, dynamic>)[quizId] = {
+        'quizId': quizId,
+        'question': question,
+        'selectedIndex': selectedIndex,
+        'selectedTitle': ((options[selectedIndex] as Map)['title'] ?? '').toString(),
+        'isCorrect': isCorrect,
+        'answeredAt': x['answeredAt'],
+      };
+    }
+
+    final answeredCount = quizResponses.length;
+    final correctCount = correctStudentIds.length;
+    final ratios = counts
+        .map((c) => answeredCount == 0 ? 0.0 : c / answeredCount)
+        .toList();
+
+    batch.set(runRef.collection('questions').doc(quizId), {
+      'quizId': quizId,
+      'question': question,
+      'choices': options.map((e) => (e['title'] ?? '').toString()).toList(),
+      'counts': counts,
+      'ratios': ratios,
+      'selectedStudentIds': selectedStudentIds,
+      'correctIndex': correctIndex,
+      'correctStudentIds': correctStudentIds,
+      'wrongStudentIds': wrongStudentIds,
+      'answeredCount': answeredCount,
+      'correctCount': correctCount,
+      'correctRate': answeredCount == 0 ? 0.0 : correctCount / answeredCount,
+      'computedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  // 학생별 집계
+  final studentEntries = byStudent.entries.toList()
+    ..sort((a, b) {
+      final ca = correctCountByStudent[a.key] ?? 0;
+      final cb = correctCountByStudent[b.key] ?? 0;
+      return cb.compareTo(ca);
+    });
+
+  int rank = 0;
+  int? prevScore;
+  for (int i = 0; i < studentEntries.length; i++) {
+    final studentId = studentEntries[i].key;
+    final data = studentEntries[i].value;
+    final correctCount = correctCountByStudent[studentId] ?? 0;
+    final answeredCount = answeredCountByStudent[studentId] ?? 0;
+
+    if (prevScore != correctCount) {
+      rank = i + 1;
+      prevScore = correctCount;
+    }
+
+    batch.set(runRef.collection('students').doc(studentId), {
+      'studentId': studentId,
+      'studentName': data['studentName'],
+      'answeredCount': answeredCount,
+      'correctCount': correctCount,
+      'accuracy': answeredCount == 0 ? 0.0 : correctCount / answeredCount,
+      'rank': rank,
+      'score': correctCount,
+      'questionResults': data['questionResults'],
+      'computedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  batch.set(runRef.collection('summary').doc('overall'), {
+    'topicId': topicId,
+    'topicTitle': topicTitle,
+    'questionCount': quizzesSnap.docs.length,
+    'participantCount': byStudent.length,
+    'totalResponses': totalAnswered,
+    'totalCorrect': totalCorrect,
+    'avgAccuracy': totalAnswered == 0 ? 0.0 : totalCorrect / totalAnswered,
+    'computedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  batch.set(runRef, {
+    'status': 'finished',
+    'endedAt': FieldValue.serverTimestamp(),
+    'participantCount': byStudent.length,
+    'updatedAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  await batch.commit();
+}
+
+Future<void> _saveQuizResponseToRun({
+  required FirebaseFirestore fs,
+  required String hubId,
+  required String topicId,
+  required String quizId,
+  required String studentId,
+  required int selectedIndex,
+}) async {
+  final topicSnap = await fs.doc('hubs/$hubId/quizTopics/$topicId').get();
+  final topicData = topicSnap.data() ?? {};
+  final sessionId = (topicData['sessionId'] as String?)?.trim();
+  final runId = (topicData['activeRunId'] as String?)?.trim();
+
+  if (sessionId == null || runId == null) return;
+
+  await fs
+      .doc('hubs/$hubId/sessions/$sessionId/quizRuns/$runId/responses/${quizId}_$studentId')
+      .set({
+    'quizId': quizId,
+    'studentId': studentId,
+    'selectedIndex': selectedIndex,
+    'answeredAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+}
 /* ───────────────────────── utilities ───────────────────────── */
 
 void _snack(BuildContext context, String msg) {
@@ -1207,17 +1429,12 @@ class _QuestionCard extends StatelessWidget {
     final icon = Icons.play_arrow_rounded;
 
     final showButton = () {
-      // 퀴즈 시작 전에는 첫 번째 문항만 Next 표시
-      if (status == 'draft' || status == 'ready') {
-        return index == 1;
-      }
-
-      // 퀴즈 실행 중에는 현재 문항만 표시
+      // 퀴즈 실행 중일 때만 현재 문항에 버튼 표시
       if (status == 'running') {
         return isCurrent;
       }
 
-      // 그 외(종료 등)에는 숨김
+      // draft / ready / finished 상태에서는 버튼 숨김
       return false;
     }();
 
@@ -1321,7 +1538,6 @@ class _QuestionCard extends StatelessWidget {
                                   }
 
                                   if (nextPublicId == null) {
-                                    // ✅ 퀴즈 종료
                                     await topicRef.update({
                                       'status': 'finished',
                                       'phase': 'finished',
@@ -1329,9 +1545,10 @@ class _QuestionCard extends StatelessWidget {
                                       'questionStartedAt': null,
                                       'questionStartedAtMs': FieldValue.delete(),
                                       'updatedAt': FieldValue.serverTimestamp(),
+                                      'showSummaryOnDisplay': false,
+                                      'endedAt': FieldValue.serverTimestamp(),
                                     });
                                   } else {
-                                    // ✅ 다음 문항으로 전환 + 버튼 입력 기준시간 기록
                                     await topicRef.update({
                                       'phase': 'question',
                                       'currentQuizId': nextPublicId,

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:html' as html;
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:project/pages/ai_chat/presenter_ai_char.dart';
 import 'package:project/pages/profile/class_score_detail.dart';
@@ -8,6 +9,7 @@ import 'package:project/pages/random_seat/display_random_seat.dart';
 import 'package:project/pages/random_seat/random_seat_files.dart';
 import 'package:project/pages/random_seat/random_seat_create.dart';
 import 'package:project/pages/random_seat/presenter_random_seat.dart';
+import 'package:project/pages/statistic/statistic_list_page.dart';
 import 'package:project/pages/tools/draw/display_random_draw.dart';
 import 'package:project/pages/tools/draw/presenter_random_draw.dart';
 import 'package:project/pages/tools/groupMaking/display_group_page.dart';
@@ -237,23 +239,49 @@ Future<void> main() async {
   print('🛠️ runApp 호출 완료');
 }
 
-class PresenterApp extends StatelessWidget {
+class PresenterApp extends StatefulWidget {
+  const PresenterApp({super.key});
+
+  @override
+  State<PresenterApp> createState() => _PresenterAppState();
+}
+
+class _PresenterAppState extends State<PresenterApp> {
   final _observer = PresenterRouteObserver();
+  StreamSubscription<html.Event>? _beforeUnloadSub;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _beforeUnloadSub = html.window.onBeforeUnload.listen((event) {
+      try {
+        channel.postMessage(
+          jsonEncode({
+            'type': 'presenter_closed',
+          }),
+        );
+      } catch (_) {}
+    });
+  }
+
+  @override
+  void dispose() {
+    _beforeUnloadSub?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final settings = context.watch<AppSettingsProvider>(); // <- 추가
+    final settings = context.watch<AppSettingsProvider>();
 
     return MaterialApp(
       title: 'Presenter',
       debugShowCheckedModeBanner: false,
-
       theme: buildAppTheme(brightness: Brightness.light),
       darkTheme: buildAppTheme(brightness: Brightness.dark),
       themeMode: settings.themeMode,
-
-      // ▼ l10n 적용
-      locale: settings.locale, // <- Provider에서 읽음
+      locale: settings.locale,
       localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
@@ -261,17 +289,14 @@ class PresenterApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [Locale('en'), Locale('ko')],
-
       initialRoute: initialRoute,
       navigatorObservers: [_observer],
-      // ★ 허브 변경 시 디스플레이로 브로드캐스트
       builder: (context, child) => HubChannelEmitter(child: child),
       routes: {
         '/login': (_) => LoginPage(),
         '/home': (_) => PresenterHomePage(),
         '/tools/quiz': (_) => PresenterQuizPage(),
         '/quiz/create-topic': (_) => const CreateTopicPage(),
-        // '/game': (_) => PresenterGamePage(),
         '/tools': (_) => PresenterToolsPage(),
         '/AI': (_) => PresenterAIChatPage(),
         '/setting': (_) => PresenterSettingPage(),
@@ -286,10 +311,10 @@ class PresenterApp extends StatelessWidget {
         '/profile/student/details': (_) => const StudentScoreDetailsPage(),
         '/profile/class/details': (_) => const ClassScoreDetailsPage(),
         '/tools/random_seat': (_) => const RandomSeatFilesPage(),
-        // '/random-seat/files'    : (_) => const RandomSeatFilesPage(),
-        '/tools/random_seat/create'   : (_) => const RandomSeatCreatePage(),
+        '/tools/random_seat/create': (_) => const RandomSeatCreatePage(),
         '/tools/random_seat/detail': (_) => const RandomSeatPage(),
         '/tools/draw': (_) => const PresenterRandomDrawPage(),
+        '/statistic': (_) => const StatisticListPage(),
       },
     );
   }
@@ -303,40 +328,44 @@ class DisplayApp extends StatefulWidget {
 class _DisplayAppState extends State<DisplayApp> {
   final GlobalKey<NavigatorState> navigatorKey = GlobalKey();
 
-  @override
-  void initState() {
-    super.initState();
-    channel.onMessage.listen((event) {
-      final data = jsonDecode(event.data as String);
-      if (data['type'] == 'route') {
-        final route = data['route'] as String?;
-        if (route != null) {
-          navigatorKey.currentState?.pushReplacementNamed(route);
-        }
-        slideIndex.value = data['slide'] as int;
-      } else if (data['type'] == 'slide') {
-        slideIndex.value = data['slide'] as int;
-      }
-      // ★ 허브 동기화 수신 → Display의 HubProvider 갱신
-      else if (data['type'] == 'hub') {
-        final hubId = data['hubId'] as String?;
-        if (hubId != null && hubId.isNotEmpty) {
-          // 컨텍스트가 안전할 때 한 프레임 뒤에 적용
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              context.read<HubProvider>().setHub(hubId);
-              // 디버그 로그
-              // print('📡 [Display] Hub set from broadcast: $hubId');
-            }
-          });
-        }
-      }
-    });
+ @override
+void initState() {
+  super.initState();
 
-    // (선택) Display가 먼저 열렸을 때 초기값을 못 받는 경우가 있다면
-    // 아래처럼 Presenter에 허브 브로드캐스트를 요청하는 메시지를 보낼 수도 있음:
-    // channel.postMessage(jsonEncode({'type':'hub:request'}));
-  }
+  channel.onMessage.listen((event) {
+    final data = jsonDecode(event.data as String);
+
+    if (data['type'] == 'route') {
+      final route = data['route'] as String?;
+      if (route != null) {
+        navigatorKey.currentState?.pushReplacementNamed(route);
+      }
+      slideIndex.value = data['slide'] as int;
+    } else if (data['type'] == 'slide') {
+      slideIndex.value = data['slide'] as int;
+    } else if (data['type'] == 'hub') {
+      final hubId = data['hubId'] as String?;
+      if (hubId != null && hubId.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            context.read<HubProvider>().setHub(hubId);
+          }
+        });
+      }
+    } else if (data['type'] == 'presenter_closed') {
+      try {
+        html.window.close();
+      } catch (_) {}
+
+      // close가 안 되는 브라우저 대비
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          navigatorKey.currentState?.pushReplacementNamed('/login');
+        }
+      });
+    }
+  });
+}
 
   @override
   Widget build(BuildContext context) {

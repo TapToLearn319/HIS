@@ -207,39 +207,56 @@ class AppScaffold extends StatelessWidget {
               ),
               // const SizedBox(height: 16),
               Expanded(
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.start,
-                      children: [
-                        _buildDrawerItem(
-                          context,
-                          index: 0,
-                          icon: Icons.home,
-                          title: AppLocalizations.of(context)!.home,
-                          routeName: '/tools',
-                          selectedIndex: selectedIndex,
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    return SingleChildScrollView(
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          minHeight: constraints.maxHeight,
                         ),
-                        _buildDrawerItem(
-                          context,
-                          index: 1,
-                          icon: Icons.person,
-                          title: AppLocalizations.of(context)!.presenterMain,
-                          routeName: '/profile',
-                          selectedIndex: selectedIndex,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              _buildDrawerItem(
+                                context,
+                                index: 0,
+                                icon: Icons.home,
+                                title: AppLocalizations.of(context)!.home,
+                                routeName: '/tools',
+                                selectedIndex: selectedIndex,
+                              ),
+                              _buildDrawerItem(
+                                context,
+                                index: 1,
+                                icon: Icons.person,
+                                title: AppLocalizations.of(context)!.presenterMain,
+                                routeName: '/profile',
+                                selectedIndex: selectedIndex,
+                              ),
+                              _buildDrawerItem(
+                                context,
+                                index: 2,
+                                icon: Icons.bar_chart,
+                                title: 'Statistic',
+                                routeName: '/statistic',
+                                selectedIndex: selectedIndex,
+                              ),
+                              _buildDrawerItem(
+                                context,
+                                index: 3,
+                                icon: Icons.settings,
+                                title: AppLocalizations.of(context)!.setting,
+                                routeName: '/setting',
+                                selectedIndex: selectedIndex,
+                              ),
+                            ],
+                          ),
                         ),
-                        _buildDrawerItem(
-                          context,
-                          index: 2,
-                          icon: Icons.settings,
-                          title: AppLocalizations.of(context)!.setting,
-                          routeName: '/setting',
-                          selectedIndex: selectedIndex,
-                        ),
-                      ],
-                    ),
-                  ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
