@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:project/pages/ai_chat/presenter_ai_char.dart';
+import 'package:project/pages/content_ai_page.dart';
 import 'package:project/pages/profile/class_score_detail.dart';
 import 'package:project/pages/profile/student_score_detail.dart';
 import 'package:project/pages/random_seat/display_random_seat.dart';
@@ -289,6 +290,10 @@ class PresenterApp extends StatelessWidget {
         '/tools/random_seat/detail': (_) => const RandomSeatPage(),
         '/tools/draw': (_) => const PresenterRandomDrawPage(),
         '/statistic': (_) => const StatisticListPage(),
+        '/tools/content_ai': (_) => ContentAiPage( 
+          openRouterApiKey: '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'
+          ,topicSelectionRouteName: '/tools/quiz',
+          )
       },
     );
   }
