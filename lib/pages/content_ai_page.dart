@@ -720,14 +720,9 @@ class _ContentAiPageState extends State<ContentAiPage> {
                       child: Row(
                         children: [
                           Expanded(
-                            child: TextField(
-                              controller: TextEditingController(
-                                text: item.options[oIndex].text,
-                              )..selection = TextSelection.collapsed(
-                                  offset: item.options[oIndex].text.length,
-                                ),
-                              onChanged: (value) =>
-                                  _updateOptionText(index, oIndex, value),
+                            child: TextFormField(
+                              initialValue: item.options[oIndex].text,
+                              onChanged: (value) => _updateOptionText(index, oIndex, value),
                               decoration: InputDecoration(
                                 border: InputBorder.none,
                                 isDense: true,
