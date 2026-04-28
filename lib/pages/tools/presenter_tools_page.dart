@@ -105,6 +105,17 @@ class _PresenterToolsPageState extends State<PresenterToolsPage> {
       trending: false,
       route: '/tools/draw',
     ),
+    ToolItem(
+      id: 'content_ai',
+      title: 'Content AI',
+      description: 'Generate 5 quiz questions from a PDF with AI',
+      icon: Icons.auto_awesome_outlined,
+      color: const Color(0xFF7C5CFF),
+      bgColor: const Color(0x337C5CFF),
+      usage: '',
+      trending: false,
+      route: '/tools/content_ai',
+    ),
   ];
 
   final List<QuickAction> quickActions = const [

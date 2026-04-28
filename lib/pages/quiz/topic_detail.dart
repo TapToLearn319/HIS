@@ -182,7 +182,28 @@ class TopicDetailPage extends StatelessWidget {
                       StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                         stream: quizzesCol.snapshots(),
                         builder: (context, qSnap) {
-                          final docs = qSnap.data?.docs ?? const [];
+                          final docs = [...(qSnap.data?.docs ?? const [])];
+
+                            docs.sort((a, b) {
+                              final ad = a.data();
+                              final bd = b.data();
+
+                              final ao = ad['order'];
+                              final bo = bd['order'];
+
+                              if (ao is num && bo is num) {
+                                return ao.compareTo(bo);
+                              }
+
+                              final ac = ad['createdAt'];
+                              final bc = bd['createdAt'];
+
+                              if (ac is Timestamp && bc is Timestamp) {
+                                return ac.compareTo(bc);
+                              }
+
+                              return a.id.compareTo(b.id);
+                            });
 
                           // 🔹 Topic 상태 읽기 (status, phase, currentQuizId)
                           final topicData = tSnap.data?.data() ?? {};
