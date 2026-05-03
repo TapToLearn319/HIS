@@ -30,8 +30,9 @@ dependencies:
   go_router: ^16.2.4
   dotted_border: ^3.1.0
   audioplayers: ^6.5.1
+  fl_chart: ^1.1.0
+  http: ^1.6.0
   flutter_dropzone: ^4.1.0
-  http: ^1.2.2
   syncfusion_flutter_pdf: 33.2.3
 
 dev_dependencies:

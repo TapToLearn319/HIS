@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../sidebar_menu.dart';
+import 'student_analysis_page.dart';
 
 const String kHubId = 'hub-001';
 
@@ -468,7 +469,42 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 32),
+
+                        const SizedBox(height: 8),
+
+                        TextButton.icon(
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => StudentAnalysisPage(
+                                  studentId: studentId,
+                                  studentName: name,
+                                ),
+                              ),
+                            );
+                          },
+                          icon: const Icon(
+                            Icons.auto_awesome,
+                            size: 20,
+                            color: Color(0xFF44A0FF),
+                          ),
+                          label: const Text(
+                            'View Analysis',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: Color(0xFF44A0FF),
+                              fontSize: 21,
+                              fontWeight: FontWeight.w600,
+                              decoration: TextDecoration.underline,
+                              decorationColor: Color(0xFF44A0FF),
+                              height: 1.0,
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 24),
+
                         _DeviceMappingRow(
                           studentId: studentId,
                           onLink1: () => _captureToSlot('1'),
