@@ -31,7 +31,7 @@ class QuizGenerationException implements Exception {
 class OpenRouterQuizService {
   OpenRouterQuizService({
     required this.apiKey,
-    this.primaryModel = 'google/gemma-4-26b-a4b-it:free',
+    this.primaryModel = 'openai/gpt-oss-120b:free',
     this.siteUrl = '',
     this.siteName = 'MyButton AI Helper',
   });
@@ -45,10 +45,10 @@ class OpenRouterQuizService {
       'https://openrouter.ai/api/v1/chat/completions';
 
   static const List<String> _fallbackModels = [
+    'openai/gpt-oss-120b:free',
     'google/gemma-4-26b-a4b-it:free',
-    'qwen/qwen-2.5-72b-instruct:free',
     'meta-llama/llama-3.3-70b-instruct:free',
-    'mistralai/mistral-small-3.2-24b-instruct:free',
+    'qwen/qwen2.5-72b-instruct:free',
   ];
 
   String extractTextFromPdfBytes(Uint8List pdfBytes) {
