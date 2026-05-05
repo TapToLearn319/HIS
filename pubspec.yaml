@@ -35,6 +35,7 @@ dependencies:
   flutter_dropzone: ^4.1.0
   syncfusion_flutter_pdf: 33.2.3
 
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

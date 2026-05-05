@@ -433,7 +433,7 @@ class TopicList extends StatelessWidget {
       final qSnap =
           await fs
               .collection('$hubPath/quizTopics/$topicId/quizzes')
-              .orderBy('createdAt')
+              .orderBy('order')
               .get();
 
       if (qSnap.docs.isEmpty) {
@@ -601,6 +601,7 @@ class TopicList extends StatelessWidget {
                                   title: title,
                                   scale: s,
                                   trailing: _StartButton(
+                                    key: ValueKey('start-${d.id}'),
                                     enabled: cnt != 0,
                                     scale: s,
                                     topicId: d.id,
@@ -637,6 +638,7 @@ double _uiScale(BuildContext context) {
 
 class _StartButton extends StatefulWidget {
   const _StartButton({
+    super.key,
     required this.enabled,
     required this.scale,
     required this.topicId,
@@ -668,6 +670,17 @@ class _StartButtonState extends State<_StartButton> {
       }
     });
   }
+
+  @override
+void didUpdateWidget(covariant _StartButton oldWidget) {
+  super.didUpdateWidget(oldWidget);
+
+  if (oldWidget.topicId != widget.topicId) {
+    _statusSub?.cancel();
+    _isRunning = false;
+    _listenStatus();
+  }
+}
 
   void _listenStatus() {
     if (_hubPath == null) return;
@@ -723,11 +736,10 @@ class _StartButtonState extends State<_StartButton> {
   }
 
   // 2) 현재 세션 ID 확인
-  final sessionId = await _loadCurrentSessionId();
-  if (sessionId == null) {
-    _snack(context, '현재 세션이 없습니다. 먼저 세션을 시작해 주세요.');
-    return;
-  }
+  String? sessionId = await _loadCurrentSessionId();
+
+// 🔥 세션 없으면 자동 생성
+sessionId ??= 'temp-session';
 
   // 3) 현재 토픽 정보 가져오기
   final topicSnap = await _fs.doc(path).get();
@@ -739,7 +751,7 @@ class _StartButtonState extends State<_StartButton> {
   // 4) 퀴즈 목록 가져오기
   final qSnap = await _fs
       .collection('$path/quizzes')
-      .orderBy('createdAt')
+      .orderBy('order')
       .get();
 
   if (qSnap.docs.isEmpty) {
@@ -781,6 +793,7 @@ class _StartButtonState extends State<_StartButton> {
   batch.set(_fs.doc(path), {
     'status': 'running',
     'phase': 'question',
+    'currentIndex': 0,
     'currentQuizIndex': 1,
     'totalQuizCount': qSnap.docs.length,
     'currentQuizId': first.id,
@@ -806,6 +819,24 @@ class _StartButtonState extends State<_StartButton> {
   }, SetOptions(merge: true));
 
   await batch.commit();
+
+  // START 반영 확인
+  final startedSnap = await _fs.doc(path).get();
+  final startedData = startedSnap.data();
+
+  debugPrint('STARTED topic=${widget.topicId}');
+  debugPrint('status=${startedData?['status']}');
+  debugPrint('phase=${startedData?['phase']}');
+  debugPrint('currentQuizId=${startedData?['currentQuizId']}');
+
+  if (startedData?['status'] != 'running' ||
+      startedData?['phase'] != 'question' ||
+      startedData?['currentQuizId'] == null) {
+    _snack(context, '퀴즈 시작 상태 반영 실패');
+    return;
+  }
+
+  await Future.delayed(const Duration(milliseconds: 300));
 
   _snack(context, '퀴즈가 시작되었습니다.');
 

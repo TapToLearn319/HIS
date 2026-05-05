@@ -28,34 +28,42 @@ class QuizFirestoreService {
     final quizRefs = questions.map((_) => quizzesRef.doc()).toList();
 
     batch.set(topicRef, {
-      'title': bundleTitle,
-      'sourceFileName': sourceFileName,
-      'questionCount': questions.length,
-      'totalQuizCount': questions.length,
+  'title': bundleTitle,
+  'sourceFileName': sourceFileName,
+  'questionCount': questions.length,
+  'totalQuizCount': questions.length,
 
-      'activeRunId': null,
-      'anonymous': settings.anonymous,
-      'currentIndex': null,
-      'currentQuizId': quizRefs.isNotEmpty ? quizRefs.first.id : null,
-      'currentQuizIndex': 0,
-      'endedAt': null,
-      'phase': 'draft',
-      'questionStartedAt': null,
-      'questionStartedAtMs': null,
-      'sessionId': null,
-      'showResultsMode':
-          settings.showResultsInRealTime ? 'realtime' : 'afterQuizEnds',
-      'showSummaryOnDisplay': false,
-      'startedAt': null,
-      'status': 'draft',
-      'timeLimitEnabled': settings.totalSeconds > 0,
+  // 실행 관련 상태: 생성 직후에는 아직 시작 안 된 상태
+  'activeRunId': null,
+  'sessionId': null,
+  'status': 'draft',
+  'phase': 'draft',
 
-      'generatedByAI': true,
-      'settings': settings.toMap(),
+  // 현재 문항 없음
+  'currentIndex': null,
+  'currentQuizId': null,
+  'currentQuizIndex': null,
 
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+  // 시간/응답 상태 초기화
+  'startedAt': null,
+  'endedAt': null,
+  'questionStartedAt': null,
+  'questionStartedAtMs': null,
+  'showSummaryOnDisplay': false,
+
+  // 설정값
+  'anonymous': settings.anonymous,
+  'showResultsMode':
+      settings.showResultsInRealTime ? 'realtime' : 'afterQuizEnds',
+  'timeLimitEnabled': settings.totalSeconds > 0,
+
+  // AI 생성 정보
+  'generatedByAI': true,
+  'settings': settings.toMap(),
+
+  'createdAt': FieldValue.serverTimestamp(),
+  'updatedAt': FieldValue.serverTimestamp(),
+});
 
     final bindings = [
       {'button': 1, 'gesture': 'single'},
