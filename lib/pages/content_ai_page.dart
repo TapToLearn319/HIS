@@ -451,14 +451,14 @@ class _ContentAiPageState extends State<ContentAiPage> {
                 ],
               ),
               const SizedBox(height: 18),
-              Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: [
-                  _chipButton('Create a Quiz'),
-                  _devButton(),
-                ],
-              ),
+              // Wrap(
+              //   spacing: 12,
+              //   runSpacing: 12,
+              //   children: [
+              //     _chipButton('Create a Quiz'),
+              //     _devButton(),
+              //   ],
+              // ),
               const SizedBox(height: 24),
               const Divider(color: Color(0xFFD9D9D9)),
               const SizedBox(height: 22),

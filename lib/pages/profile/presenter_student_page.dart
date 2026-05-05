@@ -203,9 +203,19 @@ class _PresenterStudentPageState extends State<PresenterStudentPage> {
 
           // 여기까지 왔으면 "지금 매핑을 시작한 이후에" 눌린 버튼
           final devId = ch.doc.id;
+
+          debugPrint('🔥 [PAIR DETECTED]');
+          debugPrint('👉 deviceId: $devId');
+          debugPrint('👉 targetSlot: $slotIndex');
+          debugPrint('👉 rawData: $data');
+          debugPrint('👉 hubTs: $hubTs / startAt: $startAtMs');
           handled = true;
 
           try {
+            debugPrint('💾 [SAVE DEVICE]');
+            debugPrint('👉 deviceId: $devId');
+            debugPrint('👉 assignedSlot: $slotIndex');
+            debugPrint('👉 studentId: $studentId');
             await fs.doc('hubs/$kHubId/devices/$devId').set({
               'studentId': studentId,
               'slotIndex': slotIndex,

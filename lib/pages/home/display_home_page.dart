@@ -39,6 +39,9 @@ class DisplayHomePage extends StatefulWidget {
 class _DisplayHomePageState extends State<DisplayHomePage> {
   int? _enterMs;
   String? _enterSessionId;
+  final Set<String> _blueStudents = {};
+  final Set<String> _grayStudents = {};
+  final Map<String, int> _lastHandledMsByStudent = {};
   int get _sinceMs => _enterMs ??= DateTime.now().millisecondsSinceEpoch;
 
   int _eventMs(Map<String, dynamic> x) {
@@ -84,6 +87,10 @@ class _DisplayHomePageState extends State<DisplayHomePage> {
             if (_enterSessionId != sid) {
               _enterSessionId = sid;
               _enterMs = DateTime.now().millisecondsSinceEpoch;
+
+              _blueStudents.clear();
+              _grayStudents.clear();
+              _lastHandledMsByStudent.clear();
             }
             final sinceMs = _sinceMs;
 
@@ -158,19 +165,15 @@ class _DisplayHomePageState extends State<DisplayHomePage> {
                             >(
                               stream: devicesStream,
                               builder: (context, devSnap) {
-                                final Map<String, int> lastMsByStudent = {};
-                                final Map<String, String> firstColorByStudent =
-                                    {}; // 'gray' | 'blue'
+                                final Map<String, int> latestMsByStudent = {};
 
                                 if (devSnap.data != null) {
                                   for (final d in devSnap.data!.docs) {
                                     final devId = d.id;
                                     final dev = d.data();
-                                    final sidStu =
-                                        (dev['studentId'] as String?)?.trim();
-                                    if (sidStu == null || sidStu.isEmpty) {
-                                      continue;
-                                    }
+
+                                    final sidStu = (dev['studentId'] as String?)?.trim();
+                                    if (sidStu == null || sidStu.isEmpty) continue;
 
                                     final live = liveByDevice[devId];
                                     if (live == null) continue;
@@ -178,16 +181,40 @@ class _DisplayHomePageState extends State<DisplayHomePage> {
                                     final ms = _eventMs(live);
                                     if (ms <= 0 || ms < sinceMs) continue;
 
-                                    if (!lastMsByStudent.containsKey(sidStu) ||
-                                        ms > lastMsByStudent[sidStu]!) {
-                                      lastMsByStudent[sidStu] = ms;
-                                      firstColorByStudent[sidStu] =
-                                          _inAnyInterval(ms, intervals)
-                                              ? 'gray'
-                                              : 'blue';
+                                    if (!latestMsByStudent.containsKey(sidStu) ||
+                                        ms > latestMsByStudent[sidStu]!) {
+                                      latestMsByStudent[sidStu] = ms;
                                     }
                                   }
                                 }
+
+                                for (final entry in latestMsByStudent.entries) {
+                                  final sidStu = entry.key;
+                                  final ms = entry.value;
+
+                                  final lastHandled = _lastHandledMsByStudent[sidStu] ?? 0;
+                                  if (ms <= lastHandled) continue;
+
+                                  final color = _eventColorByRule(ms, intervals);
+                                  if (color == null) continue;
+
+                                  _lastHandledMsByStudent[sidStu] = ms;
+
+                                  if (color == 'blue') {
+                                    _blueStudents.add(sidStu);
+                                    _grayStudents.remove(sidStu);
+                                  } else if (color == 'gray') {
+                                    // 이미 파란색이면 회색으로 바꾸지 않음
+                                    if (!_blueStudents.contains(sidStu)) {
+                                      _grayStudents.add(sidStu);
+                                    }
+                                  }
+                                }
+
+                                final Map<String, String> firstColorByStudent = {
+                                  for (final id in _grayStudents) id: 'gray',
+                                  for (final id in _blueStudents) id: 'blue',
+                                };
 
                                 return LayoutBuilder(
                                   builder: (context, box) {
@@ -544,6 +571,32 @@ bool _inAnyInterval(int ms, List<_Interval> intervals) {
     if (r.contains(ms)) return true;
   }
   return false;
+}
+
+bool _hasStarted(List<_Interval> intervals) {
+  return intervals.isNotEmpty;
+}
+
+bool _isAfterDone(int ms, List<_Interval> intervals) {
+  for (final r in intervals) {
+    if (r.endMs != null && ms > r.endMs!) {
+      return true;
+    }
+  }
+  return false;
+}
+
+String? _eventColorByRule(int ms, List<_Interval> intervals) {
+  // Begin 전: 출석 체크 → 파란색
+  if (!_hasStarted(intervals)) return 'blue';
+
+  // Begin 후 수업 중: 반응 → 회색
+  if (_inAnyInterval(ms, intervals)) return 'gray';
+
+  // Done 이후도 반응 → 회색
+  if (_isAfterDone(ms, intervals)) return 'gray';
+
+  return null;
 }
 
 class _DashedBorderPainter extends CustomPainter {

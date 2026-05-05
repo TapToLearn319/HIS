@@ -71,10 +71,27 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     return prefs.getString('$_kLastSessionKey:$hubId');
   }
 
+  void _resetAttendanceColors() {
+  setState(() {
+    _enterMs = DateTime.now().millisecondsSinceEpoch;
+    _blueStudents.clear();
+    _grayStudents.clear();
+    _lastHandledMsByStudent.clear();
+  });
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(content: Text('Attendance board reset.')),
+  );
+}
+
   // ── ⬇️ 추가: 화면 입장 이후만 인정하기 위한 기준 시각(세션별)
   int? _enterMs;
   String? _enterSessionId;
   int get _sinceMs => _enterMs ??= DateTime.now().millisecondsSinceEpoch;
+
+  final Set<String> _blueStudents = {};
+  final Set<String> _grayStudents = {};
+  final Map<String, int> _lastHandledMsByStudent = {};
 
   // 로그/도움
   String _ts() => DateTime.now().toIso8601String();
@@ -411,6 +428,28 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     return false;
   }
 
+  int? _firstBeginMs(List<_RunInterval> intervals) {
+  if (intervals.isEmpty) return null;
+
+  int first = intervals.first.startMs;
+  for (final r in intervals) {
+    if (r.startMs < first) first = r.startMs;
+  }
+  return first;
+}
+
+  String? _eventColorByRule(int ms, List<_RunInterval> intervals) {
+    final beginMs = _firstBeginMs(intervals);
+
+    // Begin 전 출석 → 파란색
+    if (beginMs == null || ms < beginMs) {
+      return 'blue';
+    }
+
+    // Begin 후 처음 누른 학생 → 회색
+    return 'gray';
+  }
+
   @override
   Widget build(BuildContext context) {
     final hubId = context.watch<HubProvider>().hubId; // ✅ 허브 변경 시 리빌드
@@ -464,8 +503,8 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                           ],
                         ),
                         OutlinedButton(
-                          onPressed: () => _openSessionMenu(context),
-                          child: const Text('Session'),
+                          onPressed: _resetAttendanceColors,
+                          child: const Text('Reset'),
                         ),
                       ],
                     ),
@@ -625,6 +664,10 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
     if (_enterSessionId != sessionId) {
       _enterSessionId = sessionId;
       _enterMs = DateTime.now().millisecondsSinceEpoch;
+
+      _blueStudents.clear();
+      _grayStudents.clear();
+      _lastHandledMsByStudent.clear();
     }
     final sinceMs = _sinceMs;
 
@@ -678,45 +721,67 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
                       stream: fs.collection('hubs/$hubId/devices').snapshots(),
                       builder: (context, devSnap) {
                         final Map<String, String> lastSlotByStudent = {};
-                        final Map<String, int> lastMsByStudent = {};
-                        final Map<String, String> firstTouchColorByStudent =
-                            {}; // 'blue'|'gray'
+                        final Map<String, int> latestMsByStudent = {};
 
                         if (devSnap.data != null) {
                           for (final d in devSnap.data!.docs) {
                             final devId = d.id;
                             final data = d.data();
+
                             final sid = (data['studentId'] as String?)?.trim();
                             if (sid == null || sid.isEmpty) continue;
 
-                            // slotIndex from devices (can be '1'/'2' or int)
                             String? slot;
                             final rawSlot = data['slotIndex'];
                             if (rawSlot is num) {
                               slot = '${rawSlot.toInt()}';
-                            } else if (rawSlot is String &&
-                                rawSlot.trim().isNotEmpty) {
+                            } else if (rawSlot is String && rawSlot.trim().isNotEmpty) {
                               final s = rawSlot.trim();
                               if (s == '1' || s == '2') slot = s;
                             }
-                            slot ??= '1'; // 기본값
+                            slot ??= '1';
 
                             final live = liveByDevice[devId];
                             if (live == null) continue;
 
                             final ms = _eventMs(live);
-                            // ── ⬇️ 추가: 페이지 입장(sinceMs) 이전에 눌린 기록은 무시
                             if (ms <= 0 || ms < sinceMs) continue;
 
-                            if (!lastMsByStudent.containsKey(sid) ||
-                                ms > lastMsByStudent[sid]!) {
-                              lastMsByStudent[sid] = ms;
+                            if (!latestMsByStudent.containsKey(sid) ||
+                                ms > latestMsByStudent[sid]!) {
+                              latestMsByStudent[sid] = ms;
                               lastSlotByStudent[sid] = slot;
-                              firstTouchColorByStudent[sid] =
-                                  isDuringRun(ms) ? 'gray' : 'blue';
                             }
                           }
                         }
+
+                        for (final entry in latestMsByStudent.entries) {
+                          final sid = entry.key;
+                          final ms = entry.value;
+
+                          final lastHandled = _lastHandledMsByStudent[sid] ?? 0;
+                          if (ms <= lastHandled) continue;
+
+                          final color = _eventColorByRule(ms, serverIntervals);
+                          if (color == null) continue;
+
+                          _lastHandledMsByStudent[sid] = ms;
+
+                          if (color == 'blue') {
+                            _blueStudents.add(sid);
+                            _grayStudents.remove(sid);
+                          } else if (color == 'gray') {
+                            // 이미 Begin 전에 파란색 된 학생은 절대 회색으로 바꾸지 않음
+                            if (!_blueStudents.contains(sid)) {
+                              _grayStudents.add(sid);
+                            }
+                          }
+                        }
+
+                        final Map<String, String> firstTouchColorByStudent = {
+                          for (final id in _grayStudents) id: 'gray',
+                          for (final id in _blueStudents) id: 'blue',
+                        };
 
                         // 상단 정보
                         final now = DateTime.now();

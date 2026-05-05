@@ -23,6 +23,20 @@ class _DisplayQuizPageState extends State<DisplayQuizPage> {
   late final DateTime _openedAt = DateTime.now();
   static const Duration _clockSkew = Duration(seconds: 3);
 
+
+  @override
+  void initState() {
+    super.initState();
+
+    Future.delayed(const Duration(seconds: 2), () {
+      if (!mounted) return;
+      setState(() {
+        _initialWaiting = false;
+      });
+    });
+  }
+  bool _initialWaiting = true;
+
   bool _isFreshFrom(Timestamp? ts) {
     if (ts == null) return false;
     return ts.toDate().isAfter(_openedAt.subtract(_clockSkew));
@@ -31,7 +45,9 @@ class _DisplayQuizPageState extends State<DisplayQuizPage> {
   @override
   Widget build(BuildContext context) {
     final fs = FirebaseFirestore.instance;
-
+    if (_initialWaiting) {
+      return const Scaffold(body: _WaitingScreen());
+    }
     // 허브 경로
     final hubPath = context.watch<HubProvider>().hubDocPath;
     // 무조건 허브가 있어야 진행
