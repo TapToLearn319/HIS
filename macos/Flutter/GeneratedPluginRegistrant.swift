@@ -12,8 +12,7 @@ import file_picker
 import firebase_app_check
 import firebase_auth
 import firebase_core
-import printing
-import share_plus
+import path_provider_foundation
 import shared_preferences_foundation
 import webview_flutter_wkwebview
 
@@ -25,8 +24,12 @@ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   FLTFirebaseAppCheckPlugin.register(with: registry.registrar(forPlugin: "FLTFirebaseAppCheckPlugin"))
   FLTFirebaseAuthPlugin.register(with: registry.registrar(forPlugin: "FLTFirebaseAuthPlugin"))
   FLTFirebaseCorePlugin.register(with: registry.registrar(forPlugin: "FLTFirebaseCorePlugin"))
+<<<<<<< HEAD
   PrintingPlugin.register(with: registry.registrar(forPlugin: "PrintingPlugin"))
   SharePlusMacosPlugin.register(with: registry.registrar(forPlugin: "SharePlusMacosPlugin"))
+=======
+  PathProviderPlugin.register(with: registry.registrar(forPlugin: "PathProviderPlugin"))
+>>>>>>> 08ee9bacd861710fc89b46160318dffdc3a1dbf9
   SharedPreferencesPlugin.register(with: registry.registrar(forPlugin: "SharedPreferencesPlugin"))
   WebViewFlutterPlugin.register(with: registry.registrar(forPlugin: "WebViewFlutterPlugin"))
 }

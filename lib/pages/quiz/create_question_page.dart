@@ -102,6 +102,16 @@ class _CreateQuestionPageState extends State<CreateQuestionPage> {
     'hubs/${widget.hubId}/quizTopics/${widget.topicId}/quizzes',
   );
 
+  final snap = await quizzesCol.get();
+
+int nextOrder = 0;
+for (final doc in snap.docs) {
+  final data = doc.data();
+  final order = (data['order'] as num?)?.toInt();
+  if (order != null && order >= nextOrder) {
+    nextOrder = order + 1;
+  }
+}
   final question = _titleCtrl.text.trim();
 
   // 1) 질문 검사
@@ -173,19 +183,39 @@ class _CreateQuestionPageState extends State<CreateQuestionPage> {
       (correctOption['binding'] as Map<String, dynamic>);
 
   // 6) Firestore 저장 구조 통일
-   await quizzesCol.add({
-    'question': question,
-    'options': options,
-    'allowMultiple': _multi,
-    'correctBinding': {
-      'button': correctBinding['button'],
-      'gesture': correctBinding['gesture'],
-    },
-    'public': true,
-    'status': 'draft',
-    'createdAt': FieldValue.serverTimestamp(),
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+   final newQuizRef = await quizzesCol.add({
+  'question': question,
+  'options': options,
+  'allowMultiple': _multi,
+  'correctBinding': {
+    'button': correctBinding['button'],
+    'gesture': correctBinding['gesture'],
+  },
+  'public': true,
+  'status': 'draft',
+  'createdAt': FieldValue.serverTimestamp(),
+  'updatedAt': FieldValue.serverTimestamp(),
+
+  'order': nextOrder,
+  'index': nextOrder,
+  'votes': List<int>.filled(options.length, 0),
+  'votesByDevice': <String, dynamic>{},
+  'topicId': widget.topicId,
+});
+
+// 🔥 추가: topic 문서도 같이 갱신
+await FirebaseFirestore.instance
+    .doc('hubs/${widget.hubId}/quizTopics/${widget.topicId}')
+    .set({
+  'questionCount': snap.docs.length + 1,
+  'totalQuizCount': snap.docs.length + 1,
+  'currentQuizId': null,
+  'currentQuizIndex': null,
+  'currentIndex': null,
+  'status': 'draft',
+  'phase': 'draft',
+  'updatedAt': FieldValue.serverTimestamp(),
+}, SetOptions(merge: true));
 
   ScaffoldMessenger.of(context).showSnackBar(
     const SnackBar(content: Text('Question saved!')),

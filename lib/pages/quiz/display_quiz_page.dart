@@ -43,8 +43,6 @@ class _DisplayQuizPageState extends State<DisplayQuizPage> {
     final stream =
         fs
             .collection('$hubPath/quizTopics')
-            .orderBy('createdAt', descending: true)
-            .limit(50)
             .snapshots();
 
     return Scaffold(
@@ -67,7 +65,11 @@ class _DisplayQuizPageState extends State<DisplayQuizPage> {
           // 1) running 중인 토픽 중 "가장 최근" 것을 표시
           final running =
               docs
-                  .where((d) => (d.data()['status'] as String?) == 'running')
+                  .where((d) {
+                      final x = d.data();
+                      return x['status'] == 'running' &&
+                              x['currentQuizId'] != null;
+                    })
                   .toList()
                 ..sort((a, b) {
                   final sa = a.data()['questionStartedAt'] as Timestamp?;
@@ -278,6 +280,20 @@ void initState() {
         .snapshots()
         .listen(_handleLiveEvent);
   });
+}
+
+@override
+void didUpdateWidget(covariant _ActiveQuizView oldWidget) {
+  super.didUpdateWidget(oldWidget);
+
+  if (oldWidget.currentQuizId != widget.currentQuizId) {
+    setState(() {
+      _opts = [];
+      _total = 0;
+      _deviceVotedSlots = null;
+      _lastQuizIdShown = widget.currentQuizId;
+    });
+  }
 }
 
   @override
@@ -766,7 +782,7 @@ const SizedBox(width: 12),
       final quizCol = fs.collection(
         '$hubPath/quizTopics/${widget.topicId}/quizzes',
       );
-      final qs = await quizCol.orderBy('createdAt').get();
+      final qs = await quizCol.orderBy('order').get();
 
       bool foundCurrent = false;
       String? nextPublicId;
@@ -1083,7 +1099,7 @@ class _SummaryView extends StatelessWidget {
         fs
             .collection('$hubPath/quizTopics/$topicId/quizzes')
             .where('public', isEqualTo: true)
-            .orderBy('createdAt')
+            .orderBy('order')
             .snapshots();
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(

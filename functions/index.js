@@ -39,7 +39,10 @@ async function resolveSessionId({ hubId, deviceId, clientSessionId }) {
   if (!hubId) throw new Error("No hubId provided; cannot resolve sessionId.");
 
   const hubSnap = await db.doc(`hubs/${hubId}`).get();
-  const current = hubSnap.exists ? (hubSnap.data()?.currentSessionId || null) : null;
+  const current = hubSnap.exists
+    ? hubSnap.data()?.currentSessionId || null
+    : null;
+
   if (!current) throw new Error(`No currentSessionId set for hub ${hubId}.`);
 
   return current;
@@ -47,40 +50,81 @@ async function resolveSessionId({ hubId, deviceId, clientSessionId }) {
 
 // -----------------------------
 // 매핑 해석
+// 일반 Flic 버튼:
+//   devices/{deviceId}.studentId + slotIndex 사용
+//
+// Flic Duo:
+//   studentId는 devices/{deviceId}.studentId 사용
+//   slotIndex는 Hub에서 온 slotIndexFromHub 우선 사용
 // -----------------------------
-async function resolveMapping({ hubId, deviceId, clientStudentId, clientSlotIndex }) {
+async function resolveMapping({
+  hubId,
+  deviceId,
+  clientStudentId,
+  clientSlotIndex,
+  slotIndexFromHub,
+}) {
   let studentId = clientStudentId || null;
-  let slotIndex = normalizeSlot(clientSlotIndex);
+
+  // 핵심:
+  // Duo면 slotIndexFromHub 우선
+  // 일반 버튼이면 null이므로 기존 clientSlotIndex / devices 매핑 사용
+  let slotIndex = normalizeSlot(slotIndexFromHub) || normalizeSlot(clientSlotIndex);
 
   if (!studentId || !slotIndex) {
     const dev = await db.doc(`hubs/${hubId}/devices/${deviceId}`).get();
+
     if (dev.exists) {
       const d = dev.data() || {};
-      if (!studentId && d.studentId) studentId = d.studentId;
+
+      if (!studentId && d.studentId) {
+        studentId = d.studentId;
+      }
+
+      // 일반 Flic 버튼은 여기서 기존 slotIndex 사용
+      // Duo는 이미 slotIndexFromHub가 있으므로 덮어쓰지 않음
       const s = normalizeSlot(d.slotIndex);
-      if (!slotIndex && s) slotIndex = s;
+      if (!slotIndex && s) {
+        slotIndex = s;
+      }
     }
   }
 
   if (!studentId || !slotIndex) {
     const g = await db.doc(`devices/${deviceId}`).get();
+
     if (g.exists) {
       const gd = g.data() || {};
-      if (!studentId && gd.studentId) studentId = gd.studentId;
+
+      if (!studentId && gd.studentId) {
+        studentId = gd.studentId;
+      }
+
       const s = normalizeSlot(gd.slotIndex);
-      if (!slotIndex && s) slotIndex = s;
-      if (!studentId && gd.ownerStudentId) studentId = gd.ownerStudentId;
+      if (!slotIndex && s) {
+        slotIndex = s;
+      }
+
+      if (!studentId && gd.ownerStudentId) {
+        studentId = gd.ownerStudentId;
+      }
+
       const os = normalizeSlot(gd.ownerSlotIndex);
-      if (!slotIndex && os) slotIndex = os;
+      if (!slotIndex && os) {
+        slotIndex = os;
+      }
     }
   }
 
-  return { studentId: studentId || null, slotIndex: slotIndex || null };
+  return {
+    studentId: studentId || null,
+    slotIndex: slotIndex || null,
+  };
 }
 
-// ======================================================
-// 🔥 기존 단일 이벤트 처리 로직 (그대로 분리)
-// ======================================================
+// -----------------------------
+// 단일 이벤트 처리
+// -----------------------------
 async function processSingleEvent(body) {
   const hubId = body.hubId;
   const deviceId = body.deviceId;
@@ -88,9 +132,15 @@ async function processSingleEvent(body) {
   const eventId = body.eventId;
   const rawHubTs = body.hubTs;
   const seq = Number(body.seq || 0);
+
   const clientSessionId = body.sessionId;
   const clientStudentId = body.studentId;
+
+  // 기존 일반 버튼용
   const clientSlotIndex = body.slotIndex;
+
+  // 새 Hub 코드에서 오는 Duo용
+  const slotIndexFromHub = body.slotIndexFromHub;
 
   if (!hubId || !deviceId || !clickType || !eventId) {
     throw new Error("hubId, deviceId, clickType, eventId are required.");
@@ -99,12 +149,23 @@ async function processSingleEvent(body) {
   const hubTs =
     typeof rawHubTs === "number" && Number.isFinite(rawHubTs)
       ? rawHubTs
-      : (typeof rawHubTs === "string" && /^\d+$/.test(rawHubTs)
-          ? Number(rawHubTs)
-          : Date.now());
+      : typeof rawHubTs === "string" && /^\d+$/.test(rawHubTs)
+        ? Number(rawHubTs)
+        : Date.now();
 
-  const sessionId = await resolveSessionId({ hubId, deviceId, clientSessionId });
-  const mapping = await resolveMapping({ hubId, deviceId, clientStudentId, clientSlotIndex });
+  const sessionId = await resolveSessionId({
+    hubId,
+    deviceId,
+    clientSessionId,
+  });
+
+  const mapping = await resolveMapping({
+    hubId,
+    deviceId,
+    clientStudentId,
+    clientSlotIndex,
+    slotIndexFromHub,
+  });
 
   const liveRef = db.doc(`hubs/${hubId}/liveByDevice/${deviceId}`);
 
@@ -121,13 +182,17 @@ async function processSingleEvent(body) {
 
       if (hubTs < prevHubTs) shouldUpdate = false;
       else if (hubTs === prevHubTs && seq <= prevSeq) shouldUpdate = false;
+
       if (prev.lastEventId === eventId) shouldUpdate = false;
     }
 
     if (!shouldUpdate) {
       tx.set(
         db.doc(`hubs/${hubId}/devices/${deviceId}`),
-        { lastSeenAt: nowTs, lastClickType: clickType },
+        {
+          lastSeenAt: nowTs,
+          lastClickType: clickType,
+        },
         { merge: true }
       );
       return;
@@ -138,46 +203,52 @@ async function processSingleEvent(body) {
       {
         deviceId,
         sessionId,
+
         studentId: mapping.studentId,
         slotIndex: mapping.slotIndex,
+
         clickType,
         lastHubTs: hubTs,
         lastSeq: seq,
         lastEventId: eventId,
         updatedAt: nowTs,
+
+        // 디버깅용: Duo 여부 확인 가능
+        source: body.source || null,
+        buttonNumber:
+          body.buttonNumber === undefined ? null : body.buttonNumber,
+        slotIndexFromHub: normalizeSlot(slotIndexFromHub),
       },
       { merge: true }
     );
 
     tx.set(
       db.doc(`hubs/${hubId}/devices/${deviceId}`),
-      { lastSeenAt: nowTs, lastClickType: clickType },
+      {
+        lastSeenAt: nowTs,
+        lastClickType: clickType,
+      },
       { merge: true }
     );
   });
 }
 
-// ======================================================
-// 🔥 HTTP 엔드포인트 (배치 + 단일 지원)
-// ======================================================
+// -----------------------------
+// HTTP 엔드포인트
+// 단일 이벤트만 처리
+// -----------------------------
 exports.receiveButtonEventUpdateOnly = onRequest(async (req, res) => {
   try {
-    if (req.method !== "POST") return res.status(405).send("Only POST");
-
-    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-
-    // 🔥 배치 이벤트
-    if (body?.batched === true && Array.isArray(body.events)) {
-      for (const ev of body.events) {
-        await processSingleEvent(ev);
-      }
-      return res.status(200).send("batch processed");
+    if (req.method !== "POST") {
+      return res.status(405).send("Only POST");
     }
 
-    // 🔥 단일 이벤트 (기존 방식)
-    await processSingleEvent(body);
-    return res.status(200).send("liveByDevice updated");
+    const body =
+      typeof req.body === "string" ? JSON.parse(req.body) : req.body;
 
+    await processSingleEvent(body);
+
+    return res.status(200).send("liveByDevice updated");
   } catch (err) {
     console.error("receiveButtonEventUpdateOnly error:", err);
     return res.status(500).send(String(err));

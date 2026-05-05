@@ -1,5 +1,6 @@
 import 'dart:typed_data';
-
+import 'dart:convert';
+import 'dart:html' as html;
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -233,6 +234,23 @@ class _ContentAiPageState extends State<ContentAiPage> {
         questions: _questions,
         settings: _settings,
       );
+
+      await _firestoreService.createAndSaveGeneratedQuizSet(
+        hubId: hubId,
+        sourceFileName: _fileName!,
+        bundleTitle: title,
+        questions: _questions,
+        settings: _settings,
+      );
+
+      // 🔥 AI 퀴즈 저장 후 Display를 Quiz 화면으로 전환
+      final channel = html.BroadcastChannel('presentation');
+        channel.postMessage(jsonEncode({
+          'type': 'route',
+          'route': '/tools/quiz',
+          'slide': 0,
+        }));
+        channel.close();
 
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, widget.topicSelectionRouteName);

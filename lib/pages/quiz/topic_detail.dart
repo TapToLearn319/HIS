@@ -185,24 +185,9 @@ class TopicDetailPage extends StatelessWidget {
                           final docs = [...(qSnap.data?.docs ?? const [])];
 
                             docs.sort((a, b) {
-                              final ad = a.data();
-                              final bd = b.data();
-
-                              final ao = ad['order'];
-                              final bo = bd['order'];
-
-                              if (ao is num && bo is num) {
-                                return ao.compareTo(bo);
-                              }
-
-                              final ac = ad['createdAt'];
-                              final bc = bd['createdAt'];
-
-                              if (ac is Timestamp && bc is Timestamp) {
-                                return ac.compareTo(bc);
-                              }
-
-                              return a.id.compareTo(b.id);
+                              final ao = (a.data()['order'] ?? 9999) as num;
+                              final bo = (b.data()['order'] ?? 9999) as num;
+                              return ao.compareTo(bo);
                             });
 
                           // 🔹 Topic 상태 읽기 (status, phase, currentQuizId)
@@ -1537,11 +1522,12 @@ class _QuestionCard extends StatelessWidget {
   // 👉 문제 풀이 종료 → 결과 공개 단계로 전환
                                   await topicRef.update({
                                     'phase': 'reveal',
+                                    'showSummaryOnDisplay': true,
                                     'updatedAt': FieldValue.serverTimestamp(),
                                   });
                                 } else if (phase == 'reveal') {
                                   // 👉 다음 공개 문항 찾기
-                                  final qs = await quizCol.orderBy('createdAt').get();
+                                  final qs = await quizCol.orderBy('order').get();
                                   final docs = qs.docs;
                                   final curIdx = docs.indexWhere((d) => d.id == currentId);
 
