@@ -1,15 +1,20 @@
+import 'dart:convert';
+import 'dart:js_interop';
+import 'dart:ui' as ui;
 import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:web/web.dart' as web;
+import 'package:share_plus/share_plus.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../../sidebar_menu.dart';
 // import '../../services/openrouter_service.dart';
+import '../../widgets/loading.dart';
 
 const String kHubId = 'hub-001';
 
@@ -31,7 +36,182 @@ class _StudentAnalysisPageState extends State<StudentAnalysisPage> {
   bool _isLoadingAI = false;
   Map<String, dynamic>? _aiResult;
 
+  bool _isSharing = false;
+
   late Future<StudentAnalysisStats> _statsFuture;
+
+  final GlobalKey _captureKey = GlobalKey();
+
+  Future<void> _printPage() async {
+    try {
+      await _statsFuture;
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      final context = _captureKey.currentContext;
+      if (context == null) return;
+
+      final boundary = context.findRenderObject() as RenderRepaintBoundary;
+
+      final image = await boundary.toImage(pixelRatio: 1.8);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+
+      if (byteData == null) return;
+
+      final pngBytes = byteData.buffer.asUint8List();
+      final base64Image = base64Encode(pngBytes);
+
+      final html = '''
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>${widget.studentName} Analysis Report</title>
+  <style>
+    @page {
+      size: A4 landscape;
+      margin: 8mm;
+    }
+
+    body {
+      margin: 0;
+      background: white;
+      text-align: center;
+    }
+
+    img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <img src="data:image/png;base64,$base64Image" />
+  <script>
+    window.onload = function() {
+      setTimeout(function() {
+        window.print();
+      }, 500);
+    };
+  </script>
+</body>
+</html>
+''';
+
+      final printWindow = web.window.open(
+        '',
+        '_blank',
+        'width=1200,height=900',
+      );
+
+      if (printWindow == null) {
+        debugPrint('Failed to open print window.');
+        return;
+      }
+
+      printWindow.document.open();
+      printWindow.document.write(html.toJS);
+      printWindow.document.close();
+    } catch (e) {
+      debugPrint('Print error: $e');
+    }
+  }
+
+  Future<Uint8List?> _captureReportPng() async {
+    try {
+      await _statsFuture;
+
+      // 화면 렌더링이 끝날 때까지 기다림
+      await WidgetsBinding.instance.endOfFrame;
+      await Future.delayed(const Duration(milliseconds: 200));
+
+      final captureContext = _captureKey.currentContext;
+      if (captureContext == null) return null;
+
+      final renderObject = captureContext.findRenderObject();
+
+      if (renderObject == null || renderObject is! RenderRepaintBoundary) {
+        debugPrint('Capture failed: renderObject is not RepaintBoundary');
+        return null;
+      }
+
+      // 아직 그리는 중이면 한 프레임 더 기다림
+      if (renderObject.debugNeedsPaint) {
+        await WidgetsBinding.instance.endOfFrame;
+      }
+
+      // 중요: 2.5는 웹에서 메모리 터질 수 있음
+      final image = await renderObject.toImage(pixelRatio: 1.0);
+
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+
+      if (byteData == null) return null;
+
+      return byteData.buffer.asUint8List();
+    } catch (e) {
+      debugPrint('Capture error: $e');
+      return null;
+    }
+  }
+
+  Future<Uint8List?> _buildCapturedPdf() async {
+    final pngBytes = await _captureReportPng();
+    if (pngBytes == null) return null;
+
+    final pdf = pw.Document();
+    final image = pw.MemoryImage(pngBytes);
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4.landscape,
+        margin: const pw.EdgeInsets.all(16),
+        build: (_) {
+          return pw.Center(child: pw.Image(image, fit: pw.BoxFit.contain));
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  Future<void> _sharePdf() async {
+    try {
+      setState(() => _isSharing = true);
+
+      final pdfBytes = await _buildCapturedPdf();
+
+      if (pdfBytes == null) {
+        debugPrint('PDF build failed');
+        return;
+      }
+
+      final fileName = '${widget.studentName}_analysis_report.pdf';
+
+      await Share.shareXFiles(
+        [
+          XFile.fromData(
+            pdfBytes,
+            name: fileName,
+            mimeType: 'application/pdf',
+            lastModified: DateTime.now(),
+          ),
+        ],
+        text: '${widget.studentName} analysis report',
+        subject: 'Student Analysis Report',
+      );
+    } catch (e) {
+      debugPrint('Share PDF error: $e');
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Share failed: $e')));
+    } finally {
+      if (mounted) {
+        setState(() => _isSharing = false);
+      }
+    }
+  }
 
   @override
   void initState() {
@@ -82,105 +262,6 @@ class _StudentAnalysisPageState extends State<StudentAnalysisPage> {
   }
   */
 
-  Future<Uint8List> _buildPdfBytes(StudentAnalysisStats stats) async {
-    final pdf = pw.Document();
-
-    final teacherNote =
-        _aiResult?['teacherNote'] ??
-        _aiResult?['teacher_note'] ??
-        'No analysis available';
-
-    pdf.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
-        build: (context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(
-                'Student Analysis Report',
-                style: pw.TextStyle(
-                  fontSize: 24,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 20),
-              pw.Text('Student: ${widget.studentName}'),
-              pw.Text('Overall: ${stats.overallPercent.round()}%'),
-              pw.SizedBox(height: 20),
-              pw.Text(
-                'Category Scores',
-                style: pw.TextStyle(
-                  fontSize: 18,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 10),
-              pw.Table(
-                border: pw.TableBorder.all(color: PdfColors.grey300),
-                children: [
-                  _pdfRow('Attendance', stats.radarStudent[0]),
-                  _pdfRow('Quiz', stats.radarStudent[1]),
-                  _pdfRow('Homework', stats.radarStudent[2]),
-                  _pdfRow('Presentation', stats.radarStudent[3]),
-                  _pdfRow('Attitude', stats.radarStudent[4]),
-                ],
-              ),
-              pw.SizedBox(height: 24),
-              pw.Text(
-                "Teacher's Note",
-                style: pw.TextStyle(
-                  fontSize: 18,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 8),
-              pw.Text(teacherNote.toString()),
-            ],
-          );
-        },
-      ),
-    );
-
-    return pdf.save();
-  }
-
-  Future<void> _downloadPdf(StudentAnalysisStats stats) async {
-    final bytes = await _buildPdfBytes(stats);
-
-    await Printing.layoutPdf(
-      onLayout: (_) async => bytes,
-      name: '${widget.studentName}_analysis_report.pdf',
-    );
-  }
-
-  Future<void> _sharePdf(StudentAnalysisStats stats) async {
-    final bytes = await _buildPdfBytes(stats);
-    final fileName = '${widget.studentName}_analysis_report.pdf';
-
-    await Share.shareXFiles(
-      [XFile.fromData(bytes, name: fileName, mimeType: 'application/pdf')],
-      text: '${widget.studentName} student analysis report',
-      subject: 'Student Analysis Report',
-    );
-  }
-
-  pw.TableRow _pdfRow(String label, double value) {
-  return pw.TableRow(
-    children: [
-      pw.Padding(
-        padding: const pw.EdgeInsets.all(8),
-        child: pw.Text(label),
-      ),
-      pw.Padding(
-        padding: const pw.EdgeInsets.all(8),
-        child: pw.Text('${value.round()}%'),
-      ),
-    ],
-  );
-}
-
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
@@ -193,72 +274,97 @@ class _StudentAnalysisPageState extends State<StudentAnalysisPage> {
             child: Center(
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 1120),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Stack(
                   children: [
-                    _TopBar(),
-                    const SizedBox(height: 36),
-                    _StudentHeader(
-                      studentName: widget.studentName,
-                      aiSummary: _aiResult?['summary'] ?? '',
-                      onPdfPressed: () async {
-                        final stats = await _statsFuture;
-                        await _downloadPdf(stats);
-                      },
-                      onSharePressed: () async {
-                        final stats = await _statsFuture;
-                        await _sharePdf(stats);
-                      },
+                    RepaintBoundary(
+                      key: _captureKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _TopBar(),
+                          const SizedBox(height: 36),
+                          _StudentHeader(
+                            studentName: widget.studentName,
+                            aiSummary: _aiResult?['summary'] ?? '',
+                            onPdfPressed: () async {
+                              await _printPage();
+                            },
+                            onSharePressed: () async {
+                              await _sharePdf();
+                            },
+                          ),
+                          const SizedBox(height: 28),
+
+                          FutureBuilder<StudentAnalysisStats>(
+                            future: _statsFuture,
+                            builder: (context, snap) {
+                              if (snap.connectionState ==
+                                  ConnectionState.waiting) {
+                                return const LoadingView();
+                              }
+
+                              if (snap.hasError) {
+                                return Text(
+                                  'Failed to load stats: ${snap.error}',
+                                );
+                              }
+
+                              final stats = snap.data!;
+
+                              return Column(
+                                children: [
+                                  Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Expanded(
+                                        flex: 2,
+                                        child: _ComparativePerformanceCard(
+                                          studentName: widget.studentName,
+                                          studentValues: stats.radarStudent,
+                                          classAvgValues: stats.radarClassAvg,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 20),
+                                      SizedBox(
+                                        width: 330,
+                                        child: _RightSummaryColumn(
+                                          isLoadingAI: _isLoadingAI,
+                                          aiResult: _aiResult,
+                                          categoryScores: stats.categoryScores,
+                                          overallPercent: stats.overallPercent,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 24),
+                                  _TrendAnalysisCard(stats: stats),
+                                ],
+                              );
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 28),
 
-                    FutureBuilder<StudentAnalysisStats>(
-                      future: _statsFuture,
-                      builder: (context, snap) {
-                        if (snap.connectionState == ConnectionState.waiting) {
-                          return const Padding(
-                            padding: EdgeInsets.only(top: 80),
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-
-                        if (snap.hasError) {
-                          return Text('Failed to load stats: ${snap.error}');
-                        }
-
-                        final stats = snap.data!;
-
-                        return Column(
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  flex: 2,
-                                  child: _ComparativePerformanceCard(
-                                    studentName: widget.studentName,
-                                    studentValues: stats.radarStudent,
-                                    classAvgValues: stats.radarClassAvg,
-                                  ),
-                                ),
-                                const SizedBox(width: 20),
-                                SizedBox(
-                                  width: 330,
-                                  child: _RightSummaryColumn(
-                                    isLoadingAI: _isLoadingAI,
-                                    aiResult: _aiResult,
-                                    categoryScores: stats.categoryScores,
-                                    overallPercent: stats.overallPercent,
-                                  ),
-                                ),
-                              ],
+                    if (_isSharing)
+                      Positioned.fill(
+                        child: Container(
+                          color: Colors.black.withOpacity(0.28),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 560,
+                              height: 520,
+                              child: LoadingView(
+                                title: 'Generating Report...',
+                                subtitle:
+                                    'Please wait while your PDF is being prepared.',
+                                height: 520,
+                              ),
                             ),
-                            const SizedBox(height: 24),
-                            _TrendAnalysisCard(stats: stats),
-                          ],
-                        );
-                      },
-                    ),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
