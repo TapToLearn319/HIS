@@ -34,6 +34,9 @@ dependencies:
   http: ^1.6.0
   flutter_dropzone: ^4.1.0
   syncfusion_flutter_pdf: 33.2.3
+  pdf: ^3.12.0
+  printing: ^5.14.3
+  share_plus: ^12.0.2
 
 dev_dependencies:
   flutter_test:

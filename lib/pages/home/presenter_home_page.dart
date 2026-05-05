@@ -61,15 +61,15 @@ class _PresenterHomePageState extends State<PresenterHomePage> {
 
   static const String _kLastSessionKey = 'presenter_last_session_id';
 
-Future<void> _saveLastSessionId(String hubId, String sid) async {
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setString('$_kLastSessionKey:$hubId', sid);
-}
+  Future<void> _saveLastSessionId(String hubId, String sid) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('$_kLastSessionKey:$hubId', sid);
+  }
 
-Future<String?> _loadLastSessionId(String hubId) async {
-  final prefs = await SharedPreferences.getInstance();
-  return prefs.getString('$_kLastSessionKey:$hubId');
-}
+  Future<String?> _loadLastSessionId(String hubId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('$_kLastSessionKey:$hubId');
+  }
 
   // ── ⬇️ 추가: 화면 입장 이후만 인정하기 위한 기준 시각(세션별)
   int? _enterMs;
@@ -115,58 +115,63 @@ Future<String?> _loadLastSessionId(String hubId) async {
 
   // ===== 세션 보장 =====
   Future<void> _ensureSessionOnStart() async {
-  _log('ensureSessionOnStart: begin');
-  final hubId = context.read<HubProvider>().hubId;
-  if (hubId == null) {
-    _log('ensureSessionOnStart: hubId is null');
-    return;
-  }
+    _log('ensureSessionOnStart: begin');
+    final hubId = context.read<HubProvider>().hubId;
+    if (hubId == null) {
+      _log('ensureSessionOnStart: hubId is null');
+      return;
+    }
 
-  final session = context.read<SessionProvider>();
-  final currentSid = session.sessionId;
-  try {
-    if (currentSid != null) {
-      await FirebaseFirestore.instance
-          .doc('hubs/$hubId/sessions/$currentSid')
-          .set({
-        'classRunning': false,
-        'runIntervals': [],
+    final session = context.read<SessionProvider>();
+    final currentSid = session.sessionId;
+    try {
+      if (currentSid != null) {
+        await FirebaseFirestore.instance
+            .doc('hubs/$hubId/sessions/$currentSid')
+            .set({
+              'classRunning': false,
+              'runIntervals': [],
+              'updatedAt': FieldValue.serverTimestamp(),
+            }, SetOptions(merge: true));
+        return;
+      }
+
+      // ✅ (추가) 로컬에 저장된 "마지막 사용 세션"을 우선 시도
+      final lastSid = await _loadLastSessionId(hubId);
+      if (lastSid != null && lastSid.isNotEmpty) {
+        final lastRef = FirebaseFirestore.instance.doc(
+          'hubs/$hubId/sessions/$lastSid',
+        );
+        final lastDoc = await lastRef.get();
+        if (lastDoc.exists) {
+          await _switchSessionAndBind(context, lastSid);
+          await lastRef.set({
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+          return; // 복구 성공 시 여기서 종료
+        }
+      }
+
+      // (기존) 최근 세션 목록에서 첫 번째 로드
+      final ids = await _listRecentSessionIds(limit: 50);
+      if (ids.isEmpty) {
+        await _openSessionMenu(context);
+        return;
+      }
+      final sid = ids.first;
+      await _switchSessionAndBind(context, sid);
+      await FirebaseFirestore.instance.doc('hubs/$hubId/sessions/$sid').set({
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-      return;
-    }
-
-    // ✅ (추가) 로컬에 저장된 "마지막 사용 세션"을 우선 시도
-    final lastSid = await _loadLastSessionId(hubId);
-    if (lastSid != null && lastSid.isNotEmpty) {
-      final lastRef = FirebaseFirestore.instance.doc('hubs/$hubId/sessions/$lastSid');
-      final lastDoc = await lastRef.get();
-      if (lastDoc.exists) {
-        await _switchSessionAndBind(context, lastSid);
-        await lastRef.set({'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
-        return; // 복구 성공 시 여기서 종료
-      }
-    }
-
-    // (기존) 최근 세션 목록에서 첫 번째 로드
-    final ids = await _listRecentSessionIds(limit: 50);
-    if (ids.isEmpty) {
+    } catch (e, st) {
+      _log('ensureSessionOnStart ERROR: $e\n$st');
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed: $e')));
       await _openSessionMenu(context);
-      return;
     }
-    final sid = ids.first;
-    await _switchSessionAndBind(context, sid);
-    await FirebaseFirestore.instance.doc('hubs/$hubId/sessions/$sid').set({
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-  } catch (e, st) {
-    _log('ensureSessionOnStart ERROR: $e\n$st');
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('Failed: $e')));
-    await _openSessionMenu(context);
   }
-}
 
   // 이벤트/라이브 타임스탬프 공통 파싱
   int _eventMs(Map<String, dynamic> x) {
@@ -204,13 +209,18 @@ Future<String?> _loadLastSessionId(String hubId) async {
 
     final sid = context.read<SessionProvider>().sessionId;
     if (sid == null) return;
+
     final fs = FirebaseFirestore.instance;
     final ref = fs.doc('hubs/$hubId/sessions/$sid');
+
+    bool wasRunning = false;
 
     await fs.runTransaction((tx) async {
       final snap = await tx.get(ref);
       final meta = snap.data() ?? {};
       final bool running = (meta['classRunning'] as bool?) ?? false;
+      wasRunning = running;
+
       final List<dynamic> raw = (meta['runIntervals'] as List?)?.toList() ?? [];
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -223,29 +233,159 @@ Future<String?> _loadLastSessionId(String hubId) async {
             raw[raw.length - 1] = last;
           }
         }
-        tx.set(
-          ref,
-          {
-            'classRunning': false,
-            'runIntervals': raw,
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
+
+        tx.set(ref, {
+          'classRunning': false,
+          'runIntervals': raw,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       } else {
         // start: 새 구간 추가
         raw.add({'startMs': now, 'endMs': null});
-        tx.set(
-          ref,
-          {
-            'classRunning': true,
-            'runIntervals': raw,
-            'updatedAt': FieldValue.serverTimestamp(),
-          },
-          SetOptions(merge: true),
-        );
+
+        tx.set(ref, {
+          'classRunning': true,
+          'runIntervals': raw,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       }
     });
+
+    // ✅ SAVE를 누른 경우, 즉 running → false로 바뀐 경우 출석 결과 저장
+    if (wasRunning) {
+      await _saveAttendanceSnapshot(hubId: hubId, sessionId: sid);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Attendance saved.')));
+    }
+  }
+
+  Future<void> _saveAttendanceSnapshot({
+    required String hubId,
+    required String sessionId,
+  }) async {
+    final fs = FirebaseFirestore.instance;
+
+    final sessionRef = fs.doc('hubs/$hubId/sessions/$sessionId');
+    final sessionDoc = await sessionRef.get();
+    final sessionData = sessionDoc.data() ?? {};
+
+    final intervals = _parseRunIntervals(sessionData['runIntervals']);
+
+    // 첫 수업 시작 시각
+    final int? firstStartMs =
+        intervals.isNotEmpty ? intervals.first.startMs : null;
+
+    // 이 페이지에 들어온 이후 버튼만 인정
+    final int boundaryMs = _enterMs ?? DateTime.now().millisecondsSinceEpoch;
+
+    final seatSnap =
+        await fs.collection('hubs/$hubId/sessions/$sessionId/seatMap').get();
+
+    final devSnap = await fs.collection('hubs/$hubId/devices').get();
+    final liveSnap = await fs.collection('hubs/$hubId/liveByDevice').get();
+
+    final liveByDevice = <String, Map<String, dynamic>>{};
+    for (final d in liveSnap.docs) {
+      liveByDevice[d.id] = d.data();
+    }
+
+    // studentId -> latest press ms
+    final latestPressMsByStudent = <String, int>{};
+
+    for (final d in devSnap.docs) {
+      final devId = d.id;
+      final data = d.data();
+
+      final studentId = (data['studentId'] as String?)?.trim();
+      if (studentId == null || studentId.isEmpty) continue;
+
+      final live = liveByDevice[devId];
+      if (live == null) continue;
+
+      final ms = _eventMs(live);
+      if (ms <= 0) continue;
+
+      // 페이지 입장 이전의 오래된 버튼 기록은 제외
+      if (ms < boundaryMs) continue;
+
+      final prev = latestPressMsByStudent[studentId];
+      if (prev == null || ms > prev) {
+        latestPressMsByStudent[studentId] = ms;
+      }
+    }
+
+    final batch = fs.batch();
+
+    int assignedCount = 0;
+    int presentCount = 0;
+    int lateCount = 0;
+    int absentCount = 0;
+
+    for (final seatDoc in seatSnap.docs) {
+      final seatNo = seatDoc.id;
+      final studentId = (seatDoc.data()['studentId'] as String?)?.trim();
+
+      if (studentId == null || studentId.isEmpty) continue;
+
+      assignedCount++;
+
+      final pressMs = latestPressMsByStudent[studentId];
+
+      String status = 'absent';
+      bool attended = false;
+      bool late = false;
+
+      if (pressMs != null) {
+        attended = true;
+
+        if (firstStartMs != null && pressMs >= firstStartMs) {
+          status = 'late';
+          late = true;
+          lateCount++;
+        } else {
+          status = 'present';
+          presentCount++;
+        }
+      } else {
+        absentCount++;
+      }
+
+      final ref = fs.doc(
+        'hubs/$hubId/sessions/$sessionId/attendance/$studentId',
+      );
+
+      batch.set(ref, {
+        'studentId': studentId,
+        'seatNo': seatNo,
+        'status': status, // present | late | absent
+        'attended': attended,
+        'late': late,
+        'pressMs': pressMs,
+        'firstStartMs': firstStartMs,
+        'savedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
+
+    final summaryRef = fs.doc(
+      'hubs/$hubId/sessions/$sessionId/stats/attendanceSummary',
+    );
+
+    batch.set(summaryRef, {
+      'assignedCount': assignedCount,
+      'presentCount': presentCount,
+      'lateCount': lateCount,
+      'absentCount': absentCount,
+      'savedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await batch.commit();
+
+    debugPrint(
+      '[ATTENDANCE SAVE] assigned=$assignedCount present=$presentCount late=$lateCount absent=$absentCount',
+    );
   }
 
   // 서버 runIntervals 파싱
@@ -317,7 +457,9 @@ Future<String?> _loadLastSessionId(String hubId) async {
                                   ? 'No session'
                                   : 'Session • $sessionId',
                               style: const TextStyle(
-                                  fontSize: 18, fontWeight: FontWeight.bold),
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ],
                         ),
@@ -333,16 +475,20 @@ Future<String?> _loadLastSessionId(String hubId) async {
                     if (sessionId == null)
                       const Expanded(
                         child: Center(
-                            child: Text(
-                                'No session. Tap "Session" to create or load.')),
+                          child: Text(
+                            'No session. Tap "Session" to create or load.',
+                          ),
+                        ),
                       )
                     else
                       Expanded(
                         child: StreamBuilder<
-                            DocumentSnapshot<Map<String, dynamic>>>(
-                          stream: fs
-                              .doc('hubs/$hubId/sessions/$sessionId')
-                              .snapshots(),
+                          DocumentSnapshot<Map<String, dynamic>>
+                        >(
+                          stream:
+                              fs
+                                  .doc('hubs/$hubId/sessions/$sessionId')
+                                  .snapshots(),
                           builder: (context, sessSnap) {
                             final meta = sessSnap.data?.data();
                             final int cols =
@@ -350,8 +496,9 @@ Future<String?> _loadLastSessionId(String hubId) async {
                             final int rows =
                                 (meta?['rows'] as num?)?.toInt() ?? 4;
 
-                            final serverIntervals =
-                                _parseRunIntervals(meta?['runIntervals']);
+                            final serverIntervals = _parseRunIntervals(
+                              meta?['runIntervals'],
+                            );
 
                             // === 디자인 캔버스(1280×720) 스케일/클리핑 래퍼 ===
                             return LayoutBuilder(
@@ -425,8 +572,7 @@ Future<String?> _loadLastSessionId(String hubId) async {
             // 수업 토글 FAB (서버 상태와 동기 표시)
             if (sessionId != null)
               StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                stream:
-                    fs.doc('hubs/$hubId/sessions/$sessionId').snapshots(),
+                stream: fs.doc('hubs/$hubId/sessions/$sessionId').snapshots(),
                 builder: (context, snap) {
                   final running =
                       (snap.data?.data()?['classRunning'] as bool?) ?? false;
@@ -446,8 +592,7 @@ Future<String?> _loadLastSessionId(String hubId) async {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const CircularProgressIndicator(
-                        valueColor:
-                            AlwaysStoppedAnimation<Color>(Colors.white),
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                       ),
                       const SizedBox(height: 16),
                       Text(
@@ -494,7 +639,9 @@ Future<String?> _loadLastSessionId(String hubId) async {
         color: Colors.transparent,
         child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
           stream:
-              fs.collection('hubs/$hubId/sessions/$sessionId/seatMap').snapshots(),
+              fs
+                  .collection('hubs/$hubId/sessions/$sessionId/seatMap')
+                  .snapshots(),
           builder: (context, seatSnap) {
             final Map<String, String?> seatMap = {};
             if (seatSnap.data != null) {
@@ -518,8 +665,7 @@ Future<String?> _loadLastSessionId(String hubId) async {
 
                 // ✅ liveByDevice + devices 매핑으로 버튼 최신 상태 계산
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream:
-                      fs.collection('hubs/$hubId/liveByDevice').snapshots(),
+                  stream: fs.collection('hubs/$hubId/liveByDevice').snapshots(),
                   builder: (context, liveSnap) {
                     final Map<String, Map<String, dynamic>> liveByDevice = {};
                     if (liveSnap.data != null) {
@@ -533,8 +679,8 @@ Future<String?> _loadLastSessionId(String hubId) async {
                       builder: (context, devSnap) {
                         final Map<String, String> lastSlotByStudent = {};
                         final Map<String, int> lastMsByStudent = {};
-                        final Map<String, String>
-                            firstTouchColorByStudent = {}; // 'blue'|'gray'
+                        final Map<String, String> firstTouchColorByStudent =
+                            {}; // 'blue'|'gray'
 
                         if (devSnap.data != null) {
                           for (final d in devSnap.data!.docs) {
@@ -574,35 +720,44 @@ Future<String?> _loadLastSessionId(String hubId) async {
 
                         // 상단 정보
                         final now = DateTime.now();
-                        final weekdayStr = [
-                          'SUN',
-                          'MON',
-                          'TUE',
-                          'WED',
-                          'THU',
-                          'FRI',
-                          'SAT'
-                        ][now.weekday % 7];
+                        final weekdayStr =
+                            [
+                              'SUN',
+                              'MON',
+                              'TUE',
+                              'WED',
+                              'THU',
+                              'FRI',
+                              'SAT',
+                            ][now.weekday % 7];
                         final dateNumStr =
                             '${now.month.toString().padLeft(2, "0")}.${now.day.toString().padLeft(2, "0")}';
                         final totalSeats = cols * rows;
-                        final assignedCount = seatMap.values
-                            .where((v) => (v?.trim().isNotEmpty ?? false))
-                            .length;
+                        final assignedCount =
+                            seatMap.values
+                                .where((v) => (v?.trim().isNotEmpty ?? false))
+                                .length;
 
                         return Center(
                           child: SizedBox(
                             width: _kCardW,
                             height: _kCardH,
                             child: Container(
-                              padding:
-                                  const EdgeInsets.fromLTRB(28, 24, 28, 24),
+                              padding: const EdgeInsets.fromLTRB(
+                                28,
+                                24,
+                                28,
+                                24,
+                              ),
                               decoration: BoxDecoration(
                                 color: Colors.white,
-                                borderRadius:
-                                    BorderRadius.circular(_kCardRadius),
+                                borderRadius: BorderRadius.circular(
+                                  _kCardRadius,
+                                ),
                                 border: Border.all(
-                                    color: _kCardBorder, width: 1),
+                                  color: _kCardBorder,
+                                  width: 1,
+                                ),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -611,8 +766,10 @@ Future<String?> _loadLastSessionId(String hubId) async {
                                   Align(
                                     alignment: Alignment.topRight,
                                     child: const HelpBadge(
-                                      tooltip: 'Students can press the button on their seat to indicate their attendance.',
-                                      placement: HelpPlacement.left, // 말풍선이 왼쪽으로 펼쳐지게
+                                      tooltip:
+                                          'Students can press the button on their seat to indicate their attendance.',
+                                      placement:
+                                          HelpPlacement.left, // 말풍선이 왼쪽으로 펼쳐지게
                                       // gap: 2, // 네가 쓰는 HelpBadge가 gap 지원하면 켜줘서 더 가깝게
                                       size: 32,
                                     ),
@@ -623,29 +780,39 @@ Future<String?> _loadLastSessionId(String hubId) async {
                                       Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Text(weekdayStr,
-                                              style: _weekdayTextStyle),
+                                          Text(
+                                            weekdayStr,
+                                            style: _weekdayTextStyle,
+                                          ),
                                           const SizedBox(width: 8),
-                                          Text(dateNumStr,
-                                              style: _dateNumTextStyle),
+                                          Text(
+                                            dateNumStr,
+                                            style: _dateNumTextStyle,
+                                          ),
                                         ],
                                       ),
                                       const Spacer(),
-                                      const SizedBox(width: 32),  
+                                      const SizedBox(width: 32),
                                       SizedBox(
                                         width: 680,
                                         height: 40,
                                         child: DecoratedBox(
                                           decoration: BoxDecoration(
                                             color: const Color.fromARGB(
-                                                255, 211, 255, 110),
-                                            borderRadius:
-                                                BorderRadius.circular(12.05),
+                                              255,
+                                              211,
+                                              255,
+                                              110,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              12.05,
+                                            ),
                                           ),
                                           child: const Center(
                                             child: Padding(
                                               padding: EdgeInsets.symmetric(
-                                                  horizontal: 16),
+                                                horizontal: 16,
+                                              ),
                                               child: Text(
                                                 'Board',
                                                 maxLines: 1,
@@ -690,8 +857,8 @@ Future<String?> _loadLastSessionId(String hubId) async {
                                       lastSlotByStudent: lastSlotByStudent,
                                       fixedColorByStudent:
                                           firstTouchColorByStudent,
-                                      onSeatTap: (i) =>
-                                          _openSeatPicker(seatIndex: i),
+                                      onSeatTap:
+                                          (i) => _openSeatPicker(seatIndex: i),
                                     ),
                                   ),
                                 ],
@@ -732,26 +899,34 @@ Future<String?> _loadLastSessionId(String hubId) async {
                   leading: const Icon(Icons.fiber_new),
                   title: const Text('New session'),
                   subtitle: const Text('Set seat layout (cols/rows)'),
-                  onTap: () => Navigator.of(sheetCtx, rootNavigator: true)
-                      .pop('new_empty'),
+                  onTap:
+                      () => Navigator.of(
+                        sheetCtx,
+                        rootNavigator: true,
+                      ).pop('new_empty'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.folder_open),
                   title: const Text('Load existing session'),
-                  subtitle:
-                      const Text('Switch to a saved session & layout'),
-                  onTap: () => Navigator.of(sheetCtx, rootNavigator: true)
-                      .pop('load_existing'),
+                  subtitle: const Text('Switch to a saved session & layout'),
+                  onTap:
+                      () => Navigator.of(
+                        sheetCtx,
+                        rootNavigator: true,
+                      ).pop('load_existing'),
                 ),
                 const Divider(height: 0),
                 ListTile(
-                  leading:
-                      const Icon(Icons.delete_forever, color: Colors.red),
+                  leading: const Icon(Icons.delete_forever, color: Colors.red),
                   title: const Text('Delete current session (admin)'),
                   subtitle: const Text(
-                      'Remove document + subcollections: events, seatMap, studentStats, stats.'),
-                  onTap: () => Navigator.of(sheetCtx, rootNavigator: true)
-                      .pop('purge'),
+                    'Remove document + subcollections: events, seatMap, studentStats, stats.',
+                  ),
+                  onTap:
+                      () => Navigator.of(
+                        sheetCtx,
+                        rootNavigator: true,
+                      ).pop('purge'),
                 ),
               ],
             ),
@@ -798,51 +973,54 @@ Future<String?> _loadLastSessionId(String hubId) async {
         return Theme(
           data: noSplashTheme,
           child: StatefulBuilder(
-            builder: (context, setLocal) => AlertDialog(
-              title: const Text('New session'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: ctrlSid,
-                    decoration: const InputDecoration(
-                      labelText: 'Session ID',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
+            builder:
+                (context, setLocal) => AlertDialog(
+                  title: const Text('New session'),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Expanded(
-                        child: _DialogStepper(
-                          label: 'Cols',
-                          value: cols,
-                          onChanged: (v) =>
-                              setLocal(() => cols = v.clamp(1, 12)),
+                      TextField(
+                        controller: ctrlSid,
+                        decoration: const InputDecoration(
+                          labelText: 'Session ID',
+                          border: OutlineInputBorder(),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: _DialogStepper(
-                          label: 'Rows',
-                          value: rows,
-                          onChanged: (v) =>
-                              setLocal(() => rows = v.clamp(1, 12)),
-                        ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _DialogStepper(
+                              label: 'Cols',
+                              value: cols,
+                              onChanged:
+                                  (v) => setLocal(() => cols = v.clamp(1, 12)),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _DialogStepper(
+                              label: 'Rows',
+                              value: rows,
+                              onChanged:
+                                  (v) => setLocal(() => rows = v.clamp(1, 12)),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                    onPressed: () => _safeRootPop(false),
-                    child: const Text('Cancel')),
-                ElevatedButton(
-                    onPressed: () => _safeRootPop(true),
-                    child: const Text('Create')),
-              ],
-            ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => _safeRootPop(false),
+                      child: const Text('Cancel'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () => _safeRootPop(true),
+                      child: const Text('Create'),
+                    ),
+                  ],
+                ),
           ),
         );
       },
@@ -863,7 +1041,8 @@ Future<String?> _loadLastSessionId(String hubId) async {
       }, SetOptions(merge: true));
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Started new session: $sid ($cols×$rows)')));
+        SnackBar(content: Text('Started new session: $sid ($cols×$rows)')),
+      );
     });
   }
 
@@ -881,14 +1060,14 @@ Future<String?> _loadLastSessionId(String hubId) async {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Loaded session: $sid')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Loaded session: $sid')));
     });
   }
 
   // ---------- Switch + bind + hub ----------
-  Future<void> _switchSessionAndBind(
-      BuildContext context, String sid) async {
+  Future<void> _switchSessionAndBind(BuildContext context, String sid) async {
     final hubId = context.read<HubProvider>().hubId;
     if (hubId == null) return;
 
@@ -926,13 +1105,16 @@ Future<String?> _loadLastSessionId(String hubId) async {
     }
   }
 
-  Future<String?> _pickSessionId(BuildContext context,
-      {required String title}) async {
+  Future<String?> _pickSessionId(
+    BuildContext context, {
+    required String title,
+  }) async {
     final ids = await _listRecentSessionIds();
     if (ids.isEmpty) {
       if (!mounted) return null;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('No saved sessions.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No saved sessions.')));
       return null;
     }
 
@@ -955,15 +1137,17 @@ Future<String?> _loadLastSessionId(String hubId) async {
                 height: 360,
                 child: ListView.builder(
                   itemCount: ids.length,
-                  itemBuilder: (_, i) => ListTile(
-                    title: Text(ids[i]),
-                    onTap: () => _safeRootPop(ids[i]),
-                  ),
+                  itemBuilder:
+                      (_, i) => ListTile(
+                        title: Text(ids[i]),
+                        onTap: () => _safeRootPop(ids[i]),
+                      ),
                 ),
               ),
               TextButton(
-                  onPressed: () => _safeRootPop(null),
-                  child: const Text('Cancel')),
+                onPressed: () => _safeRootPop(null),
+                child: const Text('Cancel'),
+              ),
             ],
           ),
         );
@@ -977,31 +1161,35 @@ Future<String?> _loadLastSessionId(String hubId) async {
 
     final sid = context.read<SessionProvider>().sessionId;
     if (sid == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('No session is set.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No session is set.')));
       return;
     }
 
     final ok = await showDialog<bool>(
       context: context,
       useRootNavigator: true,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete current session'),
-        content: Text(
-          'This will remove the entire session (document + all subcollections):\n'
-          'events, seatMap, studentStats, stats.\n\n'
-          'hubs/$hubId/sessions/$sid\n\n'
-          'This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => _safeRootPop(false),
-              child: const Text('Cancel')),
-          ElevatedButton(
-              onPressed: () => _safeRootPop(true),
-              child: const Text('Delete')),
-        ],
-      ),
+      builder:
+          (_) => AlertDialog(
+            title: const Text('Delete current session'),
+            content: Text(
+              'This will remove the entire session (document + all subcollections):\n'
+              'events, seatMap, studentStats, stats.\n\n'
+              'hubs/$hubId/sessions/$sid\n\n'
+              'This cannot be undone.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => _safeRootPop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => _safeRootPop(true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
     );
     if (ok != true) return;
 
@@ -1020,9 +1208,11 @@ Future<String?> _loadLastSessionId(String hubId) async {
         await _switchSessionAndBind(context, nextSid);
         if (mounted) {
           Navigator.of(context, rootNavigator: true).pop();
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(
-                  'Session "$sid" deleted. Switched to "$nextSid".')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Session "$sid" deleted. Switched to "$nextSid".'),
+            ),
+          );
         }
       } else {
         final session = context.read<SessionProvider>();
@@ -1033,20 +1223,25 @@ Future<String?> _loadLastSessionId(String hubId) async {
         }, SetOptions(merge: true));
         if (mounted) {
           Navigator.of(context, rootNavigator: true).pop();
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Session deleted. No sessions left.')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Session deleted. No sessions left.')),
+          );
         }
       }
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
     }
   }
 
   Future<void> _deleteCollection(
-      FirebaseFirestore fs, String path, int batchSize) async {
+    FirebaseFirestore fs,
+    String path,
+    int batchSize,
+  ) async {
     Query q = fs.collection(path).limit(batchSize);
     while (true) {
       final snap = await q.get();
@@ -1113,11 +1308,13 @@ Future<String?> _loadLastSessionId(String hubId) async {
             ),
             actions: [
               TextButton(
-                  onPressed: () => _safeRootPop(false),
-                  child: const Text('Cancel')),
+                onPressed: () => _safeRootPop(false),
+                child: const Text('Cancel'),
+              ),
               ElevatedButton(
-                  onPressed: () => _safeRootPop(true),
-                  child: const Text('Save')),
+                onPressed: () => _safeRootPop(true),
+                child: const Text('Save'),
+              ),
             ],
           ),
         );
@@ -1127,19 +1324,23 @@ Future<String?> _loadLastSessionId(String hubId) async {
     if (ok == true) {
       try {
         await _assignSeatExclusive(seatNo: seatNo, studentId: selected);
-        final name = selected == null
-            ? 'Empty'
-            // ✅ 이름 조회도 hub 스코프
-            : ((await fs.doc('hubs/$hubId/students/$selected').get())
-                    .data()?['name'] as String? ??
-                selected);
+        final name =
+            selected == null
+                ? 'Empty'
+                // ✅ 이름 조회도 hub 스코프
+                : ((await fs.doc('hubs/$hubId/students/$selected').get())
+                            .data()?['name']
+                        as String? ??
+                    selected);
         if (!mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Seat $seatNo → $name')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Seat $seatNo → $name')));
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Assign failed: $e')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Assign failed: $e')));
       }
     }
   }
@@ -1153,8 +1354,9 @@ Future<String?> _loadLastSessionId(String hubId) async {
 
     final sid = context.read<SessionProvider>().sessionId;
     if (sid == null) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('No session is set.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No session is set.')));
       return;
     }
     final fs = FirebaseFirestore.instance;
@@ -1250,11 +1452,14 @@ class _SeatGrid extends StatelessWidget {
             final name =
                 hasStudent ? (nameOf[seatStudentId!] ?? seatStudentId) : null;
 
-            final tapped = hasStudent
-                ? lastSlotByStudent.containsKey(seatStudentId!)
-                : false;
-            final state =
-                _seatStateByPresence(hasStudent: hasStudent, tapped: tapped);
+            final tapped =
+                hasStudent
+                    ? lastSlotByStudent.containsKey(seatStudentId!)
+                    : false;
+            final state = _seatStateByPresence(
+              hasStudent: hasStudent,
+              tapped: tapped,
+            );
 
             // 색 계산 (폴백=연파랑, 절대 running으로 회색 강제 X)
             Color fillColor;
@@ -1273,8 +1478,7 @@ class _SeatGrid extends StatelessWidget {
             }
 
             final isDark = fillColor.computeLuminance() < 0.5;
-            final nameColor =
-                isDark ? Colors.white : const Color(0xFF0B1324);
+            final nameColor = isDark ? Colors.white : const Color(0xFF0B1324);
             final seatNoColor =
                 isDark ? Colors.white70 : const Color(0xFF1F2937);
             final showDashed = (state == _SeatState.empty);
@@ -1292,74 +1496,78 @@ class _SeatGrid extends StatelessWidget {
                 final gap = (2.0 * s).clamp(1.0, 8.0);
 
                 Widget contentColumn() => Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          seatNo,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textHeightBehavior: const TextHeightBehavior(
-                            applyHeightToFirstAscent: false,
-                            applyHeightToLastDescent: false,
-                          ),
-                          style: TextStyle(
-                            fontSize: fsSeat,
-                            height: 1.0,
-                            color: seatNoColor,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        SizedBox(height: gap),
-                        Text(
-                          name ?? '',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          textHeightBehavior: const TextHeightBehavior(
-                            applyHeightToFirstAscent: false,
-                            applyHeightToLastDescent: false,
-                          ),
-                          style: TextStyle(
-                            fontSize: fsName,
-                            height: 1.0,
-                            color: nameColor,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ],
-                    );
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      seatNo,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textHeightBehavior: const TextHeightBehavior(
+                        applyHeightToFirstAscent: false,
+                        applyHeightToLastDescent: false,
+                      ),
+                      style: TextStyle(
+                        fontSize: fsSeat,
+                        height: 1.0,
+                        color: seatNoColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    SizedBox(height: gap),
+                    Text(
+                      name ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      textHeightBehavior: const TextHeightBehavior(
+                        applyHeightToFirstAscent: false,
+                        applyHeightToLastDescent: false,
+                      ),
+                      style: TextStyle(
+                        fontSize: fsName,
+                        height: 1.0,
+                        color: nameColor,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                );
 
                 final contentBox = Container(
                   decoration: BoxDecoration(
                     color: fillColor,
                     borderRadius: BorderRadius.circular(radius),
-                    border: showDashed
-                        ? null
-                        : Border.all(color: Colors.transparent),
+                    border:
+                        showDashed
+                            ? null
+                            : Border.all(color: Colors.transparent),
                   ),
                   alignment: Alignment.center,
                   padding: EdgeInsets.symmetric(
-                      horizontal: padH, vertical: padV),
-                  child: hasStudent
-                      ? FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.center,
-                          child: contentColumn(),
-                        )
-                      : const SizedBox.shrink(),
+                    horizontal: padH,
+                    vertical: padV,
+                  ),
+                  child:
+                      hasStudent
+                          ? FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.center,
+                            child: contentColumn(),
+                          )
+                          : const SizedBox.shrink(),
                 );
 
                 return showDashed
                     ? CustomPaint(
-                        foregroundPainter: _DashedBorderPainter(
-                          radius: radius + 4,
-                          color: const Color(0xFFCBD5E1),
-                          strokeWidth: (2.0 * s).clamp(1.2, 3.0),
-                          dash: (8.0 * s).clamp(5.0, 12.0),
-                          gap: (6.0 * s).clamp(3.0, 10.0),
-                        ),
-                        child: contentBox,
-                      )
+                      foregroundPainter: _DashedBorderPainter(
+                        radius: radius + 4,
+                        color: const Color(0xFFCBD5E1),
+                        strokeWidth: (2.0 * s).clamp(1.2, 3.0),
+                        dash: (8.0 * s).clamp(5.0, 12.0),
+                        gap: (6.0 * s).clamp(3.0, 10.0),
+                      ),
+                      child: contentBox,
+                    )
                     : contentBox;
               },
             );
@@ -1407,16 +1615,21 @@ class _DialogStepper extends StatelessWidget {
           ),
           Row(
             children: [
-              _roundBtn(Icons.remove,
-                  onTap: () => onChanged((value - 1).clamp(1, 12))),
+              _roundBtn(
+                Icons.remove,
+                onTap: () => onChanged((value - 1).clamp(1, 12)),
+              ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 10),
-                child: Text('$value',
-                    style:
-                        const TextStyle(fontWeight: FontWeight.w800)),
+                child: Text(
+                  '$value',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
               ),
-              _roundBtn(Icons.add,
-                  onTap: () => onChanged((value + 1).clamp(1, 12))),
+              _roundBtn(
+                Icons.add,
+                onTap: () => onChanged((value + 1).clamp(1, 12)),
+              ),
             ],
           ),
         ],
@@ -1454,23 +1667,24 @@ class _DashedBorderPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final rrect =
-        RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius));
+    final rrect = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      Radius.circular(radius),
+    );
     final path = Path()..addRRect(rrect);
 
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = strokeWidth
-      ..color = color;
+    final paint =
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = strokeWidth
+          ..color = color;
 
     for (final metric in path.computeMetrics()) {
       double distance = 0.0;
       while (distance < metric.length) {
-        final double len = distance + dash > metric.length
-            ? metric.length - distance
-            : dash;
-        final extract =
-            metric.extractPath(distance, distance + len);
+        final double len =
+            distance + dash > metric.length ? metric.length - distance : dash;
+        final extract = metric.extractPath(distance, distance + len);
         canvas.drawPath(extract, paint);
         distance += dash + gap;
       }
@@ -1496,10 +1710,7 @@ class _RunInterval {
 }
 
 class _ClassToggleFabImage extends StatelessWidget {
-  const _ClassToggleFabImage({
-    required this.running,
-    required this.onTap,
-  });
+  const _ClassToggleFabImage({required this.running, required this.onTap});
 
   final bool running;
   final VoidCallback onTap;
@@ -1520,9 +1731,10 @@ class _ClassToggleFabImage extends StatelessWidget {
               // ✅ 여기부터 수정: hover / click 애니메이션 버튼
               _MakeButton(
                 scale: 1.0,
-                imageAsset: running
-                    ? 'assets/logo_bird_save.png'
-                    : 'assets/logo_bird_begin.png',
+                imageAsset:
+                    running
+                        ? 'assets/logo_bird_save.png'
+                        : 'assets/logo_bird_begin.png',
                 tooltip: running ? 'Stop class' : 'Start class',
                 onTap: onTap,
               ),
@@ -1580,16 +1792,14 @@ class _MakeButtonState extends State<_MakeButton> {
     final image = Image.asset(
       widget.imageAsset,
       fit: BoxFit.contain,
-      errorBuilder: (_, __, ___) => const Icon(
-        Icons.error,
-        size: 72,
-        color: Colors.grey,
-      ),
+      errorBuilder:
+          (_, __, ___) => const Icon(Icons.error, size: 72, color: Colors.grey),
     );
 
-    final content = widget.tooltip != null
-        ? Tooltip(message: widget.tooltip!, child: image)
-        : image;
+    final content =
+        widget.tooltip != null
+            ? Tooltip(message: widget.tooltip!, child: image)
+            : image;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hover = true),

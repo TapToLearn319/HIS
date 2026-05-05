@@ -1,7 +1,12 @@
-// lib/pages/profile/student_analysis_page.dart
+import 'dart:typed_data';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../sidebar_menu.dart';
 // import '../../services/openrouter_service.dart';
@@ -32,9 +37,7 @@ class _StudentAnalysisPageState extends State<StudentAnalysisPage> {
   void initState() {
     super.initState();
 
-    _statsFuture = StudentAnalysisStats.load(
-      studentId: widget.studentId,
-    );
+    _statsFuture = StudentAnalysisStats.load(studentId: widget.studentId);
 
     // ✅ OpenRouter 토큰 사용 방지를 위해 임시 비활성화
     _aiResult = {
@@ -79,6 +82,105 @@ class _StudentAnalysisPageState extends State<StudentAnalysisPage> {
   }
   */
 
+  Future<Uint8List> _buildPdfBytes(StudentAnalysisStats stats) async {
+    final pdf = pw.Document();
+
+    final teacherNote =
+        _aiResult?['teacherNote'] ??
+        _aiResult?['teacher_note'] ??
+        'No analysis available';
+
+    pdf.addPage(
+      pw.Page(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.start,
+            children: [
+              pw.Text(
+                'Student Analysis Report',
+                style: pw.TextStyle(
+                  fontSize: 24,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 20),
+              pw.Text('Student: ${widget.studentName}'),
+              pw.Text('Overall: ${stats.overallPercent.round()}%'),
+              pw.SizedBox(height: 20),
+              pw.Text(
+                'Category Scores',
+                style: pw.TextStyle(
+                  fontSize: 18,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 10),
+              pw.Table(
+                border: pw.TableBorder.all(color: PdfColors.grey300),
+                children: [
+                  _pdfRow('Attendance', stats.radarStudent[0]),
+                  _pdfRow('Quiz', stats.radarStudent[1]),
+                  _pdfRow('Homework', stats.radarStudent[2]),
+                  _pdfRow('Presentation', stats.radarStudent[3]),
+                  _pdfRow('Attitude', stats.radarStudent[4]),
+                ],
+              ),
+              pw.SizedBox(height: 24),
+              pw.Text(
+                "Teacher's Note",
+                style: pw.TextStyle(
+                  fontSize: 18,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+              pw.SizedBox(height: 8),
+              pw.Text(teacherNote.toString()),
+            ],
+          );
+        },
+      ),
+    );
+
+    return pdf.save();
+  }
+
+  Future<void> _downloadPdf(StudentAnalysisStats stats) async {
+    final bytes = await _buildPdfBytes(stats);
+
+    await Printing.layoutPdf(
+      onLayout: (_) async => bytes,
+      name: '${widget.studentName}_analysis_report.pdf',
+    );
+  }
+
+  Future<void> _sharePdf(StudentAnalysisStats stats) async {
+    final bytes = await _buildPdfBytes(stats);
+    final fileName = '${widget.studentName}_analysis_report.pdf';
+
+    await Share.shareXFiles(
+      [XFile.fromData(bytes, name: fileName, mimeType: 'application/pdf')],
+      text: '${widget.studentName} student analysis report',
+      subject: 'Student Analysis Report',
+    );
+  }
+
+  pw.TableRow _pdfRow(String label, double value) {
+  return pw.TableRow(
+    children: [
+      pw.Padding(
+        padding: const pw.EdgeInsets.all(8),
+        child: pw.Text(label),
+      ),
+      pw.Padding(
+        padding: const pw.EdgeInsets.all(8),
+        child: pw.Text('${value.round()}%'),
+      ),
+    ],
+  );
+}
+
   @override
   Widget build(BuildContext context) {
     return AppScaffold(
@@ -99,6 +201,14 @@ class _StudentAnalysisPageState extends State<StudentAnalysisPage> {
                     _StudentHeader(
                       studentName: widget.studentName,
                       aiSummary: _aiResult?['summary'] ?? '',
+                      onPdfPressed: () async {
+                        final stats = await _statsFuture;
+                        await _downloadPdf(stats);
+                      },
+                      onSharePressed: () async {
+                        final stats = await _statsFuture;
+                        await _sharePdf(stats);
+                      },
                     ),
                     const SizedBox(height: 28),
 
@@ -184,31 +294,22 @@ class StudentAnalysisStats {
     required this.attitudeTrend,
   });
 
-  static Future<StudentAnalysisStats> load({
-    required String studentId,
-  }) async {
+  static Future<StudentAnalysisStats> load({required String studentId}) async {
     final fs = FirebaseFirestore.instance;
 
-    final studentLogs = await fs
-        .collection('hubs/$kHubId/students/$studentId/pointLogs')
-        .get();
-
-    final studentScores = _scoresFromLogs(studentLogs.docs);
+    final studentScores = await _scoresForStudent(fs, studentId);
 
     final studentsSnap = await fs.collection('hubs/$kHubId/students').get();
 
     final List<Map<String, double>> allScores = [];
 
     for (final studentDoc in studentsSnap.docs) {
-      final logs = await fs
-          .collection('hubs/$kHubId/students/${studentDoc.id}/pointLogs')
-          .get();
-
-      allScores.add(_scoresFromLogs(logs.docs));
+      final scores = await _scoresForStudent(fs, studentDoc.id);
+      allScores.add(scores);
     }
 
     final classAvg = _averageScores(allScores);
-    final trend = _trendFromLogs(studentLogs.docs);
+    final trend = await _trendForStudent(fs, studentId);
     final monthLabels = _lastSixMonthLabels();
 
     final radarStudent = [
@@ -227,8 +328,7 @@ class StudentAnalysisStats {
       classAvg['attitude'] ?? 0,
     ];
 
-    final overall =
-        radarStudent.reduce((a, b) => a + b) / radarStudent.length;
+    final overall = radarStudent.reduce((a, b) => a + b) / radarStudent.length;
 
     return StudentAnalysisStats(
       radarStudent: radarStudent,
@@ -236,8 +336,8 @@ class StudentAnalysisStats {
       categoryScores: {
         'ATTENDANCE': studentScores['attendance'] ?? 0,
         'QUIZ AVG': studentScores['quiz'] ?? 0,
-        'HOMEWORK': studentScores['homework'] ?? 0,
-        'PRESENTATION': studentScores['presentation'] ?? 0,
+        'HOMEWORK': 0,
+        'PRESENTATION': 0,
       },
       overallPercent: overall,
       monthLabels: monthLabels,
@@ -247,51 +347,203 @@ class StudentAnalysisStats {
     );
   }
 
-  static Map<String, double> _scoresFromLogs(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
-    int quiz = 0;
-    int homework = 0;
-    int presentation = 0;
-    int attitude = 0;
-    int attendance = 0;
+  static Future<Map<String, double>> _scoresForStudent(
+    FirebaseFirestore fs,
+    String studentId,
+  ) async {
+    final deviceIds = await _loadDeviceIdsForStudent(fs, studentId);
 
-    const attitudeIds = {
-      'focused',
-      'questioning',
-      'presentation',
-      'cooperate',
-      'perseverance',
-      'positive',
-    };
+    debugPrint('[STATS] studentId=$studentId deviceIds=$deviceIds');
 
-    for (final doc in docs) {
-      final data = doc.data();
-      final typeId = data['typeId']?.toString() ?? '';
-      final value = (data['value'] as num?)?.toInt() ?? 0;
+    final attendanceScore = await _loadAttendanceScore(
+      fs,
+      studentId,
+      deviceIds,
+    );
 
-      if (typeId == 'quiz') quiz += value;
-      if (typeId == 'homework') homework += value;
-      if (typeId == 'presentation') presentation += value;
-      if (typeId == 'attendance') attendance += value;
+    final quizScore = await _loadQuizScore(fs, studentId, deviceIds);
 
-      if (attitudeIds.contains(typeId)) {
-        attitude += value;
-      }
-    }
+    final studentDoc = await fs.doc('hubs/$kHubId/students/$studentId').get();
+
+    final points = (studentDoc.data()?['points'] as num?)?.toDouble() ?? 0;
 
     return {
-      'attendance': _normalize(attendance),
-      'quiz': _normalize(quiz),
-      'homework': _normalize(homework),
-      'presentation': _normalize(presentation),
-      'attitude': _normalize(attitude),
+      'attendance': attendanceScore,
+      'quiz': quizScore,
+      'homework': 0,
+      'presentation': 0,
+      'attitude': points.clamp(0, 100).toDouble(),
     };
   }
 
-  static double _normalize(int raw) {
-    final score = 50 + (raw * 10);
-    return score.clamp(0, 100).toDouble();
+  static Future<Set<String>> _loadDeviceIdsForStudent(
+    FirebaseFirestore fs,
+    String studentId,
+  ) async {
+    final snap =
+        await fs
+            .collection('hubs/$kHubId/devices')
+            .where('studentId', isEqualTo: studentId)
+            .get();
+
+    return snap.docs.map((d) => d.id).toSet();
+  }
+
+  static Future<double> _loadAttendanceScore(
+    FirebaseFirestore fs,
+    String studentId,
+    Set<String> deviceIds,
+  ) async {
+    try {
+      final sessionsSnap = await fs.collection('hubs/$kHubId/sessions').get();
+
+      int total = 0;
+      double scoreSum = 0;
+
+      for (final sessionDoc in sessionsSnap.docs) {
+        final attendanceDoc =
+            await fs
+                .doc(
+                  'hubs/$kHubId/sessions/${sessionDoc.id}/attendance/$studentId',
+                )
+                .get();
+
+        if (!attendanceDoc.exists) continue;
+
+        total++;
+
+        final data = attendanceDoc.data() ?? {};
+        final status = data['status']?.toString();
+
+        if (status == 'present') {
+          scoreSum += 100;
+        } else if (status == 'late') {
+          scoreSum += 60;
+        } else {
+          scoreSum += 0;
+        }
+      }
+
+      debugPrint(
+        '[STATS] attendance student=$studentId scoreSum=$scoreSum total=$total',
+      );
+
+      if (total == 0) return 0;
+
+      return (scoreSum / total).clamp(0, 100).toDouble();
+    } catch (e) {
+      debugPrint('[STATS] attendance load failed: $e');
+      return 0;
+    }
+  }
+
+  static Future<double> _loadQuizScore(
+    FirebaseFirestore fs,
+    String studentId,
+    Set<String> deviceIds,
+  ) async {
+    try {
+      final eventsSnap = await fs.collectionGroup('events').get();
+
+      int total = 0;
+      int correct = 0;
+
+      for (final doc in eventsSnap.docs) {
+        if (!doc.reference.path.startsWith('hubs/$kHubId/')) continue;
+
+        final data = doc.data();
+
+        final eventStudentId = data['studentId']?.toString();
+
+        final eventDeviceId =
+            data['deviceId']?.toString() ??
+            data['devId']?.toString() ??
+            data['buttonId']?.toString();
+
+        final isThisStudent =
+            eventStudentId == studentId ||
+            (eventDeviceId != null && deviceIds.contains(eventDeviceId));
+
+        if (!isThisStudent) continue;
+        if (!_isQuizEvent(data)) continue;
+
+        final isCorrect = _extractCorrect(data);
+        if (isCorrect == null) continue;
+
+        total += 1;
+        if (isCorrect) correct += 1;
+      }
+
+      debugPrint(
+        '[STATS] quiz student=$studentId correct=$correct total=$total',
+      );
+
+      if (total == 0) return 0;
+
+      return ((correct / total) * 100).clamp(0, 100).toDouble();
+    } catch (e) {
+      debugPrint('[STATS] quiz load failed: $e');
+      return 0;
+    }
+  }
+
+  static bool _isAttendanceEvent(Map<String, dynamic> data) {
+    final text =
+        [
+          data['type'],
+          data['eventType'],
+          data['activityType'],
+          data['mode'],
+          data['phase'],
+          data['source'],
+        ].whereType<Object>().join(' ').toLowerCase();
+
+    if (text.contains('attendance')) return true;
+    if (text.contains('checkin')) return true;
+    if (text.contains('check-in')) return true;
+
+    if (data['classRunning'] == false) return true;
+
+    return false;
+  }
+
+  static bool _isQuizEvent(Map<String, dynamic> data) {
+    final text =
+        [
+          data['type'],
+          data['eventType'],
+          data['activityType'],
+          data['mode'],
+          data['phase'],
+        ].whereType<Object>().join(' ').toLowerCase();
+
+    if (text.contains('quiz')) return true;
+    if (data.containsKey('quizId')) return true;
+    if (data.containsKey('currentQuizId')) return true;
+    if (data.containsKey('questionId')) return true;
+
+    return false;
+  }
+
+  static bool? _extractCorrect(Map<String, dynamic> data) {
+    final candidates = [
+      data['isCorrect'],
+      data['correct'],
+      data['wasCorrect'],
+      data['answerCorrect'],
+    ];
+
+    for (final value in candidates) {
+      if (value is bool) return value;
+    }
+
+    final result = data['result']?.toString().toLowerCase();
+
+    if (result == 'correct') return true;
+    if (result == 'wrong') return false;
+    if (result == 'incorrect') return false;
+
+    return null;
   }
 
   static Map<String, double> _averageScores(List<Map<String, double>> list) {
@@ -306,8 +558,7 @@ class StudentAnalysisStats {
     }
 
     double avg(String key) {
-      return list.map((e) => e[key] ?? 0).reduce((a, b) => a + b) /
-          list.length;
+      return list.map((e) => e[key] ?? 0).reduce((a, b) => a + b) / list.length;
     }
 
     return {
@@ -343,9 +594,10 @@ class StudentAnalysisStats {
     });
   }
 
-  static Map<String, List<double>> _trendFromLogs(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
-  ) {
+  static Future<Map<String, List<double>>> _trendForStudent(
+    FirebaseFirestore fs,
+    String studentId,
+  ) async {
     final now = DateTime.now();
 
     final monthKeys = List.generate(6, (i) {
@@ -353,43 +605,98 @@ class StudentAnalysisStats {
       return '${d.year}-${d.month}';
     });
 
-    final quizRaw = List<int>.filled(6, 0);
-    final homeworkRaw = List<int>.filled(6, 0);
+    final quizTotal = List<int>.filled(6, 0);
+    final quizCorrect = List<int>.filled(6, 0);
     final attitudeRaw = List<int>.filled(6, 0);
 
-    const attitudeIds = {
-      'focused',
-      'questioning',
-      'presentation',
-      'cooperate',
-      'perseverance',
-      'positive',
-    };
+    try {
+      final eventsSnap = await fs.collectionGroup('events').get();
 
-    for (final doc in docs) {
-      final data = doc.data();
-      final typeId = data['typeId']?.toString() ?? '';
-      final value = (data['value'] as num?)?.toInt() ?? 0;
-      final createdAt = data['createdAt'];
+      for (final doc in eventsSnap.docs) {
+        if (!doc.reference.path.startsWith('hubs/$kHubId/')) continue;
 
-      if (createdAt is! Timestamp) continue;
+        final data = doc.data();
+        if (!_isQuizEvent(data)) continue;
 
-      final date = createdAt.toDate();
-      final key = '${date.year}-${date.month}';
-      final index = monthKeys.indexOf(key);
+        final isCorrect = _extractCorrect(data);
+        if (isCorrect == null) continue;
 
-      if (index == -1) continue;
+        final date = _extractDate(data);
+        if (date == null) continue;
 
-      if (typeId == 'quiz') quizRaw[index] += value;
-      if (typeId == 'homework') homeworkRaw[index] += value;
-      if (attitudeIds.contains(typeId)) attitudeRaw[index] += value;
+        final key = '${date.year}-${date.month}';
+        final index = monthKeys.indexOf(key);
+
+        if (index == -1) continue;
+
+        quizTotal[index] += 1;
+        if (isCorrect) quizCorrect[index] += 1;
+      }
+    } catch (e) {
+      debugPrint('[STATS] quiz trend load failed: $e');
     }
 
+    try {
+      final pointLogs =
+          await fs
+              .collection('hubs/$kHubId/students/$studentId/pointLogs')
+              .get();
+
+      for (final doc in pointLogs.docs) {
+        final data = doc.data();
+        final createdAt = data['createdAt'];
+
+        if (createdAt is! Timestamp) continue;
+
+        final date = createdAt.toDate();
+        final key = '${date.year}-${date.month}';
+        final index = monthKeys.indexOf(key);
+
+        if (index == -1) continue;
+
+        final value = (data['value'] as num?)?.toInt() ?? 0;
+        attitudeRaw[index] += value;
+      }
+    } catch (e) {
+      debugPrint('[STATS] attitude trend load failed: $e');
+    }
+
+    final quizTrend = List<double>.generate(6, (i) {
+      if (quizTotal[i] == 0) return 0;
+      return ((quizCorrect[i] / quizTotal[i]) * 100).clamp(0, 100).toDouble();
+    });
+
+    final attitudeTrend =
+        attitudeRaw
+            .map((raw) => (50 + raw * 10).clamp(0, 100).toDouble())
+            .toList();
+
     return {
-      'quiz': quizRaw.map(_normalize).toList(),
-      'homework': homeworkRaw.map(_normalize).toList(),
-      'attitude': attitudeRaw.map(_normalize).toList(),
+      'quiz': quizTrend,
+      'homework': List<double>.filled(6, 0),
+      'attitude': attitudeTrend,
     };
+  }
+
+  static DateTime? _extractDate(Map<String, dynamic> data) {
+    final candidates = [
+      data['createdAt'],
+      data['ts'],
+      data['updatedAt'],
+      data['hubTs'],
+      data['ms'],
+      data['lastMs'],
+    ];
+
+    for (final value in candidates) {
+      if (value is Timestamp) return value.toDate();
+
+      if (value is num) {
+        return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+      }
+    }
+
+    return null;
   }
 }
 
@@ -445,10 +752,14 @@ class _TopBar extends StatelessWidget {
 class _StudentHeader extends StatelessWidget {
   final String studentName;
   final String aiSummary;
+  final VoidCallback onPdfPressed;
+  final VoidCallback onSharePressed;
 
   const _StudentHeader({
     required this.studentName,
     required this.aiSummary,
+    required this.onPdfPressed,
+    required this.onSharePressed,
   });
 
   @override
@@ -528,7 +839,7 @@ class _StudentHeader extends StatelessWidget {
         ),
         const SizedBox(width: 20),
         OutlinedButton(
-          onPressed: () {},
+          onPressed: onPdfPressed,
           style: OutlinedButton.styleFrom(
             minimumSize: const Size(201, 47),
             side: const BorderSide(color: Color(0xFF001A36)),
@@ -548,7 +859,7 @@ class _StudentHeader extends StatelessWidget {
         ),
         const SizedBox(width: 16),
         OutlinedButton(
-          onPressed: () {},
+          onPressed: onSharePressed,
           style: OutlinedButton.styleFrom(
             minimumSize: const Size(48, 47),
             side: const BorderSide(color: Color(0xFF001A36)),
@@ -657,17 +968,19 @@ class _ComparativePerformanceCard extends StatelessWidget {
                         fillColor: const Color(0xFF2E92F8).withOpacity(0.32),
                         borderColor: const Color(0xFF2E92F8),
                         entryRadius: 4,
-                        dataEntries: studentValues
-                            .map((v) => RadarEntry(value: v))
-                            .toList(),
+                        dataEntries:
+                            studentValues
+                                .map((v) => RadarEntry(value: v))
+                                .toList(),
                       ),
                       RadarDataSet(
                         fillColor: const Color(0xFFD2D2D2).withOpacity(0.22),
                         borderColor: const Color(0xFFD2D2D2),
                         entryRadius: 3,
-                        dataEntries: classAvgValues
-                            .map((v) => RadarEntry(value: v))
-                            .toList(),
+                        dataEntries:
+                            classAvgValues
+                                .map((v) => RadarEntry(value: v))
+                                .toList(),
                       ),
                     ],
                   ),
@@ -681,10 +994,7 @@ class _ComparativePerformanceCard extends StatelessWidget {
             children: [
               _DotLegend(color: const Color(0xFF2E92F8), label: studentName),
               const SizedBox(width: 22),
-              const _DotLegend(
-                color: Color(0xFFD2D2D2),
-                label: 'Class Avg',
-              ),
+              const _DotLegend(color: Color(0xFFD2D2D2), label: 'Class Avg'),
             ],
           ),
         ],
@@ -723,9 +1033,7 @@ class _RightSummaryColumn extends StatelessWidget {
 class _TopRankCard extends StatelessWidget {
   final double overallPercent;
 
-  const _TopRankCard({
-    required this.overallPercent,
-  });
+  const _TopRankCard({required this.overallPercent});
 
   @override
   Widget build(BuildContext context) {
@@ -788,15 +1096,14 @@ class _TopRankCard extends StatelessWidget {
 class _CategoryRankingCard extends StatelessWidget {
   final Map<String, double> categoryScores;
 
-  const _CategoryRankingCard({
-    required this.categoryScores,
-  });
+  const _CategoryRankingCard({required this.categoryScores});
 
   @override
   Widget build(BuildContext context) {
-    final items = categoryScores.entries
-        .map((e) => _CategoryScore(e.key, e.value / 100))
-        .toList();
+    final items =
+        categoryScores.entries
+            .map((e) => _CategoryScore(e.key, e.value / 100))
+            .toList();
 
     return Container(
       width: double.infinity,
@@ -924,10 +1231,7 @@ class _TeacherNoteCard extends StatelessWidget {
   final bool isLoadingAI;
   final Map<String, dynamic>? aiResult;
 
-  const _TeacherNoteCard({
-    required this.isLoadingAI,
-    required this.aiResult,
-  });
+  const _TeacherNoteCard({required this.isLoadingAI, required this.aiResult});
 
   @override
   Widget build(BuildContext context) {
@@ -945,62 +1249,63 @@ class _TeacherNoteCard extends StatelessWidget {
         border: Border.all(color: const Color(0xFFCEE6FF), width: 2),
         borderRadius: BorderRadius.circular(12),
       ),
-      child: isLoadingAI
-          ? const Center(
-              child: Padding(
-                padding: EdgeInsets.symmetric(vertical: 24),
-                child: CircularProgressIndicator(),
-              ),
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  "Teacher's Note",
-                  style: TextStyle(
-                    color: Color(0xFF002B4E),
-                    fontSize: 16,
-                    fontFamily: 'Montserrat',
-                    fontWeight: FontWeight.w600,
-                    height: 1.5,
-                  ),
+      child:
+          isLoadingAI
+              ? const Center(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: CircularProgressIndicator(),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  teacherNote,
-                  style: const TextStyle(
-                    color: Color(0xFF868C98),
-                    fontSize: 16,
-                    fontFamily: 'Montserrat',
-                    fontWeight: FontWeight.w500,
-                    height: 1.5,
-                  ),
-                ),
-                if (suggestion.isNotEmpty) ...[
-                  const SizedBox(height: 14),
+              )
+              : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   const Text(
-                    'Suggestion',
+                    "Teacher's Note",
                     style: TextStyle(
                       color: Color(0xFF002B4E),
-                      fontSize: 14,
+                      fontSize: 16,
                       fontFamily: 'Montserrat',
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
+                      height: 1.5,
                     ),
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 8),
                   Text(
-                    suggestion,
+                    teacherNote,
                     style: const TextStyle(
                       color: Color(0xFF868C98),
-                      fontSize: 14,
+                      fontSize: 16,
                       fontFamily: 'Montserrat',
                       fontWeight: FontWeight.w500,
-                      height: 1.4,
+                      height: 1.5,
                     ),
                   ),
+                  if (suggestion.isNotEmpty) ...[
+                    const SizedBox(height: 14),
+                    const Text(
+                      'Suggestion',
+                      style: TextStyle(
+                        color: Color(0xFF002B4E),
+                        fontSize: 14,
+                        fontFamily: 'Montserrat',
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      suggestion,
+                      style: const TextStyle(
+                        color: Color(0xFF868C98),
+                        fontSize: 14,
+                        fontFamily: 'Montserrat',
+                        fontWeight: FontWeight.w500,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
-            ),
+              ),
     );
   }
 }
@@ -1010,9 +1315,7 @@ class _TeacherNoteCard extends StatelessWidget {
 class _TrendAnalysisCard extends StatelessWidget {
   final StudentAnalysisStats stats;
 
-  const _TrendAnalysisCard({
-    required this.stats,
-  });
+  const _TrendAnalysisCard({required this.stats});
 
   @override
   Widget build(BuildContext context) {
@@ -1046,10 +1349,11 @@ class _TrendAnalysisCard extends StatelessWidget {
                   show: true,
                   horizontalInterval: 25,
                   drawVerticalLine: false,
-                  getDrawingHorizontalLine: (_) => const FlLine(
-                    color: Color(0xFFE1ECF7),
-                    strokeWidth: 1,
-                  ),
+                  getDrawingHorizontalLine:
+                      (_) => const FlLine(
+                        color: Color(0xFFE1ECF7),
+                        strokeWidth: 1,
+                      ),
                 ),
                 borderData: FlBorderData(show: false),
                 titlesData: FlTitlesData(
@@ -1189,11 +1493,7 @@ BoxDecoration _cardDecoration({Border? border}) {
     borderRadius: BorderRadius.circular(10),
     border: border,
     boxShadow: const [
-      BoxShadow(
-        color: Color(0x0A000000),
-        blurRadius: 20,
-        offset: Offset(0, 4),
-      ),
+      BoxShadow(color: Color(0x0A000000), blurRadius: 20, offset: Offset(0, 4)),
     ],
   );
 }
@@ -1202,10 +1502,7 @@ class _DotLegend extends StatelessWidget {
   final Color color;
   final String label;
 
-  const _DotLegend({
-    required this.color,
-    required this.label,
-  });
+  const _DotLegend({required this.color, required this.label});
 
   @override
   Widget build(BuildContext context) {
@@ -1239,10 +1536,7 @@ class _LineLegend extends StatelessWidget {
   final Color color;
   final String label;
 
-  const _LineLegend({
-    required this.color,
-    required this.label,
-  });
+  const _LineLegend({required this.color, required this.label});
 
   @override
   Widget build(BuildContext context) {
