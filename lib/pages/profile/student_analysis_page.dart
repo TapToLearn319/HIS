@@ -13,7 +13,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../../sidebar_menu.dart';
-// import '../../services/openrouter_service.dart';
+import '../../services/openrouter_service.dart';
 import '../../widgets/loading.dart';
 
 const String kHubId = 'hub-001';
@@ -33,7 +33,7 @@ class StudentAnalysisPage extends StatefulWidget {
 }
 
 class _StudentAnalysisPageState extends State<StudentAnalysisPage> {
-  bool _isLoadingAI = false;
+  bool _isLoadingAI = true;
   Map<String, dynamic>? _aiResult;
 
   bool _isSharing = false;
@@ -219,20 +219,21 @@ class _StudentAnalysisPageState extends State<StudentAnalysisPage> {
 
     _statsFuture = StudentAnalysisStats.load(studentId: widget.studentId);
 
-    // ✅ OpenRouter 토큰 사용 방지를 위해 임시 비활성화
-    _aiResult = {
-      'summary': 'AI analysis is paused for testing.',
-      'teacherNote':
-          'AI analysis is temporarily disabled while connecting real chart data.',
-      'strength': '',
-      'suggestion': 'After chart data is verified, enable OpenRouter again.',
-    };
+    // // ✅ OpenRouter 토큰 사용 방지를 위해 임시 비활성화
+    // _aiResult = {
+    //   'summary': 'AI analysis is paused for testing.',
+    //   'teacherNote':
+    //       'AI analysis is temporarily disabled while connecting real chart data.',
+    //   'strength': '',
+    //   'suggestion': 'After chart data is verified, enable OpenRouter again.',
+    // };
 
-    // _loadAIAnalysis();
+    _loadAIAnalysis();
   }
 
-  /*
   Future<void> _loadAIAnalysis() async {
+    setState(() => _isLoadingAI = true);
+
     try {
       final result = await OpenRouterService.getStudentAnalysis(
         studentName: widget.studentName,
@@ -252,15 +253,16 @@ class _StudentAnalysisPageState extends State<StudentAnalysisPage> {
       setState(() {
         _aiResult = {
           'summary': 'AI analysis is temporarily unavailable.',
-          'teacherNote': 'The AI service is currently busy. Please try again shortly.',
+          'teacherNote':
+              'The AI service is currently busy. Please try again shortly.',
           'strength': '',
-          'suggestion': 'Try again later or switch to another OpenRouter model.',
+          'suggestion':
+              'Try again later or switch to another OpenRouter model.',
         };
         _isLoadingAI = false;
       });
     }
   }
-  */
 
   @override
   Widget build(BuildContext context) {
@@ -285,7 +287,10 @@ class _StudentAnalysisPageState extends State<StudentAnalysisPage> {
                           const SizedBox(height: 36),
                           _StudentHeader(
                             studentName: widget.studentName,
-                            aiSummary: _aiResult?['summary'] ?? '',
+                            aiSummary:
+                                _isLoadingAI
+                                    ? 'AI analysis is being generated...'
+                                    : _aiResult?['summary'] ?? '',
                             onPdfPressed: () async {
                               await _printPage();
                             },

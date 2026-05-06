@@ -5,13 +5,22 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 class OpenRouterService {
-  static const String _apiKey = '비공개';
+  static const String _apiKey =
+      '';
+
+  static Map<String, dynamic> _parseAiJson(String content) {
+    var cleaned = content.trim();
+
+    cleaned = cleaned.replaceAll('```json', '').replaceAll('```', '').trim();
+
+    return jsonDecode(cleaned) as Map<String, dynamic>;
+  }
 
   static const List<String> _models = [
-  'google/gemma-4-31b-it:free',
-  'google/gemma-4-26b-a4b-it:free',
-  'openai/gpt-oss-120b:free',
-];
+    'google/gemma-4-31b-it:free',
+    'google/gemma-4-26b-a4b-it:free',
+    'openai/gpt-oss-120b:free',
+  ];
 
   static Future<Map<String, dynamic>> getStudentAnalysis({
     required String studentName,
@@ -111,8 +120,7 @@ Return JSON only in this exact format:
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;
 
-    final content =
-        data['choices']?[0]?['message']?['content']?.toString();
+    final content = data['choices']?[0]?['message']?['content']?.toString();
 
     if (content == null || content.isEmpty) {
       throw Exception('OpenRouter returned empty content.');
@@ -121,14 +129,13 @@ Return JSON only in this exact format:
     debugPrint('[OPENROUTER] content = $content');
 
     try {
-      return jsonDecode(content) as Map<String, dynamic>;
+      return _parseAiJson(content);
     } catch (_) {
-      // AI가 JSON이 아닌 일반 문장을 반환했을 때 앱이 죽지 않게 처리
       return {
-        'summary': content,
+        'summary': 'AI analysis parsing failed.',
         'teacherNote': content,
         'strength': '',
-        'suggestion': '',
+        'suggestion': 'Check OpenRouter response format.',
       };
     }
   }
